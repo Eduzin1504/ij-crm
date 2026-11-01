@@ -7,6 +7,7 @@ import { MENSAGEM_CONTA, trocarEmail, trocarSenha } from "@/lib/auth/conta";
 import { encerrarOutrasSessoes, encerrarSessaoDoUsuario } from "@/lib/auth/sessao";
 import { atualizarUsuario } from "@/lib/auth/usuarios";
 import { comTratamentoForm } from "@/lib/erros/registrar";
+import { revogarConexao } from "@/lib/mcp/oauth";
 import { removerFoto, salvarFoto } from "@/lib/perfil/foto";
 import { FOTO_MAX_BYTES, MENSAGEM_ERRO_FOTO } from "@/lib/perfil/imagem";
 import { salvarPaginaInicial } from "@/lib/preferencias/servico";
@@ -110,6 +111,17 @@ export async function encerrarOutrasSessoesAction(): Promise<EstadoPerfil> {
     const atual = await idSessaoAtual();
     if (!atual) return { erro: "Sessão atual não encontrada. Entre de novo." };
     await encerrarOutrasSessoes(eu.id, atual);
+    revalidatePath("/perfil");
+    return { ok: true };
+  });
+}
+
+/** Revoga uma conexão MCP (GAB-83). O where inclui o usuário da sessão: id de outra pessoa não tem efeito. */
+export async function revogarConexaoMcpAction(conexaoId: string): Promise<EstadoPerfil> {
+  return comTratamentoForm("perfil.revogarConexaoMcp", async (): Promise<EstadoPerfil> => {
+    const eu = await exigirUsuario();
+    if (typeof conexaoId !== "string" || !conexaoId || conexaoId.length > 64) return { erro: "Conexão inválida." };
+    await revogarConexao(eu.id, conexaoId);
     revalidatePath("/perfil");
     return { ok: true };
   });

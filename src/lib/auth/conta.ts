@@ -82,6 +82,8 @@ export async function trocarSenha(
       });
       if (u.count === 0) throw new Concorrencia();
       const s = await tx.sessao.deleteMany({ where: { usuarioId, ...(idSessaoAtual ? { id: { not: idSessaoAtual } } : {}) } });
+      // Conexões do Claude (MCP, GAB-83) também caem: são acesso à conta como uma sessão.
+      await tx.mcpConexao.deleteMany({ where: { usuarioId } });
       return s.count;
     });
     console.info(`[auditoria] usuario.senha_alterada usuario=${usuarioId} sessoes_encerradas=${encerradas}`);
