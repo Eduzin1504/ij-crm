@@ -64,6 +64,7 @@ function executar(bytes: Uint8Array, o: OpcoesPdf): Promise<ResultadoPdf> {
       env: { PATH: process.env.PATH ?? "", NODE_ENV: process.env.NODE_ENV, TEXTO_MAX: String(o.textoMax) } as NodeJS.ProcessEnv,
     });
     let fim: ResultadoPdf | null = null;
+    let fechou = false;
     const partes: Buffer[] = [];
     let tamanho = 0;
     let erroFilho = "";
@@ -73,8 +74,10 @@ function executar(bytes: Uint8Array, o: OpcoesPdf): Promise<ResultadoPdf> {
       fim = r;
       clearTimeout(relogio);
       clearInterval(vigia);
-      if (filho.exitCode === null && filho.signalCode === null) filho.kill("SIGKILL");
-      resolve(r);
+      // Só libera a fila quando o filho de fato saiu (SIGKILL + `close`): a próxima
+      // extração nunca começa com o anterior ainda vivo segurando memória.
+      if (fechou) resolve(r);
+      else filho.kill("SIGKILL");
     };
 
     const relogio = setTimeout(() => encerrar({ tipo: "falha", motivo: `tempo esgotado (${tempoMax} ms)` }), tempoMax);
@@ -93,9 +96,15 @@ function executar(bytes: Uint8Array, o: OpcoesPdf): Promise<ResultadoPdf> {
     filho.stderr.on("data", (p: Buffer) => {
       if (erroFilho.length < 2000) erroFilho += p.toString("utf8").slice(0, 2000 - erroFilho.length);
     });
-    filho.on("error", (e) => encerrar({ tipo: "falha", motivo: `não iniciou: ${e.message}` }));
+    filho.on("error", (e) => {
+      // Falha de spawn: pode não haver `close` depois.
+      fechou = true;
+      encerrar({ tipo: "falha", motivo: `não iniciou: ${e.message}` });
+      resolve(fim!);
+    });
     filho.on("close", (codigo, sinal) => {
-      if (fim) return;
+      fechou = true;
+      if (fim) return resolve(fim);
       const texto = Buffer.concat(partes).toString("utf8").trim();
       try {
         const r = JSON.parse(texto.slice(texto.lastIndexOf("\n") + 1)) as Record<string, unknown>;

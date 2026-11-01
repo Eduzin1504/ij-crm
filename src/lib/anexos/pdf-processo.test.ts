@@ -48,15 +48,18 @@ describe("extrairPdfEmProcesso (filho com teto de tempo e memória)", () => {
   }, 30_000);
 
   it("uma extração por vez: chamadas simultâneas saem em fila (nunca 2 filhos vivos)", async () => {
-    const pdf = pdfDeTexto(["Texto da proposta"]);
+    // Cada extração dura ~400 ms (bomba de CPU morta pelo tempo): em fila, as 3 somam ≥ 1,2 s;
+    // em paralelo, ~0,4 s. A amostragem de /proc confirma que nunca há 2 filhos.
+    const pdf = pdfBomba(16, "tj");
     const filhos = () => readFileSync(`/proc/self/task/${process.pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).length;
     const base = filhos();
     let maximo = 0;
-    const amostra = setInterval(() => (maximo = Math.max(maximo, filhos() - base)), 5);
-    const ordem: number[] = [];
-    await Promise.all([1, 2, 3].map((n) => extrairPdfEmProcesso(pdf, { textoMax: 1000 }).then(() => ordem.push(n))));
+    const amostra = setInterval(() => (maximo = Math.max(maximo, filhos() - base)), 20);
+    const inicio = Date.now();
+    const rs = await Promise.all([1, 2, 3].map(() => extrairPdfEmProcesso(pdf, { textoMax: 1000, tempoMaxMs: 400 })));
     clearInterval(amostra);
-    expect(ordem).toEqual([1, 2, 3]);
+    expect(rs.every((r) => r.tipo === "falha")).toBe(true);
+    expect(Date.now() - inicio).toBeGreaterThanOrEqual(1200);
     expect(maximo).toBe(1);
   }, 30_000);
 });
