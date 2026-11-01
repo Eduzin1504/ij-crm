@@ -1,7 +1,8 @@
 # Checagens de PR que não precisam de banco nem daemon Docker:
 #   - migrations novas destrutivas sem `-- destrutiva-ok: <motivo>` (expand/contract,
 #     scripts/checar-migrations.sh; o mesmo check barra o build da main em imagens.yml);
-#   - testes dos scripts de deploy (stubs, sem Docker).
+#   - testes dos scripts de deploy standalone (stubs, sem Docker).
+# O `next build` dos PRs fica em build.yml.
 # Sem filtro de paths de propósito: dá para marcar como check obrigatório na
 # proteção da main sem deixar PR "esperando" para sempre.
 # Actions fixadas por SHA de commit (versão no comentário).
@@ -39,5 +40,3 @@ jobs:
         run: |
           bash scripts/teste-checar-migrations.sh
           bash scripts/teste-deploy.sh
-          bash scripts/teste-deploy-remoto.sh
-          bash scripts/teste-workflow-deploy.sh

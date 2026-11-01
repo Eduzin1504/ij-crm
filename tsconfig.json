@@ -13,6 +13,11 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    // Só os @types do projeto. Sem isto o tsc sobe pelos diretórios-pai e pega
+    // qualquer node_modules/@types acima do repo (ex.: um @types/jest em ~/),
+    // que declara describe/it/expect globais: o `tsc` local passava e o
+    // `next build` (Docker/CI, sem esse diretório) quebrava.
+    "typeRoots": ["./node_modules/@types"],
     "plugins": [
       {
         "name": "next"
