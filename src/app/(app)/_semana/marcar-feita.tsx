@@ -3,6 +3,7 @@
 import { useId, useState, useTransition } from "react";
 import { Check, CalendarPlus } from "lucide-react";
 import { cn } from "cn";
+import { SeletorNotaContato } from "@/components/avaliacao/nota-contato";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MensagemErro } from "@/components/erros/mensagem-erro";
@@ -43,6 +44,7 @@ export function MarcarFeita({
   };
   const [acao, setAcao] = useState("");
   const [dia, setDia] = useState("");
+  const [nota, setNota] = useState<number | null>(null);
   const [erro, setErro] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
   const base = useId();
@@ -54,7 +56,7 @@ export function MarcarFeita({
         modo === "definir"
           ? await executarAcao(() => definirProximaAction(cardId, acao, dia), "salvar a próxima ação")
           : await executarAcao(
-              () => marcarFeitaAction(cardId, esperado, tipo === "nova" ? { tipo, proximaAcao: acao, dia } : { tipo }),
+              () => marcarFeitaAction(cardId, esperado, tipo === "nova" ? { tipo, proximaAcao: acao, dia } : { tipo }, nota),
               "marcar como feita",
             );
       setErro(falha);
@@ -94,6 +96,7 @@ export function MarcarFeita({
       className={cn("w-full space-y-2 rounded-lg border border-border-strong bg-surface-strong p-3", destaque && "mt-2")}
       aria-label={modo === "feita" ? "Marcar feita e definir a próxima ação" : "Definir a próxima ação"}
     >
+      {modo === "feita" ? <SeletorNotaContato valor={nota} onChange={setNota} disabled={pendente} /> : null}
       <p className="text-xs text-fg-soft">{modo === "feita" ? "Feito. Qual é a próxima ação?" : "Qual é a próxima ação?"}</p>
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem]">
         <label htmlFor={`${base}-acao`} className="sr-only">

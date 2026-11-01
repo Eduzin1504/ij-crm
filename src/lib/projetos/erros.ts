@@ -12,6 +12,8 @@ export type ErroProjeto =
   | "TITULO_INVALIDO"
   | "RESPONSAVEL_INVALIDO"
   | "NOTA_INVALIDA"
+  /** GAB-85: nota do contato fora de 1..5. */
+  | "NOTA_CONTATO_INVALIDA"
   | "FASE_HANDOFF_INDISPONIVEL"
   /** Ator VISUALIZADOR (somente leitura). */
   | "SEM_PERMISSAO"
@@ -36,6 +38,7 @@ export const MENSAGEM_ERRO_PROJETO: Record<ErroProjeto, string> = {
   TITULO_INVALIDO: "Informe um título (até 200 caracteres).",
   RESPONSAVEL_INVALIDO: "Responsável inválido ou inativo.",
   NOTA_INVALIDA: "A nota precisa ter entre 1 e 5000 caracteres.",
+  NOTA_CONTATO_INVALIDA: "A avaliação do contato vai de 1 a 5.",
   FASE_HANDOFF_INDISPONIVEL: "O quadro Projetos está sem o marco Handoff ativo, para onde vai o card ganho. Peça à gestão/admin para conferir as fases.",
   DADOS_TERMINAL_OBRIGATORIOS: "Faltam os dados do fechamento (valor ou motivo). Mova o card de novo para abrir o diálogo.",
   VALOR_FECHADO_INVALIDO: "Valor fechado inválido. Ex.: 12.500,00",

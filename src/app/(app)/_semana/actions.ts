@@ -13,6 +13,7 @@ const MENSAGEM: Record<ErroFeita, string> = {
   CARD_NAO_ENCONTRADO: "Card não encontrado (pode ter sido excluído). Recarregue a página.",
   SEM_PROXIMA_ACAO: "Esse card não tem próxima ação para marcar como feita.",
   ACAO_MUDOU: "A próxima ação desse card mudou enquanto você olhava. Recarregue a página e confira.",
+  NOTA_CONTATO_INVALIDA: "A avaliação do contato vai de 1 a 5.",
 };
 
 const id = z.string().min(1).max(64);
@@ -36,7 +37,7 @@ function revalidar(cardId: string) {
  * Marca a próxima ação como feita (NOTA na Timeline) e, na mesma transação,
  * grava a próxima — ou registra que ficou sem, se o usuário escolheu isso.
  */
-export async function marcarFeitaAction(cardId: string, esperado: Esperado, escolha: Escolha): Promise<EstadoSemana> {
+export async function marcarFeitaAction(cardId: string, esperado: Esperado, escolha: Escolha, nota: number | null = null): Promise<EstadoSemana> {
   return comTratamento("semana.marcarFeita", async (): Promise<EstadoSemana> => {
     const ator = await exigirEscrita();
     const e = esperadoSchema.safeParse(esperado);
@@ -49,7 +50,7 @@ export async function marcarFeitaAction(cardId: string, esperado: Esperado, esco
       if (!v.ok) return { erro: v.erro };
       decisao = { tipo: "nova", proximaAcao: v.proximaAcao, proximaAcaoEm: v.proximaAcaoEm };
     }
-    const r = await marcarAcaoFeita(cardId, e.data, decisao, ator);
+    const r = await marcarAcaoFeita(cardId, e.data, decisao, ator, { nota });
     if (!r.ok) return { erro: MENSAGEM[r.erro] };
     revalidar(cardId);
     return { ok: true };

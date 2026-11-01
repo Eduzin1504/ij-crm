@@ -13,6 +13,8 @@ import { idDoCardQueAbsorveu, listarResponsaveis, nomesDeUsuarios, obterCard } f
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
 import { MoverFase } from "./mover-fase";
+import { ResumoAvaliacaoContato } from "@/components/avaliacao/nota-contato";
+import { resumoAvaliacao } from "@/lib/projetos/avaliacao";
 import { NotaForm } from "./nota-form";
 import { ResultadoTerminal } from "./resultado-terminal";
 import { Timeline, type CardRelacionado } from "./timeline";
@@ -67,6 +69,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
     ),
   );
   const mesmoCard = new Set([card.id, ...card.absorvidos.map((a) => a.id)]);
+  // GAB-85: "os leads gostaram do contato?" — notas do vendedor e sentimento lido pela LLM.
+  const avaliacao = resumoAvaliacao(card.timeline);
 
   const dias = diasNaFase(card.faseDesde, agora);
   const nivel = nivelAging(dias, card.fase.limiteDiasAlerta);
@@ -217,7 +221,10 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
         </div>
 
         <section className="rounded-xl border border-border bg-surface p-4">
-          <h2 className="mb-4 text-sm font-medium">Timeline</h2>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-medium">Timeline</h2>
+            {avaliacao ? <ResumoAvaliacaoContato resumo={avaliacao} /> : null}
+          </div>
           <Timeline entradas={card.timeline} fases={nomesFases} nomes={nomes} relacionados={relacionados} mesmoCard={mesmoCard} />
         </section>
       </div>

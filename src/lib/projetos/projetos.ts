@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
 import { listarPipelines, travarPipelines } from "@/lib/fases/fases";
 import { diaEmFuso } from "./aging";
+import { notaContatoValida } from "./avaliacao";
 import { validarTitulo, type CampoEditavel, type ValorCampo } from "./campos";
 import { mudancaDescricao, PREVIA_DESCRICAO } from "./descricao";
 import { ErroDeRegra, type ErroProjeto } from "./erros";
@@ -482,12 +483,18 @@ export async function aplicarPatch(tx: Tx, id: string, patch: PatchCard, por: At
 
 export const NOTA_MAX = 5000;
 
-export async function adicionarNota(id: string, texto: string, por: Ator): Promise<Resultado> {
+/**
+ * Registra uma interação (NOTA). `opts.nota` (GAB-85): avaliação do contato de 1 a 5,
+ * opcional, gravada em `timeline.nota` (fora do payload) para o painel agregar.
+ */
+export async function adicionarNota(id: string, texto: string, por: Ator, opts: { nota?: number | null } = {}): Promise<Resultado> {
   if (soLeitura(por)) return { ok: false, erro: "SEM_PERMISSAO" };
   const t = texto.trim();
   if (t.length === 0 || t.length > NOTA_MAX) return { ok: false, erro: "NOTA_INVALIDA" };
+  const nota = opts.nota ?? null;
+  if (nota !== null && !notaContatoValida(nota)) return { ok: false, erro: "NOTA_CONTATO_INVALIDA" };
   const op = await db.projeto.findFirst({ where: { id, deletadoEm: null }, select: { id: true } });
   if (!op) return { ok: false, erro: "CARD_NAO_ENCONTRADO" };
-  await db.timeline.create({ data: { projetoId: id, tipo: "NOTA", payload: { texto: t }, usuarioId: por.id } });
+  await db.timeline.create({ data: { projetoId: id, tipo: "NOTA", payload: { texto: t }, usuarioId: por.id, nota } });
   return { ok: true };
 }

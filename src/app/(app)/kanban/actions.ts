@@ -76,11 +76,12 @@ export async function editarCampoAction(cardId: string, campo: string, bruto: st
   });
 }
 
-export async function adicionarNotaAction(cardId: string, texto: string): Promise<EstadoKanban> {
+/** `nota` (GAB-85): avaliação do contato de 1 a 5, opcional (null/ausente = sem nota). */
+export async function adicionarNotaAction(cardId: string, texto: string, nota: number | null = null): Promise<EstadoKanban> {
   return comTratamento("kanban.adicionarNota", async (): Promise<EstadoKanban> => {
     const ator = await exigirEscrita();
     if (!id.safeParse(cardId).success || typeof texto !== "string") return { erro: "Dados inválidos." };
-    const r = await adicionarNota(cardId, texto, ator);
+    const r = await adicionarNota(cardId, texto, ator, { nota });
     if (!r.ok) return { erro: MENSAGEM[r.erro] };
     revalidar(cardId);
     return { ok: true };

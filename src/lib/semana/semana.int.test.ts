@@ -172,6 +172,17 @@ describe("marcarAcaoFeita", () => {
     ]);
   });
 
+  it("nota do contato (1 a 5, GAB-85) opcional vai na NOTA de feito; inválida recusa sem gravar", async () => {
+    const s = await semear();
+    const c = await card(s, "x", { proximaAcao: "Reunião diagnóstica", dia: "2026-10-24" });
+    const esperado = { proximaAcao: "Reunião diagnóstica", dia: "2026-10-24" };
+    expect(await marcarAcaoFeita(c.id, esperado, { tipo: "nenhuma" }, s.ana, { nota: 9 })).toEqual({ ok: false, erro: "NOTA_CONTATO_INVALIDA" });
+    expect(await db.timeline.count()).toBe(0);
+    expect(await marcarAcaoFeita(c.id, esperado, { tipo: "nenhuma" }, s.ana, { nota: 4 })).toEqual({ ok: true });
+    const nota = await db.timeline.findFirstOrThrow({ where: { projetoId: c.id, tipo: "NOTA" } });
+    expect(nota.nota).toBe(4);
+  });
+
   it("ação sem descrição (só data) também pode ser marcada feita", async () => {
     const s = await semear();
     const c = await card(s, "x", { proximaAcao: null, dia: "2026-10-24" });

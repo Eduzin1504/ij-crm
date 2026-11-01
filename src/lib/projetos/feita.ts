@@ -7,6 +7,7 @@
  */
 import { db } from "@/lib/db";
 import { diaEmFuso } from "./aging";
+import { notaContatoValida } from "./avaliacao";
 import { formatarDia } from "./formatar";
 import { aplicarPatch, ErroDeRegra } from "./projetos";
 
@@ -15,7 +16,7 @@ export type DecisaoProxima = { tipo: "nova"; proximaAcao: string; proximaAcaoEm:
 /** O que a tela mostrava: `dia` em `YYYY-MM-DD` (SP). */
 export type AcaoEsperada = { proximaAcao: string | null; dia: string | null };
 
-export type ErroFeita = "CARD_NAO_ENCONTRADO" | "SEM_PROXIMA_ACAO" | "ACAO_MUDOU";
+export type ErroFeita = "CARD_NAO_ENCONTRADO" | "SEM_PROXIMA_ACAO" | "ACAO_MUDOU" | "NOTA_CONTATO_INVALIDA";
 
 class Recusa extends Error {
   constructor(readonly erro: ErroFeita) {
@@ -30,7 +31,11 @@ export async function marcarAcaoFeita(
   esperado: AcaoEsperada,
   decisao: DecisaoProxima,
   por: { id: string },
+  /** GAB-85: avaliação do contato de 1 a 5 (opcional), na NOTA de feito. */
+  opts: { nota?: number | null } = {},
 ): Promise<{ ok: true } | { ok: false; erro: ErroFeita }> {
+  const nota = opts.nota ?? null;
+  if (nota !== null && !notaContatoValida(nota)) return { ok: false, erro: "NOTA_CONTATO_INVALIDA" };
   try {
     await db.$transaction(async (tx) => {
       const travado = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${id} AND deletado_em IS NULL FOR UPDATE`;
@@ -52,6 +57,7 @@ export async function marcarAcaoFeita(
           tipo: "NOTA",
           payload: { texto, feito: { acao: atual.proximaAcao, dia: diaAtual }, proxima },
           usuarioId: por.id,
+          nota,
           em: new Date(base),
         },
       });

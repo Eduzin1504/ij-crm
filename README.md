@@ -310,7 +310,7 @@ Mensagem do grupo **sem** `#crm` de vendedor cadastrado (design §4.3 passo 4, �
      que o GAB-38 fixa no card dela — segue as regras de alvo de [ATUALIZAR](#crm--atualizar-card-existente-llm-atualizar);
    - se agir (criar ou atualizar), a confirmação troca o ✅/⚠️ por
      `↪️ entendi como atualização: Gustavo — Economia Sensata → Primeiro Contato. Resp: João.`
-   - a extração usa o prompt em vigor (`extracao.v2`), com o mesmo escape de delimitadores e a linha de "sem #crm".
+   - a extração usa o prompt em vigor (`extracao.v3`), com o mesmo escape de delimitadores e a linha de "sem #crm".
 
 **Falha na classificação** (sem crédito, provedor fora, saída inválida, `TRUNCADA` 2×, erro de banco
 ou inesperado, fila cheia): o texto **não** é gravado (guardar "por via das dúvidas" seria guardar
@@ -399,6 +399,23 @@ Janelas **fixas de 12 h** em America/Sao_Paulo: 00:00–12:00 e 12:00–24:00 (`
   `aplicarRetencaoResumos()` só a retenção. Nunca lançam.
 - Log por chamada, sem texto: `[llm] resumo ref=<id do resumo> provedor=… modelo=… versao=resumo.v1 ms=…
   tokens_in=… tokens_out=… ok chars=…` + linha em `log_llm` (`operacao=resumo`).
+
+## Avaliação do contato e sentimento do lead (GAB-85)
+
+"Os leads gostaram do contato?" (spec fase 2 §4.14, Q23). Dois sinais, ambos em **colunas** da Timeline
+(fora do `payload`), prontos para o painel (GAB-94):
+
+- **Nota do vendedor** (`timeline.nota`, 1–5, CHECK no banco): opcional, um clique nas estrelas ao
+  registrar uma nota no detalhe do Projeto ou ao "Marcar feita" na Minha Semana. Clicar de novo limpa.
+- **Sentimento do lead** (`timeline.sentimento` e `mensagem_bruta.sentimento`: `POSITIVO`/`NEUTRO`/
+  `NEGATIVO`): a LLM lê na **mesma chamada** da extração (prompt `extracao.v3` = v2.1 + uma regra; schema
+  + `sentimento`). No parse é tolerante: ausente ou fora do enum vira `null`, nunca `SAIDA_INVALIDA`.
+  "Resolver manualmente" copia o da mensagem para a Timeline.
+- **Retenção**: a purga de 90 dias apaga `resultado_llm` e `payload.saida`; as colunas ficam.
+- Detalhe do Projeto: cada entrada mostra a nota (★ 4/5) ou o sentimento ("Lead: positivo"); o topo da
+  Timeline resume a média e as contagens. Agregado por vendedor/período:
+  `avaliacoesPorVendedor({ de, ate })` (`src/lib/projetos/avaliacao-consulta.ts`; vendedor = remetente da
+  mensagem `#crm`, senão o autor da entrada).
 
 ## Alerta de sem crédito na LLM
 
