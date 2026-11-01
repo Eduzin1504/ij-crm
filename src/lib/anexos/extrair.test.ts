@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { docxDeParagrafos, JPEG, pdfDeTexto, PNG, zipQualquer } from "@/test/fixtures/anexos";
+import { docxBomba, docxDeParagrafos, JPEG, pdfBomba, pdfDeTexto, PNG, zipQualquer } from "@/test/fixtures/anexos";
 import { extrairTexto, TEXTO_MAX } from "./extrair";
 
 const enc = new TextEncoder();
@@ -43,6 +43,19 @@ describe("extrairTexto", () => {
     const bomba = zipSync({ "[Content_Types].xml": strToU8("<Types/>"), "word/document.xml": new Uint8Array(60 * 1024 * 1024) });
     expect(await extrairTexto("DOCX", bomba)).toEqual({ ok: false, erro: "CORROMPIDO" });
   });
+
+  it("zip bomb com tamanho declarado mentindo (1000 B → 2 GB reais): para no teto, rápido", async () => {
+    const bomba = docxBomba(2048);
+    const inicio = performance.now();
+    expect(await extrairTexto("DOCX", bomba)).toEqual({ ok: false, erro: "CORROMPIDO" });
+    // fflate.unzipSync levava ~5,6 s de CPU descompactando tudo; o zlib nativo para em 30 MB.
+    expect(performance.now() - inicio).toBeLessThan(1000);
+  }, 60_000);
+
+  it("PDF que estoura memória no filho → aceito sem texto, com a causa em `falha`", async () => {
+    const r = await extrairTexto("PDF", pdfBomba(512));
+    expect(r).toMatchObject({ ok: true, texto: null, falha: expect.stringMatching(/memória acima do teto/) });
+  }, 30_000);
 
   it(".txt/.md: texto decodificado; só espaços → null", async () => {
     expect(await extrairTexto("MARKDOWN", enc.encode("# Título\r\n\r\nCorpo"))).toEqual({ ok: true, texto: "# Título\n\nCorpo" });

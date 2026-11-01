@@ -3,32 +3,35 @@
  * dependência nativa:
  *
  * - PDF: `unpdf` (pdf.js empacotado para servidor, JS puro, sem worker nem
- *   canvas). Sem camada de texto (escaneado) → `texto: null`, que vira "sem
- *   texto" e espera o OCR (GAB-90). PDF com senha também fica sem texto.
- * - .docx: `fflate` abre o zip; o texto sai do `word/document.xml` (`<w:t>`,
- *   com parágrafo/quebra/tab). O tamanho DECLARADO no diretório central é
- *   conferido antes de descompactar e o buffer de saída tem esse tamanho:
- *   zip bomb não passa de `DOCX_XML_MAX` em memória.
+ *   canvas), num PROCESSO FILHO com teto de tempo e de memória
+ *   (./pdf-processo.ts). Sem camada de texto (escaneado) → `texto: null`, que
+ *   vira "sem texto" e espera o OCR (GAB-90). PDF com senha também. Filho
+ *   morto por tempo/memória → sem texto, com `falha` para o log.
+ * - .docx: o `word/document.xml` é achado pelo diretório central do zip e
+ *   descompactado pelo zlib nativo com `maxOutputLength`: zip bomb para no
+ *   teto (`DOCX_XML_MAX`), sem gastar CPU descompactando o resto, e o tamanho
+ *   declarado no zip não importa. O texto sai dos `<w:t>` (com
+ *   parágrafo/quebra/tab).
  * - .md/.txt: o próprio conteúdo decodificado (./tipos.ts).
  * - Imagens: sempre sem texto.
  *
  * NUL some do resultado (Postgres não guarda `\0` em TEXT) e o texto é cortado
  * em `TEXTO_MAX`.
  */
+import { inflateRawSync } from "node:zlib";
 import type { TipoAnexo } from "@prisma/client";
-import { unzipSync } from "fflate";
+import { extrairPdfEmProcesso } from "./pdf-processo";
 import { decodificarTexto } from "./tipos";
 
 /** ~1 milhão de caracteres: uma proposta longa tem dezenas de milhares. */
 export const TEXTO_MAX = 1_000_000;
 /** Teto do XML descompactado de um .docx. */
-const DOCX_XML_MAX = 30 * 1024 * 1024;
+export const DOCX_XML_MAX = 30 * 1024 * 1024;
 /** Abaixo disto (caracteres visíveis por página, em média) o PDF conta como escaneado. */
 const PDF_MIN_POR_PAGINA = 10;
 
-export type Extracao = { ok: true; texto: string | null } | { ok: false; erro: "CORROMPIDO" | "TIPO_INVALIDO" };
-
-class NaoEDocx extends Error {}
+/** `falha`: a extração não terminou (filho do PDF morto); o anexo segue sem texto e a causa vai para o log. */
+export type Extracao = { ok: true; texto: string | null; falha?: string } | { ok: false; erro: "CORROMPIDO" | "TIPO_INVALIDO" };
 
 function finalizar(texto: string | null): Extracao {
   if (texto === null) return { ok: true, texto: null };
@@ -39,25 +42,20 @@ function finalizar(texto: string | null): Extracao {
 const visiveis = (s: string) => s.replace(/\s/g, "").length;
 
 async function textoDoPdf(bytes: Uint8Array): Promise<Extracao> {
-  const { extractText, getDocumentProxy } = await import("unpdf");
-  let doc: Awaited<ReturnType<typeof getDocumentProxy>>;
-  try {
-    // Cópia: o pdf.js pode transferir (detach) o buffer recebido.
-    doc = await getDocumentProxy(new Uint8Array(bytes));
-  } catch (e) {
-    if (e instanceof Error && e.name === "PasswordException") return { ok: true, texto: null };
-    return { ok: false, erro: "CORROMPIDO" };
-  }
-  try {
-    const { totalPages, text } = await extractText(doc, { mergePages: false });
-    const paginas = text.map((t) => t.trim());
-    const total = paginas.reduce((n, t) => n + visiveis(t), 0);
-    if (totalPages === 0 || total / totalPages < PDF_MIN_POR_PAGINA) return { ok: true, texto: null };
-    return finalizar(paginas.filter(Boolean).join("\n\n"));
-  } catch {
-    return { ok: false, erro: "CORROMPIDO" };
-  } finally {
-    await doc.loadingTask.destroy().catch(() => {});
+  const r = await extrairPdfEmProcesso(bytes, { textoMax: TEXTO_MAX });
+  switch (r.tipo) {
+    case "corrompido":
+      return { ok: false, erro: "CORROMPIDO" };
+    case "senha":
+      return { ok: true, texto: null };
+    case "falha":
+      return { ok: true, texto: null, falha: r.motivo };
+    case "texto": {
+      const paginas = r.paginas.map((t) => t.trim());
+      const total = paginas.reduce((n, t) => n + visiveis(t), 0);
+      if (r.total === 0 || total / r.total < PDF_MIN_POR_PAGINA) return { ok: true, texto: null };
+      return finalizar(paginas.filter(Boolean).join("\n\n"));
+    }
   }
 }
 
@@ -83,23 +81,69 @@ function textoDoXmlWord(xml: string): string {
   return partes.join("").replace(/[ \t]+\n/g, "\n");
 }
 
-function textoDoDocx(bytes: Uint8Array): Extracao {
+class ZipInvalido extends Error {}
+
+const u16 = (b: Buffer, i: number) => b.readUInt16LE(i);
+const u32 = (b: Buffer, i: number) => b.readUInt32LE(i);
+
+/**
+ * Lê o diretório central do zip: nomes das entradas e onde está o
+ * `word/document.xml` (sem descompactar nada). Zip64 e zip corrompido → erro.
+ */
+function lerZip(b: Buffer): { nomes: Set<string>; documento: { metodo: number; local: number; comprimido: number } | null } {
+  // EOCD nos últimos 22 + 65535 bytes (comentário do zip).
+  let eocd = -1;
+  for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 0xffff); i--) {
+    if (u32(b, i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new ZipInvalido("sem EOCD");
+  const entradas = u16(b, eocd + 10);
+  let p = u32(b, eocd + 16);
   const nomes = new Set<string>();
-  let arquivos: Record<string, Uint8Array>;
+  let documento = null;
+  for (let n = 0; n < entradas; n++) {
+    if (p + 46 > b.length || u32(b, p) !== 0x02014b50) throw new ZipInvalido("diretório central");
+    const metodo = u16(b, p + 10);
+    const comprimido = u32(b, p + 20);
+    const tamNome = u16(b, p + 28);
+    const local = u32(b, p + 42);
+    const nome = b.toString("utf8", p + 46, p + 46 + tamNome);
+    nomes.add(nome);
+    if (nome === "word/document.xml") {
+      if (comprimido === 0xffffffff || local === 0xffffffff) throw new ZipInvalido("zip64");
+      documento = { metodo, local, comprimido };
+    }
+    p += 46 + tamNome + u16(b, p + 30) + u16(b, p + 32);
+  }
+  return { nomes, documento };
+}
+
+function textoDoDocx(bytes: Uint8Array): Extracao {
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let xml: Buffer;
   try {
-    arquivos = unzipSync(bytes, {
-      filter: (f) => {
-        nomes.add(f.name);
-        if (f.name !== "word/document.xml") return false;
-        if (f.originalSize > DOCX_XML_MAX) throw new NaoEDocx("document.xml grande demais");
-        return true;
-      },
-    });
+    const { nomes, documento } = lerZip(b);
+    if (!nomes.has("[Content_Types].xml") || !documento) return { ok: false, erro: "TIPO_INVALIDO" };
+    const { metodo, local, comprimido } = documento;
+    if (local + 30 > b.length || u32(b, local) !== 0x04034b50) throw new ZipInvalido("cabeçalho local");
+    const inicio = local + 30 + u16(b, local + 26) + u16(b, local + 28);
+    if (inicio + comprimido > b.length) throw new ZipInvalido("dados truncados");
+    const dados = b.subarray(inicio, inicio + comprimido);
+    if (metodo === 0) {
+      if (dados.length > DOCX_XML_MAX) throw new ZipInvalido("document.xml grande demais");
+      xml = dados;
+    } else if (metodo === 8) {
+      // Estoura (RangeError) assim que passar do teto: não descompacta o resto.
+      xml = inflateRawSync(dados, { maxOutputLength: DOCX_XML_MAX });
+    } else {
+      throw new ZipInvalido(`método ${metodo}`);
+    }
   } catch {
     return { ok: false, erro: "CORROMPIDO" };
   }
-  const xml = arquivos["word/document.xml"];
-  if (!nomes.has("[Content_Types].xml") || !xml) return { ok: false, erro: "TIPO_INVALIDO" };
   let texto: string;
   try {
     texto = new TextDecoder("utf-8", { fatal: true }).decode(xml);

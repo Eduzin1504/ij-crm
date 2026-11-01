@@ -552,12 +552,16 @@ e imagens (PNG, JPEG, WebP) até 10 MB. Quem escreve anexa e exclui; VISUALIZADO
 Upload pela rota `POST /api/projetos/[id]/anexos` (corpo cru, nome em `X-Nome-Arquivo`, mesmo
 molde do import do Pipefy); o **tipo vem dos bytes** (magic number, `src/lib/anexos/tipos.ts`) e
 a extensão só precisa conferir com eles. No upload o texto é extraído sem LLM
-(`src/lib/anexos/extrair.ts`): PDF digital pelo `unpdf` (pdf.js em JS puro), .docx pelo
-`word/document.xml` (`fflate`, com teto contra zip bomb), .md/.txt direto. PDF escaneado e
+(`src/lib/anexos/extrair.ts`): PDF digital pelo `unpdf` (pdf.js em JS puro) num **processo
+filho** (`pdf-processo.ts` → `pdf-filho.mjs`, uma extração por vez, morto acima de 20 s ou
+200 MB de RSS: o anexo entra "sem texto" e o log tem `[anexos.extrairTexto] ref=…`), .docx
+pelo `word/document.xml` (zlib nativo com `maxOutputLength`, contra zip bomb), .md/.txt direto. PDF escaneado e
 imagens ficam marcados **sem texto** até o OCR (GAB-90). O texto fica em `anexo.texto` (para a
 proposta e o MCP) e abre em `/api/anexos/[id]/texto`. Download em `/api/anexos/[id]`: só com
-sessão, `attachment` com o nome sanitizado, `nosniff` e CSP `sandbox`. Arquivo repetido no mesmo
-Projeto (mesmo sha256) é recusado. Cada upload/exclusão vira Timeline `ANEXO`.
+sessão, `attachment` com o nome sanitizado, `nosniff` e CSP `sandbox` (posta pelo
+`next.config`, que sobrescreve a da rota: `src/lib/rotas/seguranca.ts`). Pelo MCP:
+`listar_anexos` e `ler_anexo` (texto em trechos). Arquivo repetido no mesmo
+Projeto (mesmo sha256, índice único parcial) é recusado. Cada upload/exclusão vira Timeline `ANEXO`.
 
 Os bytes ficam em disco, em `ANEXOS_DIR` (um arquivo por anexo, nome = id; dev nativo:
 `.anexos/`), no compose o volume `app_anexos` em `/data/anexos`. **Fora do backup do banco**:

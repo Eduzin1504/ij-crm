@@ -11,10 +11,13 @@ const nextConfig: NextConfig = {
   // Sem otimizador (/_next/image): a imagem de produção poda o sharp. Os
   // assets da marca já saem pré-dimensionados em WebP (public/images/marca).
   images: { unoptimized: true },
-  // GAB-84: o pdf.js do `unpdf` (1,6 MB, carregado sob demanda por import
-  // dinâmico) roda direto do node_modules em vez de entrar no bundle do
-  // servidor; o tracing do standalone copia o pacote.
-  serverExternalPackages: ["unpdf"],
+  // GAB-84: a extração de texto de PDF roda num processo filho
+  // (src/lib/anexos/pdf-filho.mjs, via `node`), que nenhum import do servidor
+  // alcança: o tracing do standalone precisa copiar o script e o `unpdf` que ele
+  // importa. O CI (build.yml) roda o filho de dentro do standalone para conferir.
+  outputFileTracingIncludes: {
+    "/api/projetos/**": ["./src/lib/anexos/pdf-filho.mjs", "./node_modules/unpdf/**/*"],
+  },
   // Detalhe do card mudou para /projetos/[id] (GAB-80); links antigos redirecionam.
   async redirects() {
     return REDIRECTS_ROTAS_ANTIGAS;
