@@ -66,3 +66,31 @@ describe("avaliacoesPorVendedor (GAB-85, base do painel GAB-94)", () => {
     expect(r).toEqual([{ vendedorId: ana.id, notas: 0, notaMedia: null, positivos: 1, neutros: 0, negativos: 0 }]);
   });
 });
+
+describe("avaliacoesPorVendedor: lixeira e fuso (review do PR #52)", () => {
+  it("card na lixeira fica de fora", async () => {
+    const { ana, card } = await semear();
+    await db.timeline.create({ data: { projetoId: card.id, tipo: "NOTA", usuarioId: ana.id, nota: 2, em: em("2026-10-10T12:00:00Z") } });
+    const periodo = { de: em("2026-10-01T00:00:00Z"), ate: em("2026-11-01T00:00:00Z") };
+    expect(await avaliacoesPorVendedor(periodo)).toHaveLength(1);
+    await db.projeto.update({ where: { id: card.id }, data: { deletadoEm: new Date() } });
+    expect(await avaliacoesPorVendedor(periodo)).toEqual([]);
+  });
+
+  it("com a sessão em America/Sao_Paulo (SET LOCAL TIME ZONE) os limites continuam em UTC", async () => {
+    const { ana, card } = await semear();
+    // 23:30 de 31/10 em SP = 02:30Z de 01/11: fora de [01/10Z, 01/11Z).
+    await db.timeline.createMany({
+      data: [
+        { projetoId: card.id, tipo: "NOTA", usuarioId: ana.id, nota: 5, em: em("2026-10-31T23:30:00Z") },
+        { projetoId: card.id, tipo: "NOTA", usuarioId: ana.id, nota: 1, em: em("2026-11-01T02:30:00Z") },
+      ],
+    });
+    const periodo = { de: em("2026-10-01T00:00:00Z"), ate: em("2026-11-01T00:00:00Z") };
+    const r = await db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'America/Sao_Paulo'");
+      return avaliacoesPorVendedor(periodo, tx);
+    });
+    expect(r).toEqual([{ vendedorId: ana.id, notas: 1, notaMedia: 5, positivos: 0, neutros: 0, negativos: 0 }]);
+  });
+});
