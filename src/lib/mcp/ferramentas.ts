@@ -15,6 +15,8 @@
  * Próximas fatias (proposta, handoff…) acrescentam ferramentas a `FERRAMENTAS`.
  */
 import { z } from "zod";
+import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
+import { ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { comViaMcp } from "@/lib/canal";
@@ -381,6 +383,61 @@ const concluirPrazo = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- anexos (GAB-84)
+
+/** Pedaço padrão do texto de um anexo: cabe no contexto; o resto vem com `inicio`. */
+const TRECHO_PADRAO = 50_000;
+const SEM_ANEXO = "Anexo não encontrado (pode ter sido excluído, ou o projeto está na lixeira).";
+
+const listarAnexosMcp = ferramenta({
+  nome: "listar_anexos",
+  titulo: "Listar anexos do projeto",
+  descricao:
+    "Lista os arquivos anexados a um projeto (PDF, Word, Markdown, texto, imagens): nome, tipo, tamanho, autor, data e se há texto extraído (semTexto = escaneado/imagem, aguardando OCR). O texto se lê com ler_anexo.",
+  escrita: false,
+  entrada: { projeto_id: id },
+  executar: async (a) => {
+    if (!(await obterCard(a.projeto_id))) return erro(MENSAGEM_ERRO_PROJETO.CARD_NAO_ENCONTRADO);
+    const anexos = await listarAnexos(a.projeto_id);
+    return ok({
+      anexos: anexos.map((x) => ({
+        id: x.id,
+        nome: x.nome,
+        tipo: ROTULO_TIPO_ANEXO[x.tipo],
+        tamanhoBytes: x.tamanho,
+        semTexto: x.semTexto,
+        caracteres: x.caracteres,
+        autor: { id: x.autor.id, nome: x.autor.nome },
+        criadoEm: x.criadoEm.toISOString(),
+      })),
+      url: urlProjeto(a.projeto_id),
+    });
+  },
+});
+
+const lerAnexo = ferramenta({
+  nome: "ler_anexo",
+  titulo: "Ler texto de um anexo",
+  descricao: `Lê o texto extraído de um anexo (id de listar_anexos), em trechos de até ${TRECHO_PADRAO} caracteres: use "inicio" para continuar. Escaneado/imagem não tem texto ainda (OCR pendente).`,
+  escrita: false,
+  entrada: {
+    anexo_id: id,
+    inicio: z.number().int().min(0).optional().describe("caractere inicial (padrão 0)"),
+    limite: z.number().int().min(1).max(200_000).optional().describe(`quantos caracteres (padrão ${TRECHO_PADRAO})`),
+  },
+  executar: async (a) => {
+    const x = await lerTextoDoAnexo(a.anexo_id);
+    if (!x) return erro(SEM_ANEXO);
+    if (x.texto === null) {
+      return ok({ id: x.id, nome: x.nome, semTexto: true, texto: null, aviso: "Anexo sem texto (escaneado ou imagem): o OCR ainda não existe." });
+    }
+    const inicio = a.inicio ?? 0;
+    const trecho = x.texto.slice(inicio, inicio + (a.limite ?? TRECHO_PADRAO));
+    const fim = inicio + trecho.length;
+    return ok({ id: x.id, nome: x.nome, projetoId: x.projetoId, semTexto: false, caracteres: x.texto.length, inicio, fim, continua: fim < x.texto.length, texto: trecho });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -395,6 +452,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   vincularEmpresaContato,
   criarPrazoMcp,
   concluirPrazo,
+  listarAnexosMcp,
+  lerAnexo,
 ];
 
 function resultado(r: Resposta): CallToolResult {

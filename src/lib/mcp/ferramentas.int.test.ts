@@ -4,6 +4,12 @@ import { dbTeste, limparBanco } from "@/test/db";
 import { db as dbApp } from "@/lib/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { criarCard } from "@/lib/projetos/projetos";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { anexarArquivo } from "@/lib/anexos/anexos";
+import { excluirCard } from "@/lib/lixeira/cards";
+import { pdfDeTexto, PNG } from "@/test/fixtures/anexos";
 import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
@@ -43,11 +49,18 @@ const fase = (p: { fases: { chave: string; id: string }[] }, chave: string) => p
 const texto = (r: { content: unknown[] }) => (r.content[0] as { text: string }).text;
 const dados = (r: { content: unknown[] }) => JSON.parse(texto(r));
 
+let dirAnexos: string;
 beforeEach(async () => {
-  await limparBanco(["prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
+  dirAnexos = await mkdtemp(path.join(tmpdir(), "mcp-anexos-"));
+  process.env.ANEXOS_DIR = dirAnexos;
+  await limparBanco(["anexo", "prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
   invalidarCachePipelines();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  delete process.env.ANEXOS_DIR;
+  await rm(dirAnexos, { recursive: true, force: true });
+});
 
 describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa", () => {
   it("VISUALIZADOR: toda ferramenta de escrita é recusada e nada é gravado", async () => {
@@ -83,11 +96,24 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     expect(c.faseId).toBe(fase(vendas, "primeiro_contato").id);
   });
 
-  it("VISUALIZADOR lê (como na tela): listar_fases, listar_responsaveis, buscar_projetos, ler_projeto", async () => {
+  it("VISUALIZADOR lê (como na tela): toda ferramenta de leitura, inclusive anexos", async () => {
     const { vendas, visualizador, vendedora } = await semear();
     const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
     if (!card.ok) throw new Error("seed");
-    for (const [nome, args] of [["listar_fases", {}], ["listar_responsaveis", {}], ["buscar_projetos", {}], ["ler_projeto", { id: card.id }]] as const) {
+    const anexo = await anexarArquivo(card.id, { nome: "notas.md", bytes: new TextEncoder().encode("# Reunião") }, vendedora);
+    if (!anexo.ok) throw new Error("seed anexo");
+    const leituras = [
+      ["listar_fases", {}],
+      ["listar_responsaveis", {}],
+      ["buscar_projetos", {}],
+      ["ler_projeto", { id: card.id }],
+      ["buscar_empresas_contatos", { texto: "pad" }],
+      ["listar_anexos", { projeto_id: card.id }],
+      ["ler_anexo", { anexo_id: anexo.anexo.id }],
+    ] as const;
+    // Um caso por ferramenta de leitura: ferramenta nova sem caso aqui quebra o teste.
+    expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());
+    for (const [nome, args] of leituras) {
       const r = await executarFerramenta(nome, args, visualizador);
       expect(r.isError, nome).toBeFalsy();
     }
@@ -265,5 +291,32 @@ describe("leitura", () => {
     // timeline: 0 → nenhuma entrada (não a lista inteira).
     expect(dados(await executarFerramenta("ler_projeto", { id: criado.id, timeline: 0 }, vendedora)).timeline).toEqual([]);
     expect(dados(await executarFerramenta("ler_projeto", { id: criado.id, timeline: 1 }, vendedora)).timeline).toHaveLength(1);
+  });
+});
+
+describe("anexos (GAB-84): mesmos serviços da tela", () => {
+  it("listar_anexos e ler_anexo em trechos; escaneado vem sem texto; card na lixeira esconde tudo", async () => {
+    const { vendas, vendedora, visualizador } = await semear();
+    const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
+    if (!card.ok) throw new Error("seed");
+    const pdf = await anexarArquivo(card.id, { nome: "Proposta.pdf", bytes: pdfDeTexto(["Proposta comercial para a padaria"]) }, vendedora);
+    const foto = await anexarArquivo(card.id, { nome: "foto.png", bytes: PNG }, vendedora);
+    if (!pdf.ok || !foto.ok) throw new Error("seed anexo");
+
+    const lista = dados(await executarFerramenta("listar_anexos", { projeto_id: card.id }, visualizador));
+    expect(lista.anexos).toHaveLength(2);
+    expect(lista.anexos.find((a: { nome: string }) => a.nome === "Proposta.pdf")).toMatchObject({ tipo: "PDF", semTexto: false, caracteres: 33, autor: { nome: "Ana" } });
+
+    const inteiro = dados(await executarFerramenta("ler_anexo", { anexo_id: pdf.anexo.id }, visualizador));
+    expect(inteiro).toMatchObject({ texto: "Proposta comercial para a padaria", caracteres: 33, continua: false, projetoId: card.id });
+    const trecho = dados(await executarFerramenta("ler_anexo", { anexo_id: pdf.anexo.id, inicio: 9, limite: 9 }, visualizador));
+    expect(trecho).toMatchObject({ texto: "comercial", inicio: 9, fim: 18, continua: true });
+    expect(dados(await executarFerramenta("ler_anexo", { anexo_id: foto.anexo.id }, visualizador))).toMatchObject({ semTexto: true, texto: null });
+
+    await excluirCard(card.id, vendedora);
+    const r = await executarFerramenta("ler_anexo", { anexo_id: pdf.anexo.id }, visualizador);
+    expect(r.isError).toBe(true);
+    expect(texto(r)).toMatch(/Anexo não encontrado/);
+    expect((await executarFerramenta("listar_anexos", { projeto_id: card.id }, visualizador)).isError).toBe(true);
   });
 });
