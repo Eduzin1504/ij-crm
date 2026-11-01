@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { DiasNaFase } from "@/components/kanban/aging";
 import { Avatar } from "@/components/kanban/avatar";
@@ -9,7 +9,7 @@ import { listarPipelines } from "@/lib/fases/fases";
 import { diaEmFuso, diasNaFase, estadoProximaAcao, nivelAging } from "@/lib/projetos/aging";
 import { ROTULO_ORIGEM, UFS } from "@/lib/projetos/campos";
 import { formatarDataHora, formatarDinheiro, formatarDia } from "@/lib/projetos/formatar";
-import { listarResponsaveis, nomesDeUsuarios, obterCard } from "@/lib/projetos/projetos";
+import { idDoCardQueAbsorveu, listarResponsaveis, nomesDeUsuarios, obterCard } from "@/lib/projetos/projetos";
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
 import { MoverFase } from "./mover-fase";
@@ -31,7 +31,12 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   const leitura = !podeEscrever(ator.papel);
   const { id } = await params;
   const card = await obterCard(id);
-  if (!card) notFound();
+  if (!card) {
+    // Link antigo de um card de projetos absorvido pelo ciclo único (GAB-81) → o card que o absorveu.
+    const destino = await idDoCardQueAbsorveu(id);
+    if (destino) redirect(`/projetos/${destino}`);
+    notFound();
+  }
 
   const idsUsuarios = new Set<string>([card.responsavelId]);
   for (const t of card.timeline) {

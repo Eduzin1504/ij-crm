@@ -165,6 +165,19 @@ export async function obterCard(id: string) {
 
 export type DetalheCard = NonNullable<Awaited<ReturnType<typeof obterCard>>>;
 
+/**
+ * Ciclo único (GAB-81): o card de projetos da v1 unido a uma venda virou casca
+ * soft-deletada com `absorvidoPorId`. Link antigo para a casca → id do card que
+ * a absorveu (se ele estiver vivo); qualquer outro id → null.
+ */
+export async function idDoCardQueAbsorveu(id: string): Promise<string | null> {
+  const casca = await db.projeto.findFirst({
+    where: { id, absorvidoPorId: { not: null }, absorvidoPor: { deletadoEm: null } },
+    select: { absorvidoPorId: true },
+  });
+  return casca?.absorvidoPorId ?? null;
+}
+
 /** Quem pode ser responsável: usuários ativos que atuam em card (sem VISUALIZADOR). */
 export async function listarResponsaveis() {
   return db.usuario.findMany({ where: { ativo: true, ...QUEM_ATUA }, orderBy: { nome: "asc" }, select: { id: true, nome: true } });

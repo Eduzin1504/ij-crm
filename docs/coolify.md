@@ -1,8 +1,29 @@
 # Deploy no Coolify
 
-`compose.coolify.yml` complementa a instalação standalone de `compose.prod.yml`.
-Os dois usam Docker Compose e os estágios `runtime` e `ops` do mesmo Dockerfile.
-O fluxo existente de `scripts/deploy.sh` e AWS/SSM continua usando `compose.prod.yml`.
+**A produção roda aqui**, no Coolify, com `compose.coolify.yml`. Ele complementa
+a instalação standalone de `compose.prod.yml`: os dois usam Docker Compose e os
+estágios `runtime` e `ops` do mesmo Dockerfile. A instalação standalone
+(`compose.prod.yml` + `scripts/deploy.sh`, no `docs/runbook.md`) não é a
+produção atual. Não existe mais deploy automático via AWS/SSM.
+
+## Deploy no dia a dia
+
+- **Manual**: depois do merge na `main`, botão **Redeploy** do recurso no painel
+  do Coolify. Nada sobe sozinho com o merge.
+- **O build roda no servidor**: o Coolify builda o Dockerfile (estágio `build`:
+  `prisma generate && pnpm build`) a cada Redeploy. As imagens que o workflow
+  `imagens` publica no GHCR não são usadas aqui. O mesmo `next build` roda em
+  todo PR no workflow `build` (`.github/workflows/build.yml`): PR com esse check
+  vermelho quebraria o Redeploy.
+- **Migrations**: rodam no serviço one-shot `migrate` antes do app (ver
+  "Migrations automáticas" abaixo). Falhou: o app não sobe com a versão nova.
+- **Sem backup automático**: nem o Coolify (como está configurado) nem o
+  `deploy.sh` fazem dump antes do deploy. Antes de um Redeploy com migration
+  nova, faça o backup do recurso PostgreSQL no painel ou um `pg_dump` à mão
+  (exemplo no runbook, "Ciclo único (GAB-81)", passo 1).
+- **Rollback**: revert na `main` e Redeploy (ou apontar o recurso para o commit
+  anterior e Redeploy). O schema do banco não volta
+  (expand/contract, runbook §2); para desfazer dados, restaure o backup.
 
 ## Configurar a aplicação
 

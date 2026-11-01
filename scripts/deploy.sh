@@ -14,7 +14,7 @@
 #                  para uma VPS pequena (~2 GB de RAM e de disco só de build).
 #   --no-pull      não faz `git fetch`/checkout (compose/scripts/Caddyfile ficam como estão no disco)
 #   --force        aceita árvore git suja
-#   --digest-app / --digest-ops   (deploy automático, scripts/deploy-remoto.sh) digests
+#   --digest-app / --digest-ops   (opcional; era usado pelo antigo deploy via SSM) digests
 #                  esperados das imagens: baixa POR DIGEST e recusa se a imagem local
 #                  `<repo>:TAG` tiver outro digest ou se o label de revisão não for do
 #                  commit da TAG (tags do GHCR são mutáveis; digest não). Só com TAG sha-….
@@ -41,8 +41,7 @@
 # backup, migration: o app anterior segue no ar); 10 up/health falhou e o
 # rollback automático voltou o app para o bom anterior; 11 up/health falhou e o
 # app NÃO voltou (rollback falhou, não havia anterior ou era a mesma tag):
-# intervenção manual. O deploy automático (deploy-remoto.sh + Actions) classifica
-# o resultado por esse código.
+# intervenção manual.
 set -euo pipefail
 # shellcheck source=scripts/_comum.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_comum.sh"

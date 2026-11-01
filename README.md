@@ -723,160 +723,35 @@ erro do Prisma só loga `code` + `target`/`modelName` (a mensagem ecoa dados da 
 
 ## Produção e deploy
 
-Este é o guia de uso. Comandos completos, IAM e casos raros ficam no
-[`docs/runbook.md`](docs/runbook.md), que é a referência.
+A produção roda no **Coolify** (`compose.coolify.yml`). Configuração e detalhes em
+[`docs/coolify.md`](docs/coolify.md); o [`docs/runbook.md`](docs/runbook.md)
+descreve também a instalação standalone (`compose.prod.yml` + `scripts/deploy.sh`
+numa VM própria), que não é a produção atual.
 
-### Como funciona (visão geral)
-
-```
-merge de PR na main
-   │
-   ▼
-GitHub Actions (.github/workflows/imagens.yml)
-   1. checa migrations perigosas (scripts/checar-migrations.sh)
-   2. builda as imagens e publica no GHCR:
-        ghcr.io/gabriel-marques-tech/ij-crm-app   (o CRM, ~400 MB)
-        ghcr.io/gabriel-marques-tech/ij-crm-ops   (migrations e restore, ~2 GB)
-      com a tag sha-<commit> (fixa) e latest
-   3. job "deploy": pede ao AWS SSM para rodar o deploy na máquina
-   │
-   ▼
-AWS (EC2, /opt/ij-crm, usuário deploy)
-   scripts/deploy-remoto.sh  →  confere tag, digests e que o commit está na main
-   scripts/deploy.sh         →  baixa as imagens, faz backup, roda migrations,
-                                sobe a versão nova e checa /api/health;
-                                se falhar, volta sozinho para a versão anterior
-```
-
-- **Nada é compilado na AWS.** A máquina só baixa as imagens prontas.
-- **Não existe chave guardada no GitHub.** O GitHub assume um papel da AWS por
-  OIDC, e esse papel só pode rodar o documento de deploy naquela instância.
-- **A porta 22 fica fechada.** Abertas, só 80 e 443. O acesso de admin é pelo
-  Session Manager.
-- **Mudanças na `main` só entram por PR,** e os testes de deploy e a checagem
-  de migrations rodam em cada PR.
-
-### Como o GitHub se conecta à AWS
-
-São três peças. Nenhuma depende de senha, chave de acesso ou porta aberta:
+### Como funciona
 
 ```
-GitHub Actions (job deploy)
-   │ 1. "sou o job deploy do repo ij-crm, branch main" → token OIDC assinado pelo GitHub
+PR para a main
+   │  GitHub Actions: build (next build, o mesmo do Coolify),
+   │  verificacoes (migrations destrutivas, compose do Coolify, scripts)
    ▼
-AWS IAM (role ij-crm-deploy-gha)
-   │ 2. confere o token (repo + id do repo/dono + environment producao) e devolve
-   │    credenciais temporárias (~1 h) que só servem para o passo 3
+merge na main
+   │  GitHub Actions: imagens (publica ij-crm-app/ij-crm-ops no GHCR;
+   │  o Coolify não usa, servem ao standalone)
    ▼
-AWS SSM Run Command (documento ij-crm-deploy)
-   │ 3. "rode o deploy com a tag sha-xxx e estes digests" na instância i-…
-   ▼
-Agente SSM dentro da EC2 (já vem instalado no Ubuntu/Amazon Linux)
-   │ 4. a máquina busca o comando na AWS (conexão de SAÍDA, porta 443)
-   ▼
-deploy-remoto.sh → deploy.sh (usuário deploy) → resultado volta pro GitHub
+Coolify → botão Redeploy (manual)
+   1. builda o Dockerfile no servidor (prisma generate + next build)
+   2. serviço one-shot `migrate`: prisma migrate deploy
+   3. sobe o app (só depois do migrate terminar com 0)
 ```
 
-1. **OIDC (identidade do GitHub):** cada run do Actions recebe do GitHub um
-   token assinado dizendo de qual repo, branch e environment ele veio. A AWS
-   confia no GitHub como "provedor de identidade" (cadastrado uma vez no IAM).
-2. **Role da AWS:** a role `ij-crm-deploy-gha` só aceita tokens do job `deploy`
-   deste repositório (pelo id numérico, então renomear ou recriar o repo com o
-   mesmo nome não engana), no environment `producao`, a partir da `main`. As
-   credenciais que ela devolve expiram sozinhas e só podem mandar **um**
-   documento para **uma** instância e ler o resultado de comandos do SSM
-   (`ssm:GetCommandInvocation` não aceita restrição por recurso); não dá para
-   abrir shell, ler segredos nem mexer em outra coisa da conta.
-3. **SSM (o "mensageiro"):** o agente SSM na EC2 fica conectado à AWS por uma
-   conexão de saída. Por isso a máquina não precisa de porta 22 nem de IP
-   liberado para o GitHub: ela mesma busca o comando. A instância precisa do
-   instance profile `ij-crm-ec2-ssm` (`AmazonSSMManagedInstanceCore`) para o
-   agente funcionar.
-4. **Na máquina:** o documento roda `deploy-remoto.sh` como o usuário `deploy`
-   (sem herdar variáveis), que confere que o commit está na `main` e que os
-   digests batem, e chama `deploy.sh`. O código de saída e o fim do log voltam
-   para o resumo do job no GitHub.
-
-**O que configurar uma vez** (passo a passo com comandos no
-[runbook, "Deploy automático"](docs/runbook.md#deploy-automático-github-actions--aws-ssm)):
-
-| Onde | O quê |
-|---|---|
-| AWS IAM | provedor OIDC `token.actions.githubusercontent.com` |
-| AWS IAM | role `ij-crm-deploy-gha` (confiança só neste repo/environment + `ssm:SendCommand` no documento/instância e `ssm:GetCommandInvocation`) |
-| AWS IAM / EC2 | instance profile `ij-crm-ec2-ssm` na instância |
-| AWS SSM | documento `ij-crm-deploy` (de `deploy/ssm-deploy.yaml`) |
-| EC2 security group | só 80/443 de entrada; porta 22 removida |
-| GitHub → Settings → Environments → `producao` | variáveis `AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, `DEPLOY_INSTANCE_ID` (não são segredos) |
-
-Enquanto essas variáveis não existirem, o job `deploy` fica **verde com o aviso
-"Deploy pulado"** e nada vai para a máquina; o build continua publicando as
-imagens normalmente. *Skipped* só aparece com o deploy pausado
-(`DEPLOY_AUTOMATICO=false`).
-
-**Testar a conexão sem fazer deploy:** no console da AWS, **Systems Manager →
-Fleet Manager** deve listar a instância como *Online*. Pela CLI:
-`aws ssm describe-instance-information` (ping `Online`). Se não aparecer, quase
-sempre falta o instance profile ou a máquina não tem saída para a internet.
-
-### No dia a dia: fazer um deploy
-
-**Mergeie a PR na `main`. Só isso.** Uns 5 a 10 minutos depois, a versão nova
-está no ar.
-
-Para acompanhar, abra **GitHub → Actions → `imagens`** e veja o último run da
-`main`:
-
-| Job | O que significa |
-|---|---|
-| `build` verde | Imagens publicadas no GHCR |
-| `deploy` verde | Versão no ar: o resumo mostra tag, commit e "ok". Se o resumo disser **"Deploy pulado"**, a AWS ainda não foi configurada e nada subiu |
-| `deploy` vermelho | O deploy falhou e o GitHub manda email. Veja o código no resumo (tabela abaixo) |
-| `deploy` *skipped* | O deploy automático está pausado (`DEPLOY_AUTOMATICO=false`) |
-
-Códigos de saída do deploy, que aparecem no resumo:
-
-| Código | O que aconteceu | O que fazer |
-|---|---|---|
-| `0` | Deploy ok | Nada |
-| `1` | Falhou **antes** de trocar a versão; a anterior continua no ar | Ver o log e corrigir (imagem, `.env`, migration) |
-| `10` | A versão nova não passou no health e o **rollback automático** voltou a anterior | Corrigir o bug em uma PR nova |
-| `11` | O app **não voltou** | Entrar na máquina e agir (seção "À mão" abaixo) |
-| `2` | Comando recusado (tag, digest ou commit que não está na `main`) | Ver o resumo do job |
-
-O log completo de cada deploy fica na máquina, em
-`/var/log/ij-crm/deploy-<data>-<tag>.log`.
-
-### Pausar o deploy automático
-
-Use durante uma manutenção ou **depois de um rollback manual**. Sem isso, o
-próximo merge sobe a versão nova por cima do rollback.
-
-```bash
-gh variable set DEPLOY_AUTOMATICO --body false   # pausa (o build continua publicando imagens)
-gh variable delete DEPLOY_AUTOMATICO             # volta ao automático
-```
-
-### À mão: entrar na máquina, deploy de uma versão, rollback
-
-Não há SSH. Entre pelo console da AWS (EC2 → instância → **Connect → Session
-Manager**) ou pela CLI:
-
-```bash
-aws ssm start-session --target <id-da-instância>
-sudo -iu deploy
-cd /opt/ij-crm
-
-scripts/deploy.sh sha-1a2b3c4      # sobe uma versão específica (precisa estar na main)
-scripts/deploy.sh rollback         # volta para a versão boa anterior
-scripts/deploy.sh rollback sha-1a2b3c4   # ou para uma versão específica
-docker compose -f compose.prod.yml ps          # estado dos serviços
-docker compose -f compose.prod.yml logs app    # log do app
-```
-
-As tags disponíveis (`sha-…`) aparecem em **GitHub → Packages → ij-crm-app** e
-no resumo de cada run do `imagens`. Deploy manual e automático usam a mesma
-trava, então quem chegar depois espera o outro terminar (até 15 min).
+- **O deploy é manual**: nada vai ao ar só com o merge. Não existe mais deploy
+  automático via AWS SSM.
+- **Não há backup automático** antes do deploy. Com migration nova, faça o
+  backup do PostgreSQL no painel do Coolify (ou `pg_dump`) antes do Redeploy.
+- **Check `build` vermelho no PR = o Redeploy quebraria.** Não mergeie assim.
+- **Rollback**: revert na `main` + Redeploy. O schema do banco não volta (veja
+  expand/contract abaixo).
 
 ### Migrations: expand/contract
 
@@ -894,45 +769,22 @@ runbook §2.
 
 ### Trocar o provedor de LLM (OpenAI ↔ Gemini ↔ Anthropic)
 
-No `.env` da máquina, defina `LLM_PROVEDOR=gemini` (ou `openai`/`anthropic`) e a
-chave correspondente (`GEMINI_API_KEY`, `OPENAI_API_KEY` ou
-`ANTHROPIC_API_KEY`), e rode `scripts/deploy.sh`. O deploy recusa subir se faltar
-a chave do provedor escolhido. Depois, confirme que o provedor responde:
-
-```bash
-docker compose -f compose.prod.yml --profile ops run --rm llm-smoke   # tem que terminar em "[llm-smoke] ok"
-```
-
-Também dá para trocar provedor e modelo em **Gestão → Admin → Configuração**, sem
-deploy. As chaves, porém, ficam só no `.env`. Detalhes no runbook §10.
+Nas **Environment Variables** do recurso no Coolify, defina `LLM_PROVEDOR=gemini`
+(ou `openai`/`anthropic`) e a chave correspondente (`GEMINI_API_KEY`,
+`OPENAI_API_KEY` ou `ANTHROPIC_API_KEY`) e faça Redeploy. Também dá para trocar
+provedor e modelo em **Gestão → Admin → Configuração**, sem deploy; as chaves,
+porém, ficam só no ambiente. Detalhes (e o `llm-smoke`) no runbook §10.
 
 ### Primeira instalação (uma vez só)
 
-Siga o **[Checklist de go-live](docs/runbook.md#checklist-de-go-live-aws)** do
-runbook, de cima para baixo. Resumindo:
+No Coolify: [`docs/coolify.md`](docs/coolify.md). Standalone numa VM própria:
+**[Checklist de go-live](docs/runbook.md#checklist-de-go-live-standalone)** do
+runbook. Nos dois casos, depois de subir: criar o admin
+(`scripts/criar-admin.ts`), parear o WhatsApp e escolher o grupo em Gestão →
+Admin, publicar o aviso de privacidade **antes** de ligar o webhook, e só por
+último `NOTIFICATIONS_ENABLED=true`.
 
-1. **Instância EC2** `t3.small` (2 GB + 2 GB de swap, Ubuntu 24.04), com só as
-   portas 80 e 443 abertas e o agente SSM ativo.
-2. **Docker + compose** e o usuário `deploy`.
-3. **Clonar** o repositório em `/opt/ij-crm`.
-4. **Criar o `.env`** a partir de `.env.prod.example`: segredos, domínio e chave
-   do LLM.
-5. **DNS** do domínio apontando para a instância.
-6. **Primeiro deploy** com `scripts/deploy.sh --no-pull`, seed, e
-   `llm-smoke` ok.
-7. **Criar o admin** com `scripts/criar-admin.ts`.
-8. **Parear o WhatsApp** pelo QR em Gestão → Admin → "Mostrar QR" (só ADMIN).
-9. **Escolher o grupo** de vendas, também em Gestão → Admin.
-10. **Aviso de privacidade** da IJ publicado, **antes** de ligar o webhook.
-11. **Ligar o webhook** com `scripts/evolution.sh webhook`.
-12. **Crontab**: backup diário e manutenção a cada 10 min.
-13. **Backup off-site** configurado e restore testado uma vez.
-14. **Deploy automático**: na AWS, provedor OIDC, papel IAM e documento SSM; no
-    GitHub, o environment `producao` com 3 variáveis. Comandos prontos em
-    `deploy/iam/` e no runbook.
-15. **Por último**, `NOTIFICATIONS_ENABLED=true` e um `#crm` de teste no grupo.
-
-Limites de memória e medições da instância: runbook §11.
+Limites de memória e medições: runbook §11.
 
 ## Testes
 
