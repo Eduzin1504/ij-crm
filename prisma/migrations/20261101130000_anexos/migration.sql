@@ -42,3 +42,8 @@ ALTER TABLE "anexo" ADD CONSTRAINT "anexo_autor_id_fkey" FOREIGN KEY ("autor_id"
 -- AddForeignKey
 ALTER TABLE "anexo" ADD CONSTRAINT "anexo_deletado_por_id_fkey" FOREIGN KEY ("deletado_por_id") REFERENCES "usuario"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
+
+-- Upload repetido no mesmo Projeto (mesmo conteúdo, anexo vivo): o serviço
+-- confere antes, mas só o índice fecha a corrida de dois uploads simultâneos
+-- (P2002 → DUPLICADO). Parcial: o Prisma não representa; fica só aqui.
+CREATE UNIQUE INDEX "anexo_oportunidade_id_sha256_vivo_key" ON "anexo"("oportunidade_id", "sha256") WHERE "deletado_em" IS NULL;

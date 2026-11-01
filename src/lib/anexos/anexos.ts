@@ -14,9 +14,10 @@
  * card vivo — card na lixeira esconde os anexos junto.
  */
 import { createHash } from "node:crypto";
-import type { Papel } from "@prisma/client";
+import { Prisma, type Papel } from "@prisma/client";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
+import { registrarErro } from "@/lib/erros/registrar";
 import { gravarArquivo, novoIdAnexo, removerArquivo } from "./armazenamento";
 import { extrairTexto } from "./extrair";
 import { identificarTipo, sanitizarNome, type ErroAnexo } from "./tipos";
@@ -32,22 +33,27 @@ export async function anexarArquivo(projetoId: string, arquivo: { nome: string; 
   const nome = sanitizarNome(arquivo.nome);
   const id = identificarTipo(arquivo.bytes, nome);
   if (!id.ok) return id;
+  const anexoId = novoIdAnexo();
   const extracao = await extrairTexto(id.tipo, arquivo.bytes);
   if (!extracao.ok) return extracao;
+  // Extração abortada (PDF que estourou tempo/memória no processo filho): o anexo
+  // entra "sem texto" e a causa fica no log, com ref. Só o começo do id: o id
+  // inteiro (32 hex) seria redigido como token; `WHERE id LIKE '<prefixo>%'` acha.
+  if (extracao.falha) registrarErro("anexos.extrairTexto", new Error(`anexo ${anexoId.slice(0, 12)} (${id.tipo}) ficou sem texto: ${extracao.falha}`));
   const sha256 = createHash("sha256").update(arquivo.bytes).digest("hex");
 
   const card = await db.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true } });
   if (!card) return { ok: false, erro: "CARD_NAO_ENCONTRADO" };
   if (await db.anexo.findFirst({ where: { projetoId, sha256, deletadoEm: null }, select: { id: true } })) return { ok: false, erro: "DUPLICADO" };
 
-  const anexoId = novoIdAnexo();
   const semTexto = extracao.texto === null;
   await gravarArquivo(anexoId, arquivo.bytes);
   try {
     const criado = await db.$transaction(async (tx) => {
-      // Relido dentro da transação: o card pode ter ido para a lixeira enquanto o PDF era lido.
-      const vivo = await tx.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true } });
-      if (!vivo) return null;
+      // Relido dentro da transação, com a linha travada (FOR SHARE): o card pode ter ido
+      // para a lixeira enquanto o PDF era lido, e "apagar de vez" (FOR UPDATE) espera este upload.
+      const vivo = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR SHARE`;
+      if (vivo.length === 0) return null;
       const agora = new Date();
       await tx.anexo.create({
         data: { id: anexoId, projetoId, nome, tipo: id.tipo, mime: id.mime, tamanho: arquivo.bytes.length, sha256, texto: extracao.texto, semTexto, autorId: por.id, criadoEm: agora },
@@ -61,6 +67,8 @@ export async function anexarArquivo(projetoId: string, arquivo: { nome: string; 
     }
   } catch (e) {
     await removerArquivo(anexoId).catch(() => {});
+    // Índice único parcial (oportunidade_id, sha256) dos vivos: dois uploads iguais ao mesmo tempo.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, erro: "DUPLICADO" };
     throw e;
   }
   return { ok: true, anexo: { id: anexoId, nome, semTexto } };

@@ -2,11 +2,11 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dbTeste, limparBanco } from "@/test/db";
-import { docxDeParagrafos, pdfDeTexto, PNG } from "@/test/fixtures/anexos";
+import { docxDeParagrafos, pdfBomba, pdfDeTexto, PNG } from "@/test/fixtures/anexos";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
-import { apagarCardDefinitivo, excluirCard } from "@/lib/lixeira/cards";
+import { apagarCardDefinitivo, excluirCard, restaurarCard } from "@/lib/lixeira/cards";
 import { apagarAnexoDefinitivo, excluirAnexo, restaurarAnexo } from "@/lib/lixeira/anexos";
 import { listarAnexosNaLixeira } from "@/lib/lixeira/lixeira";
 import { criarCard } from "@/lib/projetos/projetos";
@@ -109,6 +109,59 @@ describe("anexarArquivo", () => {
   });
 });
 
+describe("anexarArquivo: corridas e extração abortada (review do PR #53)", () => {
+  it("dois uploads iguais ao mesmo tempo: o índice único parcial deixa só um (o outro é DUPLICADO, sem arquivo órfão)", async () => {
+    const { vend, cardId } = await semear();
+    const bytes = enc.encode("mesmo conteúdo");
+    const rs = await Promise.all([1, 2, 3].map((n) => anexarArquivo(cardId, { nome: `c${n}.txt`, bytes }, vend)));
+    expect(rs.filter((r) => r.ok)).toHaveLength(1);
+    expect(rs.filter((r) => !r.ok).map((r) => !r.ok && r.erro)).toEqual(["DUPLICADO", "DUPLICADO"]);
+    expect(await db.anexo.count()).toBe(1);
+    expect(await arquivos()).toHaveLength(1);
+    // Excluído não conta: o mesmo arquivo pode voltar.
+    const vivo = rs.find((r) => r.ok)!;
+    if (vivo.ok) await excluirAnexo(vivo.anexo.id, vend);
+    expect((await anexarArquivo(cardId, { nome: "de-novo.txt", bytes }, vend)).ok).toBe(true);
+  });
+
+  it("upload trava a linha do card (FOR SHARE): espera um 'apagar de vez' em andamento e, com o card apagado, não grava nada", async () => {
+    const { vend, cardId } = await semear();
+    let liberar!: () => void;
+    const travado = new Promise<void>((r) => (liberar = r));
+    let comLock!: () => void;
+    const lockTomado = new Promise<void>((r) => (comLock = r));
+    // Simula o "apagar de vez": FOR UPDATE na linha, apaga o card e só commita quando liberado.
+    const apagar = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM oportunidade WHERE id = ${cardId} FOR UPDATE`;
+      comLock();
+      await travado;
+      await tx.projeto.delete({ where: { id: cardId } });
+    }, { timeout: 20_000 });
+    await lockTomado;
+    let terminou = false;
+    const upload = anexarArquivo(cardId, { nome: "a.txt", bytes: enc.encode("x") }, vend).then((r) => ((terminou = true), r));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(terminou).toBe(false); // esperando o lock
+    liberar();
+    await apagar;
+    // Sem o FOR SHARE, o INSERT esbarraria na FK depois do DELETE e o upload estouraria (P2003).
+    expect(await upload).toEqual({ ok: false, erro: "CARD_NAO_ENCONTRADO" });
+    expect(await db.anexo.count()).toBe(0);
+    expect(await arquivos()).toEqual([]);
+  }, 30_000);
+
+  it("PDF que estoura o processo filho: anexo entra 'sem texto' e o log tem a causa com ref", async () => {
+    const { vend, cardId } = await semear();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await anexarArquivo(cardId, { nome: "bomba.pdf", bytes: pdfBomba(512) }, vend);
+    expect(r).toMatchObject({ ok: true, anexo: { semTexto: true } });
+    if (!r.ok) return;
+    expect((await db.anexo.findUniqueOrThrow({ where: { id: r.anexo.id } })).texto).toBeNull();
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^\\[anexos\\.extrairTexto\\] ref=[0-9a-f]{8} Error: anexo ${r.anexo.id.slice(0, 12)} \\(PDF\\) ficou sem texto: memória acima do teto`)));
+    log.mockRestore();
+  }, 30_000);
+});
+
 describe("leitura e download", () => {
   it("download e texto só de anexo vivo em card vivo", async () => {
     const { vend, cardId } = await semear();
@@ -145,10 +198,17 @@ describe("lixeira de anexos", () => {
     expect(await restaurarAnexo(id, vend)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
     expect(await restaurarAnexo(id, gestor)).toEqual({ ok: true });
     expect(await restaurarAnexo(id, gestor)).toEqual({ ok: false, erro: "NAO_ESTA_NA_LIXEIRA" });
+
+    // Anexo de card que está na lixeira não volta sozinho (volta com o card).
+    await excluirAnexo(id, vend);
+    await excluirCard(cardId, vend);
+    expect(await restaurarAnexo(id, gestor)).toEqual({ ok: false, erro: "ANEXO_NAO_ENCONTRADO" });
+    expect(await restaurarCard(cardId, gestor)).toMatchObject({ ok: true });
+    expect(await restaurarAnexo(id, gestor)).toEqual({ ok: true });
     expect((await listarAnexos(cardId)).map((a) => a.id)).toEqual([id]);
 
     const eventos = await db.timeline.findMany({ where: { projetoId: cardId, tipo: "ANEXO" }, orderBy: { em: "asc" } });
-    expect(eventos.map((e) => (e.payload as { evento: string }).evento)).toEqual(["adicionado", "excluido", "restaurado"]);
+    expect(eventos.map((e) => (e.payload as { evento: string }).evento)).toEqual(["adicionado", "excluido", "restaurado", "excluido", "restaurado"]);
   });
 
   it("apagar de vez: só admin, só da lixeira, digitando o nome; remove o arquivo do disco", async () => {

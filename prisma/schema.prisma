@@ -765,5 +765,7 @@ model Anexo {
 
   @@index([projetoId, criadoEm])
   @@index([deletadoEm])
+  // + índice único PARCIAL (oportunidade_id, sha256) WHERE deletado_em IS NULL,
+  // só na migração 20261101130000_anexos (o Prisma não representa índice parcial).
   @@map("anexo")
 }

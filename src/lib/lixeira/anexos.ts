@@ -37,7 +37,8 @@ export async function excluirAnexo(id: string, por: Ator): Promise<ResultadoLixe
 export async function restaurarAnexo(id: string, por: Ator): Promise<ResultadoLixeira> {
   if (!podeRestaurar(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
   return db.$transaction(async (tx) => {
-    const a = await tx.anexo.findUnique({ where: { id }, select: { projetoId: true, nome: true, deletadoEm: true } });
+    // Anexo de card que está na lixeira não volta sozinho: volta com o card.
+    const a = await tx.anexo.findFirst({ where: { id, projeto: { deletadoEm: null } }, select: { projetoId: true, nome: true, deletadoEm: true } });
     if (!a) return { ok: false, erro: "ANEXO_NAO_ENCONTRADO" } as const;
     const r = await tx.anexo.updateMany({ where: { id, deletadoEm: { not: null } }, data: { deletadoEm: null, deletadoPorId: null } });
     if (r.count === 0) return { ok: false, erro: "NAO_ESTA_NA_LIXEIRA" } as const;
