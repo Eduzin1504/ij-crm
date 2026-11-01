@@ -14,6 +14,7 @@ import { POST as registrarPOST } from "@/app/api/oauth/register/route";
 import { POST as tokenPOST } from "@/app/api/oauth/token/route";
 import { POST as revogarPOST } from "@/app/api/oauth/revoke/route";
 import { DELETE as mcpDELETE, POST as mcpPOST } from "@/app/api/mcp/route";
+import { freioRegistroMcp } from "./http";
 import { autenticarAcesso, autorizar, listarConexoes, revogarConexao, validarPedidoAutorizacao } from "./oauth";
 
 const db = dbTeste();
@@ -23,6 +24,8 @@ const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 beforeEach(async () => {
   await limparBanco(["mcp_conexao", "oauth_codigo", "oauth_cliente", "transicao_fase", "timeline", "oportunidade", "fase", "pipeline", "sessao", "usuario"]);
   invalidarCachePipelines();
+  // Freio de DCR é em memória por IP ("local" sem proxy): zera entre testes.
+  freioRegistroMcp.registrarSucesso("local");
   await db.pipeline.create({ data: { chave: "vendas", nome: "Vendas", ordem: 0, fases: { create: [{ chave: "primeiro_contato", nome: "Primeiro Contato", ordem: 0 }] } } });
 });
 
@@ -149,9 +152,10 @@ describe("fluxo completo: registro → autorizar → token → MCP → refresh �
     expect(novo.refresh_token).not.toBe(s.refresh);
     expect((await mcp({ jsonrpc: "2.0", id: 4, method: "tools/list" }, s.acesso)).status).toBe(401);
     expect((await mcp({ jsonrpc: "2.0", id: 5, method: "tools/list" }, novo.access_token)).status).toBe(200);
-    const reuso = await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: s.clientId });
-    expect(reuso.status).toBe(400);
-    expect((await reuso.json()).error).toBe("invalid_grant");
+    // Um 2º refresh normal continua girando.
+    const r2 = await (await token({ grant_type: "refresh_token", refresh_token: novo.refresh_token, client_id: s.clientId })).json();
+    expect(r2.access_token).toBeDefined();
+    Object.assign(novo, r2);
 
     // Revogação (RFC 7009) pelo refresh: a conexão inteira cai.
     const rev = await revogarPOST(
@@ -162,6 +166,41 @@ describe("fluxo completo: registro → autorizar → token → MCP → refresh �
     expect(depois.status).toBe(401);
     expect(depois.headers.get("www-authenticate")).toContain('error="invalid_token"');
     expect(await listarConexoes(s.usuario.id)).toEqual([]);
+  });
+
+  it("refresh já girado apresentado de novo (roubo/replay): a conexão inteira é revogada", async () => {
+    const s = await conectar();
+    const novo = await (await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: s.clientId })).json();
+    const reuso = await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: s.clientId });
+    expect(reuso.status).toBe(400);
+    const corpo = await reuso.json();
+    expect(corpo.error).toBe("invalid_grant");
+    expect(corpo.error_description).toMatch(/revogada/);
+    // Nem o token legítimo mais novo sobrevive: a pessoa reconecta.
+    expect(await autenticarAcesso(novo.access_token)).toBeNull();
+    expect((await (await token({ grant_type: "refresh_token", refresh_token: novo.refresh_token, client_id: s.clientId })).json()).error).toBe("invalid_grant");
+    expect(await listarConexoes(s.usuario.id)).toEqual([]);
+  });
+
+  it("refresh exige client_id, e do cliente da conexão", async () => {
+    const s = await conectar();
+    expect((await (await token({ grant_type: "refresh_token", refresh_token: s.refresh })).json()).error).toBe("invalid_request");
+    const outro = await registrar();
+    expect((await (await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: outro })).json()).error).toBe("invalid_grant");
+    // O refresh certo segue valendo (tentativa com cliente errado não gira nem revoga).
+    expect((await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: s.clientId })).status).toBe(200);
+  });
+
+  it("limpeza de clientes: apaga o nunca usado com mais de 7 dias; preserva o que já conectou, mesmo sem conexão viva", async () => {
+    const s = await conectar();
+    await db.mcpConexao.deleteMany({});
+    const velho = new Date(Date.now() - 8 * 86_400_000);
+    const nunca = await registrar();
+    await db.oauthCliente.updateMany({ data: { criadoEm: velho } });
+    await registrar(); // o registro dispara a limpeza
+    const ids = (await db.oauthCliente.findMany({ select: { id: true } })).map((c) => c.id);
+    expect(ids).toContain(s.clientId);
+    expect(ids).not.toContain(nunca);
   });
 
   it("revogar pelo perfil corta o token na hora; id de outra pessoa não tem efeito", async () => {
@@ -193,7 +232,7 @@ describe("fluxo completo: registro → autorizar → token → MCP → refresh �
     expect((await autenticarAcesso(s.acesso))?.usuario.papel).toBe("VISUALIZADOR");
     await db.usuario.update({ where: { id: s.usuario.id }, data: { ativo: false } });
     expect(await autenticarAcesso(s.acesso)).toBeNull();
-    expect((await (await token({ grant_type: "refresh_token", refresh_token: s.refresh })).json()).error).toBe("invalid_grant");
+    expect((await (await token({ grant_type: "refresh_token", refresh_token: s.refresh, client_id: s.clientId })).json()).error).toBe("invalid_grant");
   });
 
   it("access token vencido → null (401); GET/DELETE sem sessão → 405 com token válido", async () => {

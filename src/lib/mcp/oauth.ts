@@ -168,8 +168,10 @@ export async function registrarCliente(meta: unknown, agora: Date = new Date()):
 async function limparOrfaos(agora: Date): Promise<void> {
   try {
     await db.oauthCodigo.deleteMany({ where: { expiraEm: { lte: agora } } });
+    // Só quem NUNCA conectou: um cliente que já conectou e teve as conexões
+    // revogadas continua valendo (o Claude guarda o client_id e reconecta com ele).
     await db.oauthCliente.deleteMany({
-      where: { criadoEm: { lte: new Date(agora.getTime() - CLIENTE_ORFAO_DIAS * 86_400_000) }, conexoes: { none: {} }, codigos: { none: {} } },
+      where: { criadoEm: { lte: new Date(agora.getTime() - CLIENTE_ORFAO_DIAS * 86_400_000) }, conectouEm: null, codigos: { none: {} } },
     });
   } catch (e) {
     // Limpeza é oportunista: falha aqui não impede o registro.
@@ -322,6 +324,7 @@ async function trocarCodigo(f: Params, agora: Date): Promise<ResultadoToken> {
   await db.mcpConexao.create({
     data: { usuarioId: c.usuarioId, clienteId: c.clienteId, escopo: c.escopo, ...par.dados, criadoEm: agora, ultimoUsoEm: agora },
   });
+  await db.oauthCliente.updateMany({ where: { id: c.clienteId, conectouEm: null }, data: { conectouEm: agora } });
   return { ok: true, token: resposta(par.acesso, par.refresh) };
 }
 
@@ -329,19 +332,35 @@ async function trocarCodigo(f: Params, agora: Date): Promise<ResultadoToken> {
  * Refresh com rotação (OAuth 2.1 para cliente público): o refresh usado deixa
  * de valer na mesma escrita que grava o novo. O `where` com o hash antigo faz
  * dois refresh simultâneos girarem uma vez só (o outro recebe invalid_grant).
+ *
+ * Detecção de reuso (OAuth 2.1 §4.3.1): o hash do refresh girado fica em
+ * `refresh_anterior_hash`. Se ele voltar, alguém tem uma cópia (roubo ou
+ * replay): a conexão inteira é apagada e a pessoa reconecta.
  */
 async function renovar(f: Params, agora: Date): Promise<ResultadoToken> {
-  if (!f.refresh_token) return falha("invalid_request", "Falta refresh_token.");
+  if (!f.refresh_token || !f.client_id) return falha("invalid_request", "Faltam refresh_token ou client_id.");
   if (!recursoConfere(f.resource)) return falha("invalid_target", "resource não é este servidor MCP.");
+  const h = hashToken(f.refresh_token);
   const atual = await db.mcpConexao.findUnique({
-    where: { refreshHash: hashToken(f.refresh_token) },
+    where: { refreshHash: h },
     select: { id: true, clienteId: true, refreshHash: true, refreshExpiraEm: true, usuario: { select: { ativo: true } } },
   });
-  if (!atual || atual.refreshExpiraEm.getTime() <= agora.getTime()) return falha("invalid_grant", "Refresh token inválido ou vencido. Conecte de novo.");
-  if (f.client_id && f.client_id !== atual.clienteId) return falha("invalid_grant", "Refresh token de outro cliente.");
+  if (!atual) {
+    const reuso = await db.mcpConexao.deleteMany({ where: { refreshAnteriorHash: h } });
+    if (reuso.count > 0) {
+      console.info(`[auditoria] mcp.refresh_reusado conexao_revogada cliente=${f.client_id.slice(0, 40)}`);
+      return falha("invalid_grant", "Refresh token já usado: a conexão foi revogada por segurança. Conecte de novo.");
+    }
+    return falha("invalid_grant", "Refresh token inválido ou vencido. Conecte de novo.");
+  }
+  if (atual.refreshExpiraEm.getTime() <= agora.getTime()) return falha("invalid_grant", "Refresh token vencido. Conecte de novo.");
+  if (f.client_id !== atual.clienteId) return falha("invalid_grant", "Refresh token de outro cliente.");
   if (!atual.usuario.ativo) return falha("invalid_grant", "Usuário inativo.");
   const par = paresNovos(agora);
-  const r = await db.mcpConexao.updateMany({ where: { id: atual.id, refreshHash: atual.refreshHash }, data: { ...par.dados, ultimoUsoEm: agora } });
+  const r = await db.mcpConexao.updateMany({
+    where: { id: atual.id, refreshHash: atual.refreshHash },
+    data: { ...par.dados, refreshAnteriorHash: atual.refreshHash, ultimoUsoEm: agora },
+  });
   if (r.count === 0) return falha("invalid_grant", "Refresh token já usado.");
   return { ok: true, token: resposta(par.acesso, par.refresh) };
 }

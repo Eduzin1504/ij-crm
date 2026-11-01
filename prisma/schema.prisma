@@ -193,6 +193,8 @@ model OauthCliente {
   nome         String // client_name do registro, mostrado na autorização e no perfil
   redirectUris String[] @map("redirect_uris")
   criadoEm     DateTime @default(now()) @map("criado_em")
+  /// 1ª troca de código por token. Nunca conectou e tem mais de 7 dias → a limpeza apaga.
+  conectouEm   DateTime? @map("conectou_em")
 
   codigos  OauthCodigo[]
   conexoes McpConexao[]
@@ -229,6 +231,8 @@ model McpConexao {
   acessoExpiraEm  DateTime @map("acesso_expira_em")
   refreshHash     String   @unique @map("refresh_hash")
   refreshExpiraEm DateTime @map("refresh_expira_em")
+  /// Refresh já girado: se aparecer de novo, foi roubado/replay → a conexão é apagada.
+  refreshAnteriorHash String? @unique @map("refresh_anterior_hash")
   criadoEm        DateTime @default(now()) @map("criado_em")
   ultimoUsoEm     DateTime @default(now()) @map("ultimo_uso_em")
 

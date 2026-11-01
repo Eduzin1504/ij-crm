@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS "oauth_cliente" (
     "nome" TEXT NOT NULL,
     "redirect_uris" TEXT[],
     "criado_em" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "conectou_em" TIMESTAMP(3),
 
     CONSTRAINT "oauth_cliente_pkey" PRIMARY KEY ("id")
 );
@@ -35,16 +36,23 @@ CREATE TABLE IF NOT EXISTS "mcp_conexao" (
     "acesso_expira_em" TIMESTAMP(3) NOT NULL,
     "refresh_hash" TEXT NOT NULL,
     "refresh_expira_em" TIMESTAMP(3) NOT NULL,
+    "refresh_anterior_hash" TEXT,
     "criado_em" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "ultimo_uso_em" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "mcp_conexao_pkey" PRIMARY KEY ("id")
 );
 
+-- Colunas acrescentadas na revisão do PR: o CREATE acima já as tem; o ADD cobre
+-- banco onde uma versão anterior desta migração tenha rodado (dev/teste).
+ALTER TABLE "oauth_cliente" ADD COLUMN IF NOT EXISTS "conectou_em" TIMESTAMP(3);
+ALTER TABLE "mcp_conexao" ADD COLUMN IF NOT EXISTS "refresh_anterior_hash" TEXT;
+
 CREATE INDEX IF NOT EXISTS "oauth_cliente_criado_em_idx" ON "oauth_cliente"("criado_em");
 CREATE INDEX IF NOT EXISTS "oauth_codigo_expira_em_idx" ON "oauth_codigo"("expira_em");
 CREATE UNIQUE INDEX IF NOT EXISTS "mcp_conexao_acesso_hash_key" ON "mcp_conexao"("acesso_hash");
 CREATE UNIQUE INDEX IF NOT EXISTS "mcp_conexao_refresh_hash_key" ON "mcp_conexao"("refresh_hash");
+CREATE UNIQUE INDEX IF NOT EXISTS "mcp_conexao_refresh_anterior_hash_key" ON "mcp_conexao"("refresh_anterior_hash");
 CREATE INDEX IF NOT EXISTS "mcp_conexao_usuario_id_idx" ON "mcp_conexao"("usuario_id");
 CREATE INDEX IF NOT EXISTS "mcp_conexao_refresh_expira_em_idx" ON "mcp_conexao"("refresh_expira_em");
 
