@@ -1,4 +1,4 @@
-import type { Origem, TipoTerminal } from "@prisma/client";
+import type { Origem, StatusProposta, TipoTerminal } from "@prisma/client";
 import type { Quadro } from "@/lib/projetos/projetos";
 
 /** Dados serializáveis que o servidor passa ao quadro cliente. */
@@ -29,6 +29,8 @@ export type CardCliente = {
   responsavelNome: string;
   /** Versão da foto do responsável (ms) ou null → iniciais. */
   responsavelFotoEm: number | null;
+  /** GAB-86: status da proposta (badge no card); null = projeto ainda sem proposta. */
+  propostaStatus: StatusProposta | null;
   empresaNome: string | null;
   origem: Origem | null;
   /** UF (sigla) ou null. */
@@ -62,6 +64,7 @@ export function paraCliente(q: Quadro): { fases: FaseCliente[]; cards: CardClien
       responsavelId: c.responsavel.id,
       responsavelNome: c.responsavel.nome,
       responsavelFotoEm: c.responsavel.foto?.atualizadoEm.getTime() ?? null,
+      propostaStatus: c.proposta?.status ?? null,
       empresaNome: c.empresa?.nome ?? null,
       origem: c.origem,
       estado: c.estado,

@@ -103,3 +103,21 @@ describe("Timeline: ANEXO (GAB-84)", () => {
     expect(screen.getByText(/apagou definitivamente o anexo/)).toBeInTheDocument();
   });
 });
+
+describe("Timeline: PROPOSTA (GAB-86)", () => {
+  const proposta = (payload: object) => ({ ...entrada(payload), tipo: "PROPOSTA" as const });
+
+  it("criação linka a proposta; versão salva linka a versão e mostra a nota", () => {
+    const { rerender } = render(<Timeline entradas={[proposta({ evento: "criada" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByRole("link", { name: "proposta" })).toHaveAttribute("href", "/projetos/c1/proposta");
+    rerender(<Timeline entradas={[proposta({ evento: "versao_salva", numero: 3, nota: "ajuste de prazo" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByRole("link", { name: "versão v3" })).toHaveAttribute("href", "/projetos/c1/proposta/versoes/3");
+    expect(screen.getByText(/ajuste de prazo/)).toBeInTheDocument();
+  });
+
+  it("nota com HTML aparece como texto", () => {
+    render(<Timeline entradas={[proposta({ evento: "versao_salva", numero: 1, nota: "<img src=x onerror=alert(1)>" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
+  });
+});

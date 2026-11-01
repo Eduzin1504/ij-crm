@@ -18,6 +18,7 @@ const base: CardCliente = {
   responsavelId: "u1",
   responsavelNome: "Ana Vendas",
   responsavelFotoEm: null,
+  propostaStatus: null,
   empresaNome: null,
   origem: null,
   estado: null,
@@ -48,5 +49,15 @@ describe("CardVisual: prévia da descrição", () => {
     const { container } = render(<CardVisual card={{ ...base, descricaoPrevia: "<img src=x onerror=alert(1)>" }} fase={undefined} agoraMs={AGORA} />);
     expect(screen.getByTestId("previa-descricao").textContent).toBe("<img src=x onerror=alert(1)>");
     expect(container.querySelector("img")).toBeNull();
+  });
+});
+
+describe("CardVisual: status da proposta (GAB-86)", () => {
+  it("projeto com proposta mostra o badge do status; sem proposta, nada", () => {
+    const { rerender } = render(<CardVisual card={{ ...base, propostaStatus: "RASCUNHO" }} fase={undefined} agoraMs={AGORA} />);
+    expect(screen.getByTestId("status-proposta").textContent).toBe("Rascunho");
+    expect(screen.getByTestId("status-proposta")).toHaveAttribute("title", "Proposta: Rascunho");
+    rerender(<CardVisual card={base} fase={undefined} agoraMs={AGORA} />);
+    expect(screen.queryByTestId("status-proposta")).toBeNull();
   });
 });

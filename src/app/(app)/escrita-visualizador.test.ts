@@ -30,6 +30,7 @@ vi.mock("@/lib/empresas/empresas");
 vi.mock("@/lib/lixeira/cards");
 vi.mock("@/lib/lixeira/anexos");
 vi.mock("@/lib/preferencias/servico");
+vi.mock("@/lib/propostas/propostas");
 
 const kanban = await import("./kanban/actions");
 const vinculos = await import("./projetos/[id]/vinculos-actions");
@@ -38,6 +39,7 @@ const semana = await import("./_semana/actions");
 const contatos = await import("./contatos/actions");
 const empresas = await import("./empresas/actions");
 const lixeira = await import("./_lixeira/actions");
+const proposta = await import("./projetos/[id]/proposta/actions");
 const projetos = await import("@/lib/projetos/projetos");
 const feita = await import("@/lib/projetos/feita");
 const servVinculos = await import("@/lib/projetos/vinculos");
@@ -47,6 +49,7 @@ const servEmpresas = await import("@/lib/empresas/empresas");
 const lixeiraCards = await import("@/lib/lixeira/cards");
 const lixeiraAnexos = await import("@/lib/lixeira/anexos");
 const preferencias = await import("@/lib/preferencias/servico");
+const servPropostas = await import("@/lib/propostas/propostas");
 
 const ESCRITAS: [string, () => Promise<unknown>][] = [
   ["kanban.criarCard", () => kanban.criarCardAction("p1", "f1", "Card")],
@@ -71,6 +74,10 @@ const ESCRITAS: [string, () => Promise<unknown>][] = [
   ["empresas.editarCampo", () => empresas.editarEmpresaCampoAction("e1", "nome", "ACME")],
   ["lixeira.excluirCard", () => lixeira.excluirCardAction("c1", "vendas")],
   ["lixeira.excluirAnexo", () => lixeira.excluirAnexoAction("a".repeat(32))],
+  ["proposta.criar", () => proposta.criarPropostaAction("c1")],
+  ["proposta.salvarTexto", () => proposta.salvarTextoAction("c1", 0, { type: "doc", content: [] })],
+  ["proposta.salvarEstruturado", () => proposta.salvarEstruturadoAction("c1", 0, {})],
+  ["proposta.salvarVersao", () => proposta.salvarVersaoAction("c1", 0, { nota: "v" })],
 ];
 
 beforeEach(() => {
@@ -83,7 +90,7 @@ describe("VISUALIZADOR não escreve (server actions)", () => {
     await expect(chamar()).rejects.toBe(proibido);
     expect(exigirEscrita).toHaveBeenCalledTimes(1);
     expect(exigirUsuario).not.toHaveBeenCalled();
-    for (const servico of [projetos, feita, servVinculos, prazos, servContatos, servEmpresas, lixeiraCards, lixeiraAnexos]) {
+    for (const servico of [projetos, feita, servVinculos, prazos, servContatos, servEmpresas, lixeiraCards, lixeiraAnexos, servPropostas]) {
       for (const fn of Object.values(servico)) if (vi.isMockFunction(fn)) expect(fn).not.toHaveBeenCalled();
     }
   });

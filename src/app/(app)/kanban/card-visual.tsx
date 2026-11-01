@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cn } from "cn";
 import { BORDA_AGING, DiasNaFase } from "@/components/kanban/aging";
 import { Avatar } from "@/components/kanban/avatar";
+import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
 import { diasNaFase, estadoProximaAcao, nivelAging } from "@/lib/projetos/aging";
 import type { CardCliente, FaseCliente } from "./tipos";
 
@@ -62,6 +63,8 @@ export function CardVisual({
         {card.revisar ? (
           <span className="rounded-full border border-warn/60 px-1.5 font-mono text-[10px] leading-4 text-fg-soft uppercase">revisar</span>
         ) : null}
+        {/* GAB-86: status da proposta; ela em si fica na aba Propostas / no projeto (§4.2). */}
+        {card.propostaStatus ? <StatusPropostaBadge status={card.propostaStatus} className="min-w-0 truncate" /> : null}
         <span className="flex-1" />
         <Avatar nome={card.responsavelNome} usuarioId={card.responsavelId} fotoEm={card.responsavelFotoEm} />
       </div>
