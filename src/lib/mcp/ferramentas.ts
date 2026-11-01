@@ -156,7 +156,9 @@ const lerProjeto = ferramenta({
     if (!c) return erro(MENSAGEM_ERRO_PROJETO.CARD_NAO_ENCONTRADO);
     const fases = await mapaDeFases();
     const nomeFase = (v: unknown) => (typeof v === "string" ? (fases.get(v)?.nome ?? "fase removida") : undefined);
-    const recentes = c.timeline.slice(-(a.timeline ?? TIMELINE_PADRAO)).reverse();
+    const n = a.timeline ?? TIMELINE_PADRAO;
+    // `slice(-0)` seria a lista inteira: 0 pede nenhuma entrada.
+    const recentes = n === 0 ? [] : c.timeline.slice(-n).reverse();
     return ok({
       id: c.id,
       titulo: c.titulo,

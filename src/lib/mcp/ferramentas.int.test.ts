@@ -192,5 +192,8 @@ describe("leitura", () => {
     expect(p).toMatchObject({ titulo: "Loja", quadro: "vendas", fase: { nome: "Primeiro Contato" }, responsavel: { nome: "Ana" } });
     expect(p.timeline[0]).toMatchObject({ tipo: "NOTA", autor: "Ana", viaMcp: true, dados: { texto: "Primeira conversa" } });
     expect(p.url).toMatch(new RegExp(`/projetos/${criado.id}$`));
+    // timeline: 0 → nenhuma entrada (não a lista inteira).
+    expect(dados(await executarFerramenta("ler_projeto", { id: criado.id, timeline: 0 }, vendedora)).timeline).toEqual([]);
+    expect(dados(await executarFerramenta("ler_projeto", { id: criado.id, timeline: 1 }, vendedora)).timeline).toHaveLength(1);
   });
 });

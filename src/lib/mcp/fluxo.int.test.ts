@@ -164,7 +164,11 @@ describe("fluxo completo: registro → autorizar → token → MCP → refresh �
     expect(rev.status).toBe(200);
     const depois = await mcp({ jsonrpc: "2.0", id: 6, method: "tools/list" }, novo.access_token);
     expect(depois.status).toBe(401);
-    expect(depois.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    const www = depois.headers.get("www-authenticate")!;
+    expect(www).toContain('error="invalid_token"');
+    // Header só com ASCII; o português vai no corpo.
+    expect(www).toMatch(/^[\x20-\x7e]*$/);
+    expect((await depois.json()).erro).toMatch(/Token inválido/);
     expect(await listarConexoes(s.usuario.id)).toEqual([]);
   });
 
@@ -313,6 +317,22 @@ describe("autorização: o que redireciona e o que não", () => {
       code_challenge_method: "S256",
     });
     expect(v.ok).toBe(true);
+  });
+
+  it("registro recusa corpo grande demais (Content-Length ou stream) antes de interpretar", async () => {
+    const grande = JSON.stringify({ redirect_uris: [CALLBACK], client_name: "x".repeat(20_000) });
+    const r = await registrarPOST(new Request(`${BASE}/api/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: grande }));
+    expect(r.status).toBe(413);
+    // Sem Content-Length confiável: stream sem tamanho declarado.
+    const stream = new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(grande));
+        c.close();
+      },
+    });
+    const r2 = await registrarPOST(new Request(`${BASE}/api/oauth/register`, { method: "POST", body: stream, duplex: "half" } as RequestInit));
+    expect(r2.status).toBe(413);
+    expect(await db.oauthCliente.count()).toBe(0);
   });
 
   it("registro recusa redirect http fora de loopback", async () => {

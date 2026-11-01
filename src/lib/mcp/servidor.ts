@@ -24,11 +24,15 @@ const INSTRUCOES =
   "Comece por listar_fases (ids de quadros e fases) e buscar_projetos. Tudo que você grava aparece na Timeline do projeto como \"via MCP\". " +
   "Excluir de vez, mesclar contatos e configurações ficam só na tela do CRM.";
 
-function naoAutorizado(descricao?: string): Response {
+/**
+ * 401 do recurso. O header leva só ASCII (`error_description` em inglês: header
+ * HTTP com acento quebra parser); o texto em português vai no corpo.
+ */
+function naoAutorizado(invalido = false): Response {
   const partes = [`resource_metadata="${urlMetadadosRecurso()}"`, `scope="${ESCOPO}"`];
-  if (descricao) partes.unshift(`error="invalid_token"`, `error_description="${descricao}"`);
+  if (invalido) partes.unshift(`error="invalid_token"`, `error_description="Token invalid, expired or revoked"`);
   return Response.json(
-    { erro: descricao ?? "Autenticação necessária." },
+    { erro: invalido ? "Token inválido, vencido ou revogado. Conecte de novo." : "Autenticação necessária." },
     { status: 401, headers: { "WWW-Authenticate": `Bearer ${partes.join(", ")}`, "Cache-Control": "no-store" } },
   );
 }
@@ -57,7 +61,7 @@ export async function atenderMcp(req: Request): Promise<Response> {
   if (!token) return naoAutorizado();
   try {
     const sessao = await autenticarAcesso(token);
-    if (!sessao) return naoAutorizado("Token inválido, vencido ou revogado.");
+    if (!sessao) return naoAutorizado(true);
     if (req.method !== "POST") {
       return Response.json({ erro: "Método não suportado (servidor sem sessão: só POST)." }, { status: 405, headers: { Allow: "POST" } });
     }

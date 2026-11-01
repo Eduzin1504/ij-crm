@@ -19,15 +19,51 @@ export async function comTratamentoOauth(contexto: string, corpo: () => Promise<
   }
 }
 
-/** Form-urlencoded (RFC 6749 §4.1.3) → objeto; aceita JSON também, por tolerância. */
-export async function lerFormulario(req: Request): Promise<Record<string, string | undefined>> {
-  const tipo = req.headers.get("content-type") ?? "";
-  if (tipo.includes("application/json")) {
-    const j = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-    return Object.fromEntries(Object.entries(j ?? {}).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])));
+/** Maior corpo aceito nos endpoints OAuth (um registro DCR real tem < 2 KB). */
+export const CORPO_MAX = 16 * 1024;
+
+/**
+ * Corpo como texto, no máximo `CORPO_MAX` bytes: recusa pelo Content-Length e
+ * também lendo o stream (o header pode faltar ou mentir). `null` = grande demais.
+ */
+export async function lerCorpoLimitado(req: Request, max = CORPO_MAX): Promise<string | null> {
+  const declarado = Number(req.headers.get("content-length") ?? "0");
+  if (declarado > max) return null;
+  if (!req.body) return "";
+  const leitor = req.body.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await leitor.cancel();
+      return null;
+    }
+    partes.push(value);
   }
-  const p = new URLSearchParams(await req.text());
-  return Object.fromEntries(p.entries());
+  return new TextDecoder().decode(Buffer.concat(partes));
+}
+
+/**
+ * Form-urlencoded (RFC 6749 §4.1.3) → objeto; aceita JSON também, por
+ * tolerância. Corpo acima de `CORPO_MAX` vira `{}` (o endpoint responde invalid_request).
+ */
+export async function lerFormulario(req: Request): Promise<Record<string, string | undefined>> {
+  const corpo = await lerCorpoLimitado(req);
+  if (corpo === null) return {};
+  if ((req.headers.get("content-type") ?? "").includes("application/json")) {
+    let j: unknown = null;
+    try {
+      j = JSON.parse(corpo);
+    } catch {
+      return {};
+    }
+    if (!j || typeof j !== "object") return {};
+    return Object.fromEntries(Object.entries(j).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])));
+  }
+  return Object.fromEntries(new URLSearchParams(corpo).entries());
 }
 
 // DCR é aberto (sem login): freio por IP. 20 registros/hora bastam para ≤15 pessoas reconectando.
