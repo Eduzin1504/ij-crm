@@ -6,20 +6,20 @@ describe("SeletorNotaContato (GAB-85)", () => {
   it("um clique escolhe a nota; clicar de novo na mesma limpa (é opcional)", () => {
     const onChange = vi.fn();
     const { rerender } = render(<SeletorNotaContato valor={null} onChange={onChange} />);
-    expect(screen.getByRole("radiogroup", { name: /como foi o contato/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: "4 de 5" }));
+    expect(screen.getByRole("group", { name: /como foi o contato/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "4 de 5" }));
     expect(onChange).toHaveBeenLastCalledWith(4);
     rerender(<SeletorNotaContato valor={4} onChange={onChange} />);
-    expect(screen.getByRole("radio", { name: "4 de 5" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "5 de 5" })).toHaveAttribute("aria-checked", "false");
-    fireEvent.click(screen.getByRole("radio", { name: "4 de 5" }));
+    expect(screen.getByRole("button", { name: "4 de 5" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "5 de 5" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "4 de 5" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 
   it("desabilitado não muda", () => {
     const onChange = vi.fn();
     render(<SeletorNotaContato valor={null} onChange={onChange} disabled />);
-    fireEvent.click(screen.getByRole("radio", { name: "2 de 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "2 de 5" }));
     expect(onChange).not.toHaveBeenCalled();
   });
 });

@@ -19,7 +19,7 @@ export function SeletorNotaContato({ valor, onChange, disabled = false }: { valo
       <span aria-hidden className="text-xs text-fg-mute">
         Como foi o contato? <span className="text-fg-faint">(opcional)</span>
       </span>
-      <div role="radiogroup" aria-label="Como foi o contato? (opcional)" className="flex items-center">
+      <div role="group" aria-label="Como foi o contato? (opcional)" className="flex items-center">
         {NOTAS.map((n) => {
           const marcada = valor === n;
           const acesa = valor !== null && n <= valor;
@@ -27,8 +27,8 @@ export function SeletorNotaContato({ valor, onChange, disabled = false }: { valo
             <button
               key={n}
               type="button"
-              role="radio"
-              aria-checked={marcada}
+              // Toggle: pressionado = nota escolhida; clicar de novo limpa.
+              aria-pressed={marcada}
               aria-label={`${n} de ${NOTA_CONTATO_MAX}`}
               title={`${n} de ${NOTA_CONTATO_MAX}`}
               disabled={disabled}
