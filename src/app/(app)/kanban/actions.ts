@@ -5,30 +5,13 @@ import { z } from "zod";
 import { exigirEscrita, exigirUsuario } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import { descricaoSchema, ehCampoEditavel, interpretarCampo } from "@/lib/projetos/campos";
-import { adicionarNota, criarCard, editarCard, moverCard, type ErroProjeto } from "@/lib/projetos/projetos";
-import { DETALHE_PERDA_MAX, type DadosTerminal } from "@/lib/projetos/terminal-regras";
+import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
+import { adicionarNota, criarCard, editarCard, moverCard } from "@/lib/projetos/projetos";
+import type { DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { salvarVisualizacaoKanban } from "@/lib/preferencias/servico";
 
-const MENSAGEM: Record<ErroProjeto, string> = {
-  CARD_NAO_ENCONTRADO: "Card não encontrado (pode ter sido excluído). Recarregue a página.",
-  PIPELINE_NAO_ENCONTRADO: "Quadro não encontrado.",
-  FASE_NAO_ENCONTRADA: "Fase não encontrada. Recarregue a página.",
-  FASE_ARQUIVADA: "Essa fase foi arquivada. Recarregue a página.",
-  FASE_DE_OUTRO_PIPELINE: "Essa fase é de outro quadro.",
-  FASE_TERMINAL: "Não dá para criar card direto numa fase de ganho/perdido. Crie numa fase aberta e mova.",
-  CONFLITO_CONCORRENTE: "O card ou a fase mudou enquanto você movia. Recarregue e tente de novo.",
-  TITULO_INVALIDO: "Informe um título (até 200 caracteres).",
-  RESPONSAVEL_INVALIDO: "Responsável inválido ou inativo.",
-  NOTA_INVALIDA: "A nota precisa ter entre 1 e 5000 caracteres.",
-  FASE_HANDOFF_INDISPONIVEL: "O quadro Projetos está sem o marco Handoff ativo, para onde vai o card ganho. Peça à gestão/admin para conferir as fases.",
-  DADOS_TERMINAL_OBRIGATORIOS: "Faltam os dados do fechamento (valor ou motivo). Mova o card de novo para abrir o diálogo.",
-  VALOR_FECHADO_INVALIDO: "Valor fechado inválido. Ex.: 12.500,00",
-  MOTIVO_PERDA_OBRIGATORIO: "Escolha o motivo da perda.",
-  MOTIVO_PERDA_INVALIDO: "Motivo da perda inválido.",
-  MOTIVO_PERDA_DETALHE_OBRIGATORIO: "Em “Outro”, descreva o motivo da perda.",
-  SEM_PERMISSAO: "Seu acesso é só de visualização.",
-  MOTIVO_PERDA_DETALHE_LONGO: `O detalhe do motivo pode ter até ${DETALHE_PERDA_MAX} caracteres.`,
-};
+// Mesmo texto na tela e no conector MCP (GAB-83).
+const MENSAGEM = MENSAGEM_ERRO_PROJETO;
 
 /**
  * `erro` de regra = texto pronto em português. Exceção inesperada vira

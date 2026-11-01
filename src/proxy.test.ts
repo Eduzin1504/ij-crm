@@ -58,4 +58,14 @@ describe("proxy: matcher", () => {
     expect(casa("/apple-icon-png")).toBe(true);
     expect(casa("/iconXpng")).toBe(true);
   });
+
+  it("conector MCP (GAB-83): /api/mcp, OAuth, descoberta e a tela de autorização são públicos (autenticam por conta própria)", () => {
+    expect(proxy(req("/api/mcp")).status).toBe(200);
+    expect(proxy(req("/api/oauth/token")).status).toBe(200);
+    expect(proxy(req("/api/oauth/register")).status).toBe(200);
+    expect(proxy(req("/.well-known/oauth-protected-resource/api/mcp")).status).toBe(200);
+    expect(proxy(req("/.well-known/oauth-authorization-server")).status).toBe(200);
+    expect(proxy(req("/oauth/autorizar?client_id=x")).headers.get("location")).toBeNull();
+    expect(proxy(req("/api/mcpx")).status).toBe(401);
+  });
 });
