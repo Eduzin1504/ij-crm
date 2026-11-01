@@ -13,4 +13,15 @@ export const CABECALHOS_SEGURANCA = [
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
 ];
 
-export const HEADERS_APP = [{ source: "/:path*", headers: CABECALHOS_SEGURANCA }];
+/**
+ * Arquivos de anexo (GAB-84) são conteúdo do usuário: além do anti-clickjacking,
+ * nada roda (`default-src 'none'; sandbox`). O header do next.config SOBRESCREVE
+ * o que a rota põe na resposta (conferido no `next dev`), então a CSP completa
+ * precisa vir daqui; a regra mais específica vem depois e vence a geral.
+ */
+export const CSP_ANEXO = "default-src 'none'; sandbox; frame-ancestors 'none'";
+
+export const HEADERS_APP = [
+  { source: "/:path*", headers: CABECALHOS_SEGURANCA },
+  { source: "/api/anexos/:path*", headers: [{ key: "Content-Security-Policy", value: CSP_ANEXO }] },
+];

@@ -5,10 +5,12 @@
  */
 export { ehIdDeAnexo } from "./armazenamento";
 import { mensagemInesperada, registrarErro } from "@/lib/erros/registrar";
+import { CSP_ANEXO } from "@/lib/rotas/seguranca";
 
 export const SEGURANCA_ANEXO = {
   "x-content-type-options": "nosniff",
-  "content-security-policy": "default-src 'none'; sandbox",
+  // Igual à do next.config (que sobrescreve esta): src/lib/rotas/seguranca.ts.
+  "content-security-policy": CSP_ANEXO,
   "cross-origin-resource-policy": "same-origin",
   "cache-control": "private, no-store",
 };
