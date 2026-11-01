@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarCheck,
   CalendarDays,
+  ChartColumn,
   Contact,
   FolderKanban,
   KanbanSquare,
@@ -35,6 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/contatos", label: "Contatos", icon: Contact },
   { href: "/empresas", label: "Empresas", icon: Building2 },
   { href: "/ranking", label: "Ranking", icon: Trophy },
+  { href: "/painel", label: "Painel", icon: ChartColumn },
   { href: "/gestao", label: "Gestão", icon: Settings2, minPapel: "GESTOR" },
 ];
 

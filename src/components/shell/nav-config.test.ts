@@ -33,6 +33,13 @@ describe("NAV_ITEMS", () => {
     for (const papel of ["VENDEDOR", "GESTOR", "ADMIN"] as const) expect(itensParaPapel(papel).map((i) => i.href)).toContain("/ranking");
   });
 
+  it("Painel de vendas aparece para todos os papéis, logo depois do Ranking (GAB-94)", () => {
+    for (const papel of ["VISUALIZADOR", "VENDEDOR", "PROJETOS", "GESTOR", "ADMIN"] as const) {
+      const hrefs = itensParaPapel(papel).map((i) => i.href);
+      expect(hrefs.indexOf("/painel")).toBe(hrefs.indexOf("/ranking") + 1);
+    }
+  });
+
   it("Calendário aparece para todos os papéis, logo depois da Minha Semana (GAB-51)", () => {
     for (const papel of ["VENDEDOR", "GESTOR", "ADMIN"] as const) {
       const hrefs = itensParaPapel(papel).map((i) => i.href);
