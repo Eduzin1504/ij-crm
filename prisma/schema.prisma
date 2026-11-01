@@ -328,7 +328,8 @@ model Projeto {
   /// fora da lixeira, só como registro, até o ticket de limpeza.
   absorvidoPorId        String?    @map("absorvido_por_id")
   /// GAB-81: responsável no momento do GANHO (o card segue para Projetos e pode
-  /// mudar de responsável). O ranking credita ganho/perda a ele.
+  /// mudar de responsável). O ranking credita o ganho a ele; a perda vai para o
+  /// responsável atual (`responsavel_id`).
   vendedorId            String?    @map("vendedor_id")
   criadoEm              DateTime   @default(now()) @map("criado_em")
   atualizadoEm          DateTime   @updatedAt @map("atualizado_em")

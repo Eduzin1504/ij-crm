@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { travarPipelines } from "@/lib/fases/fases";
-import { adicionarNota, criarCard, editarCard, listarQuadro, moverCard, obterCard } from "./projetos";
+import { adicionarNota, criarCard, editarCard, idDoCardQueAbsorveu, listarQuadro, moverCard, obterCard } from "./projetos";
 
 const db = dbTeste();
 
@@ -269,5 +269,26 @@ describe("leitura", () => {
     expect(d?.timeline[2].usuario?.nome).toBe("Ana Vendas");
     await db.projeto.update({ where: { id: c.id }, data: { deletadoEm: new Date() } });
     expect(await obterCard(c.id)).toBeNull();
+  });
+
+  it("idDoCardQueAbsorveu: casca do ciclo único → card que a absorveu; card comum, lixeira ou absorvente apagado → null (GAB-81)", async () => {
+    const { vendas, projetos, vendedora } = await semear();
+    const base = { responsavelId: vendedora.id, criadoVia: "UI" as const };
+    const venda = await db.projeto.create({ data: { ...base, titulo: "Acme", pipelineId: vendas.id, faseId: fase(vendas, "contrato_assinado").id } });
+    const casca = await db.projeto.create({
+      data: { ...base, titulo: "Acme", pipelineId: projetos.id, faseId: fase(projetos, "em_execucao").id, deletadoEm: new Date(), absorvidoPorId: venda.id },
+    });
+    const naLixeira = await db.projeto.create({
+      data: { ...base, titulo: "Outro", pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, deletadoEm: new Date() },
+    });
+
+    expect(await obterCard(casca.id)).toBeNull();
+    expect(await idDoCardQueAbsorveu(casca.id)).toBe(venda.id);
+    expect(await idDoCardQueAbsorveu(venda.id)).toBeNull();
+    expect(await idDoCardQueAbsorveu(naLixeira.id)).toBeNull();
+    expect(await idDoCardQueAbsorveu("nao-existe")).toBeNull();
+
+    await db.projeto.update({ where: { id: venda.id }, data: { deletadoEm: new Date() } });
+    expect(await idDoCardQueAbsorveu(casca.id)).toBeNull();
   });
 });
