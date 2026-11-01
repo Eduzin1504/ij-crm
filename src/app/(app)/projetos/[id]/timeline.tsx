@@ -79,7 +79,8 @@ function Descricao({
       return (
         <>
           criou o card em <b className="font-medium text-foreground">{fase(p.faseId)}</b>
-          {typeof p.via === "string" && VIA[p.via] ? ` ${VIA[p.via]}` : ""}
+          {/* Pelo MCP a criação passa pelo mesmo caminho da tela (via UI): a marca "via MCP" já diz de onde veio. */}
+          {!e.viaMcp && typeof p.via === "string" && VIA[p.via] ? ` ${VIA[p.via]}` : ""}
         </>
       );
     case "VINCULO_PROJETO":
@@ -251,6 +252,11 @@ export function Timeline({
             </span>
             <p className="text-sm text-fg-soft">
               <span className="text-foreground">{e.usuario?.nome ?? "Sistema"}</span> <Descricao e={e} fases={fases} nomes={nomes} relacionados={relacionados} mesmoCard={mesmoCard} />
+              {e.viaMcp ? (
+                <span title="Feito pelo Claude desta pessoa, pelo conector MCP" className="ml-1.5 rounded border border-border px-1 py-px font-mono text-[10px] text-fg-mute">
+                  via MCP
+                </span>
+              ) : null}
             </p>
             {e.tipo === "MENSAGEM_WHATSAPP" ? <MensagemWhatsapp payload={p} /> : null}
             {e.tipo === "NOTA" && typeof p.texto === "string" ? (

@@ -205,7 +205,10 @@ export async function atualizarUsuario(
         },
       });
       if (r.count === 0) throw new ErroConcorrencia();
-      if (dados.ativo === false) await tx.sessao.deleteMany({ where: { usuarioId } });
+      if (dados.ativo === false) {
+        await tx.sessao.deleteMany({ where: { usuarioId } });
+        await tx.mcpConexao.deleteMany({ where: { usuarioId } }); // conector MCP (GAB-83)
+      }
     });
   } catch (e) {
     if (e instanceof ErroConcorrencia) return { ok: false, erro: "PAPEL_NAO_PERMITIDO" };

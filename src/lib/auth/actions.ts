@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { COOKIE_SESSAO, opcoesCookieSessao } from "./atual";
+import { destinoSeguro } from "./destino";
 import { ipDoCliente } from "./ip";
 import { freioEsqueci, limitadorLogin } from "./limitador";
 import { MENSAGEM_REDEFINICAO, pedirRedefinicao, redefinirSenha } from "./redefinicao";
@@ -40,7 +41,8 @@ export async function loginAction(_prev: EstadoForm, form: FormData): Promise<Es
     }
     limitadorLogin.registrarSucesso(chave);
     await abrirSessao(r.usuarioId);
-    redirect("/");
+    // `voltar`: ex.: a autorização do conector MCP (GAB-83) mandou para o login.
+    redirect(destinoSeguro(form.get("voltar")) ?? "/");
   });
 }
 

@@ -932,3 +932,81 @@ Sinais de que um limite está curto: `docker stats` encostando no teto, ou
 `docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' <container>`
 mostrando `true`/restarts. Suba a variável correspondente no `.env` e rode
 `scripts/deploy.sh`.
+
+## 12. Conector MCP: conectar o Claude ao CRM (GAB-83)
+
+O CRM é um servidor MCP remoto com login OAuth. Cada pessoa conecta o próprio
+Claude e ele age **em nome dela, com o papel dela** (visualizador só lê). Tudo
+que o Claude grava aparece na Timeline do projeto com o nome da pessoa e a
+marca **“via MCP”**. Excluir de vez, mesclar contatos e configurações ficam só
+na tela.
+
+**URL do conector:** `https://<APP_DOMAIN>/api/mcp` (o perfil de cada pessoa
+mostra a URL exata). Ela deriva de `APP_URL`: se `APP_URL` estiver errada, o
+`issuer` e o `resource` do OAuth ficam errados e nenhum cliente conecta.
+
+### claude.ai (web) e Claude Desktop
+
+1. Configurações → **Conectores** → **Adicionar conector personalizado**
+   (em plano Team/Enterprise, quem adiciona é o Owner da organização; depois
+   cada pessoa só clica em **Conectar**).
+2. Nome: `ij-crm`. URL: `https://<APP_DOMAIN>/api/mcp`. Deixe client ID e
+   segredo **vazios** (o Claude se registra sozinho, por DCR).
+3. **Conectar** → abre o CRM → login (se preciso) → tela “Conectar ao CRM”
+   com o nome do cliente e o host de retorno (`claude.ai`) → **Autorizar**.
+4. Numa conversa, ative o conector e peça, por exemplo, “liste meus projetos
+   em negociação”.
+
+O Desktop usa a mesma conta do claude.ai: o conector adicionado lá aparece no
+Desktop (e no celular) sem passo extra.
+
+### Claude Code
+
+```bash
+claude mcp add --transport http ij-crm https://<APP_DOMAIN>/api/mcp
+# dentro do Claude Code: /mcp → ij-crm → Authenticate (abre o navegador)
+```
+
+O Claude Code recebe o código numa porta local (`http://localhost:<porta>/callback`);
+a tela de autorização avisa quando o retorno é para `localhost`.
+
+### Ver e revogar
+
+- **Perfil → Conexões do Claude (MCP)**: lista cada conexão (cliente, quando
+  conectou, último uso) com **Revogar**, que corta na hora.
+- Trocar ou redefinir a senha e desativar o usuário também derrubam todas as
+  conexões MCP dele (como as sessões).
+- Mudança de papel vale na próxima chamada (o papel é lido a cada request).
+
+### Como funciona (para depurar)
+
+| Endpoint | Para quê |
+|---|---|
+| `POST /api/mcp` | MCP (Streamable HTTP, sem sessão, resposta JSON). Sem token → `401` com `WWW-Authenticate: Bearer resource_metadata=…` |
+| `GET /.well-known/oauth-protected-resource/api/mcp` (e na raiz) | metadados do recurso (RFC 9728) |
+| `GET /.well-known/oauth-authorization-server` | metadados do OAuth (RFC 8414) |
+| `POST /api/oauth/register` | registro dinâmico (RFC 7591); só cliente público; 20/h por IP |
+| `GET /oauth/autorizar` | login + consentimento (PKCE S256 obrigatório) |
+| `POST /api/oauth/token` | código → tokens; refresh com rotação |
+| `POST /api/oauth/revoke` | revogação (RFC 7009) |
+
+- Access token: 1 h. Refresh: 30 dias, renovado a cada uso (o antigo morre).
+  Banco guarda só sha256 (`mcp_conexao`, `oauth_codigo`). Clientes registrados
+  que nunca conectaram somem após 7 dias.
+- Refresh já usado que reaparece = cópia vazada ou replay: a conexão inteira é
+  apagada (log `[auditoria] mcp.refresh_reusado`) e a pessoa conecta de novo.
+  Se alguém relatar "o Claude desconectou sozinho", procure essa linha.
+- O app manda `X-Frame-Options: DENY` e `frame-ancestors 'none'` em toda rota
+  (`next.config.ts`), porque no Coolify não há Caddy para isso: a tela de
+  autorização não pode ser embutida (clickjacking).
+- Erro numa ferramenta: o Claude recebe a mensagem da regra (a mesma da tela)
+  ou `Erro no servidor (ref: abcd1234)`; no log, `grep 'ref=abcd1234'` mostra
+  `[mcp.<ferramenta>] ref=abcd1234 <causa>`. Falhas do OAuth logam como
+  `[mcp.oauth.*]`.
+- Testar a descoberta de fora: `curl -i -X POST https://<APP_DOMAIN>/api/mcp`
+  deve dar `401` com o header acima, e
+  `curl https://<APP_DOMAIN>/.well-known/oauth-authorization-server` o JSON.
+- O claude.ai chama o servidor a partir de `160.79.104.0/21`: se um dia houver
+  firewall/WAF na frente do Caddy, libere essa faixa.
+- “Couldn't reach the MCP server” no claude.ai quase sempre é descoberta: confira
+  os dois `curl` acima e o `APP_URL`.

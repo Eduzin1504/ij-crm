@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { usuarioAtual } from "@/lib/auth/atual";
+import { destinoSeguro } from "@/lib/auth/destino";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Entrar" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ redefinida?: string }> }) {
-  if (await usuarioAtual()) redirect("/");
-  const { redefinida } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ redefinida?: string; voltar?: string }> }) {
+  const { redefinida, voltar: bruto } = await searchParams;
+  const voltar = destinoSeguro(bruto);
+  if (await usuarioAtual()) redirect(voltar ?? "/");
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-tight">Bem-vindo de volta</h1>
@@ -17,7 +19,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           Senha redefinida. Entre com a nova senha.
         </p>
       ) : null}
-      <LoginForm />
+      <LoginForm voltar={voltar} />
       <p className="mt-4 text-sm">
         <Link href="/esqueci" className="text-fg-mute hover:text-foreground hover:underline">
           Esqueci minha senha

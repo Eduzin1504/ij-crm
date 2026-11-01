@@ -143,6 +143,8 @@ model Usuario {
   importPrevias     ImportPrevia[]
   foto              UsuarioFoto?
   configuracoes     Configuracao[]
+  oauthCodigos      OauthCodigo[]
+  mcpConexoes       McpConexao[]
   resumosJanela     ResumoJanela[]
   prazos            Prazo[]          @relation("prazoResponsavel")
   prazosCriados     Prazo[]          @relation("prazoCriadoPor")
@@ -179,6 +181,67 @@ model Sessao {
   @@index([usuarioId])
   @@index([expiraEm])
   @@map("sessao")
+}
+
+// ---------------------------------------------------------------- MCP / OAuth (GAB-83)
+// Conector MCP remoto: o CRM é o servidor de autorização (OAuth 2.1 + PKCE) e o
+// servidor de recurso (`/api/mcp`). Tokens e códigos só como sha256, como a sessão.
+
+/// Cliente OAuth registrado por Dynamic Client Registration (claude.ai, Claude Code…). Público: sem segredo.
+model OauthCliente {
+  id           String   @id // client_id: aleatório, público
+  nome         String // client_name do registro, mostrado na autorização e no perfil
+  redirectUris String[] @map("redirect_uris")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  /// 1ª troca de código por token. Nunca conectou e tem mais de 7 dias → a limpeza apaga.
+  conectouEm   DateTime? @map("conectou_em")
+
+  codigos  OauthCodigo[]
+  conexoes McpConexao[]
+
+  @@index([criadoEm])
+  @@map("oauth_cliente")
+}
+
+/// Código de autorização: uso único, minutos de vida, preso ao PKCE (S256) e ao redirect_uri.
+model OauthCodigo {
+  id            String   @id // sha256 do código
+  clienteId     String   @map("cliente_id")
+  usuarioId     String   @map("usuario_id")
+  redirectUri   String   @map("redirect_uri")
+  codeChallenge String   @map("code_challenge")
+  escopo        String
+  expiraEm      DateTime @map("expira_em")
+  criadoEm      DateTime @default(now()) @map("criado_em")
+
+  cliente OauthCliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  usuario Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([expiraEm])
+  @@map("oauth_codigo")
+}
+
+/// Uma conexão MCP ativa (o que o perfil lista e revoga). O refresh gira a cada uso: os dois hashes são trocados.
+model McpConexao {
+  id              String   @id @default(cuid())
+  usuarioId       String   @map("usuario_id")
+  clienteId       String   @map("cliente_id")
+  escopo          String
+  acessoHash      String   @unique @map("acesso_hash")
+  acessoExpiraEm  DateTime @map("acesso_expira_em")
+  refreshHash     String   @unique @map("refresh_hash")
+  refreshExpiraEm DateTime @map("refresh_expira_em")
+  /// Refresh já girado: se aparecer de novo, foi roubado/replay → a conexão é apagada.
+  refreshAnteriorHash String? @unique @map("refresh_anterior_hash")
+  criadoEm        DateTime @default(now()) @map("criado_em")
+  ultimoUsoEm     DateTime @default(now()) @map("ultimo_uso_em")
+
+  usuario Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cliente OauthCliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@index([refreshExpiraEm])
+  @@map("mcp_conexao")
 }
 
 // ---------------------------------------------------------------- empresas / contatos
@@ -395,6 +458,8 @@ model Timeline {
   usuarioId       String?       @map("usuario_id")
   mensagemBrutaId String?       @map("mensagem_bruta_id")
   em              DateTime      @default(now())
+  /// GAB-83: ação feita pelo conector MCP (o Claude da pessoa), em nome de `usuario`.
+  viaMcp          Boolean       @default(false) @map("via_mcp")
 
   projeto         Projeto  @relation(fields: [projetoId], references: [id], onDelete: Cascade)
   usuario         Usuario?      @relation(fields: [usuarioId], references: [id])

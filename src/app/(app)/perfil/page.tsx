@@ -7,11 +7,14 @@ import { ROTULO_PAPEL } from "@/lib/auth/papeis";
 import { listarSessoes } from "@/lib/auth/sessao";
 import { db } from "@/lib/db";
 import { comTratamento, ehInesperado } from "@/lib/erros/registrar";
+import { listarConexoes } from "@/lib/mcp/oauth";
+import { recursoMcp } from "@/lib/mcp/url";
 import { paginaInicial } from "@/lib/preferencias/preferencias";
 import { obterPreferencias } from "@/lib/preferencias/servico";
 import { EmailForm, PaginaInicialForm, SenhaForm } from "./conta-forms";
 import { FotoPerfil } from "./foto-perfil";
 import { PerfilForm } from "./perfil-form";
+import { ConexoesMcp } from "./conexoes-mcp";
 import { Sessoes } from "./sessoes";
 
 export const metadata = { title: "Meu perfil" };
@@ -26,10 +29,11 @@ export default async function PerfilPage() {
       }),
       obterPreferencias(eu.id),
       idSessaoAtual().then((atual) => listarSessoes(eu.id, atual)),
+      listarConexoes(eu.id),
     ]),
   );
   if (ehInesperado(dados)) return <ErroCarregamento codigo={dados.ref} />;
-  const [u, prefs, sessoes] = dados;
+  const [u, prefs, sessoes, conexoes] = dados;
   return (
     <>
       <PageHeader
@@ -62,6 +66,10 @@ export default async function PerfilPage() {
               ultimoUsoEm: s.ultimoUsoEm.toISOString(),
               atual: s.atual,
             }))}
+          />
+          <ConexoesMcp
+            urlMcp={recursoMcp()}
+            conexoes={conexoes.map((c) => ({ id: c.id, cliente: c.cliente, criadoEm: c.criadoEm.toISOString(), ultimoUsoEm: c.ultimoUsoEm.toISOString() }))}
           />
         </div>
       </div>

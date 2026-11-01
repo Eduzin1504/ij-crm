@@ -132,6 +132,7 @@ export async function redefinirSenha(
       });
       if (r.count === 0) throw new TokenConsumido();
       await tx.sessao.deleteMany({ where: { usuarioId: u.id } });
+      await tx.mcpConexao.deleteMany({ where: { usuarioId: u.id } }); // conector MCP (GAB-83)
     });
   } catch (e) {
     if (e instanceof TokenConsumido) return { ok: false, erro: "TOKEN_INVALIDO" };

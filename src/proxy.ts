@@ -1,7 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const COOKIE_SESSAO = "ij_sessao";
-const PUBLICAS = ["/login", "/convite", "/esqueci", "/redefinir", "/403", "/api/webhooks", "/api/cron", "/api/health"];
+// Conector MCP (GAB-83): `/api/mcp` autentica por Bearer do OAuth; descoberta e
+// token são públicos por definição; `/oauth/autorizar` manda ao login com `voltar`.
+const PUBLICAS = [
+  "/login",
+  "/convite",
+  "/esqueci",
+  "/redefinir",
+  "/403",
+  "/api/webhooks",
+  "/api/cron",
+  "/api/health",
+  "/api/mcp",
+  "/api/oauth",
+  "/.well-known",
+  "/oauth",
+];
 
 /**
  * Só checa a PRESENÇA do cookie (edge, sem banco). A validade da sessão é
