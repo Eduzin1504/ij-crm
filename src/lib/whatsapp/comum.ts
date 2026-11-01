@@ -3,7 +3,7 @@
  * GAB-38): tipos do desfecho, pontos citados, campos interpretados e
  * responsável. Tudo determinístico; nada aqui confia em id vindo da LLM.
  */
-import type { Origem, Prisma } from "@prisma/client";
+import type { Origem, Prisma, Sentimento } from "@prisma/client";
 import { QUEM_ATUA } from "@/lib/auth/papeis";
 import { resolverDataRelativa } from "@/lib/llm/datas";
 import type { Extracao } from "@/lib/llm/prompts/extracao.v2";
@@ -53,6 +53,11 @@ export type EntradaAplicacao = {
   limiar: number;
   /** Vai na Timeline MENSAGEM_WHATSAPP (JSON da LLM, versão, modelo). */
   registroLlm: Record<string, unknown>;
+  /**
+   * GAB-85: sentimento do lead lido junto da extração (extracao.v3). Vai na COLUNA
+   * `timeline.sentimento`, fora do payload que a purga de 90 dias limpa. Ausente = null.
+   */
+  sentimento?: Sentimento | null;
   /**
    * Projetos candidatos que foram no contexto da LLM. `oportunidade_id`
    * só vale se estiver aqui (GAB-38). Ausente = nenhuma.

@@ -222,6 +222,7 @@ export async function aplicarExtracao(tx: Tx, e: EntradaAplicacao): Promise<Desf
       mensagemBrutaId: e.mensagem.id,
       em: new Date(agora.getTime() + 1),
       payload: { texto: e.mensagem.texto, ...e.registroLlm, motivosRevisar: motivos, sugestoes } as Prisma.InputJsonValue,
+      sentimento: e.sentimento ?? null,
     },
   });
 

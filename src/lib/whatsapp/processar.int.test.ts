@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/lib/db";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { FIXTURES_EXTRACAO, RECEBIDA_EM, saida } from "@/lib/llm/fixtures/extracao";
-import { VERSAO_EXTRACAO } from "@/lib/llm/prompts/extracao.v2";
+import { VERSAO_EXTRACAO } from "@/lib/llm/prompts/extracao.v3";
 import { definirRespostaMock } from "@/lib/llm/provedores/mock";
 import { ErroLlm } from "@/lib/llm/tipos";
 import { dbTeste, limparBanco } from "@/test/db";
@@ -454,7 +454,7 @@ describe("falhas → FALHA com ref, nunca quebra, nunca loga o texto", () => {
   it("log de custo/latência por chamada, sem o texto", async () => {
     await processarMensagem((await bruta(FIXTURES_EXTRACAO[0].texto)).id);
     const l = logs(console.info);
-    expect(l).toMatch(/\[llm\] extracao ref=\S+ provedor=mock modelo=mock-extracao versao=extracao\.v2\.1 ms=\d+ tokens_in=\d+ tokens_out=\d+ ok/);
+    expect(l).toMatch(/\[llm\] extracao ref=\S+ provedor=mock modelo=mock-extracao versao=extracao\.v3 ms=\d+ tokens_in=\d+ tokens_out=\d+ ok/);
     expect(l).not.toContain("Gustavo");
   });
 });

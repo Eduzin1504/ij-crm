@@ -103,6 +103,17 @@ describe("resolverManualmente", () => {
     expect(depois.resolvidaEm).toBeInstanceOf(Date);
   });
 
+  it("sentimento do lead já lido pela LLM (GAB-85) vai junto para a Timeline", async () => {
+    const m = await bruta("PENDENTE_REVISAO", { sentimento: "NEGATIVO" });
+    const r = await resolverManualmente(m.id, { tipo: "CRIAR", titulo: "Gustavo — ACME", faseId: faseInicial.id }, gestor);
+    if (!r.ok) throw new Error(r.erro);
+    expect((await dbT.timeline.findFirstOrThrow({ where: { mensagemBrutaId: m.id } })).sentimento).toBe("NEGATIVO");
+    const semSentimento = await bruta("FALHA", { erro: "x ref=1" });
+    const r2 = await resolverManualmente(semSentimento.id, { tipo: "VINCULAR", projetoId: r.projetoId }, gestor);
+    if (!r2.ok) throw new Error(r2.erro);
+    expect((await dbT.timeline.findFirstOrThrow({ where: { mensagemBrutaId: semSentimento.id } })).sentimento).toBeNull();
+  });
+
   it("vincular a card existente: não cria card", async () => {
     const m = await bruta("FALHA", { erro: "x ref=1" });
     const op = await dbT.projeto.create({ data: { titulo: "Já existe", pipelineId: faseInicial.pipelineId, faseId: faseInicial.id, responsavelId: joao.id, criadoVia: "UI" } });
