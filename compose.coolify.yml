@@ -63,7 +63,13 @@ services:
       ALERTA_OPS_JID: ${ALERTA_OPS_JID:-}
       # Único controle de acesso a /api/cron/* (header x-cron-secret, GAB-41).
       CRON_SECRET: ${CRON_SECRET:?defina CRON_SECRET no .env}
+      # GAB-84: onde o app grava os anexos. Tem de ser o ponto de montagem do volume abaixo.
+      ANEXOS_DIR: /data/anexos
     networks: [coolify, rede-whatsapp]
+    # Anexos dos Projetos (GAB-84): bytes dos arquivos, fora do banco. Backup e
+    # restore deste volume: docs/runbook.md, "Anexos". ANEXOS_DIR = este caminho.
+    volumes:
+      - app_anexos:/data/anexos
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -259,6 +265,7 @@ networks:
   evolution-saida:
 
 volumes:
+  app_anexos:
   evolution_instances:
   evolution_db_data:
   evolution_redis_data:

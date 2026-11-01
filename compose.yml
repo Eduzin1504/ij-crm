@@ -29,6 +29,8 @@ services:
       DATABASE_URL: postgresql://ijcrm:ijcrm@db:5432/ijcrm?schema=public
       # Dentro do compose a Evolution é alcançada pelo nome do serviço, não por localhost.
       EVOLUTION_API_URL: http://evolution:8080
+      # Anexos (GAB-84): volume próprio, fora do bind mount do código.
+      ANEXOS_DIR: /data/anexos
     # Só loopback até a auth (GAB-26) existir; em prod o Caddy publica (GAB-30).
     ports:
       - "127.0.0.1:3000:3000"
@@ -37,6 +39,7 @@ services:
       - .:/app:z
       - app_node_modules:/app/node_modules
       - app_next:/app/.next
+      - app_anexos:/data/anexos
     # Esconde do container o que não é app: `.claude/` (worktrees de agentes, que
     # o Turbopack varreria inteiras a cada mudança) e saídas de ferramentas locais
     # que o app nunca lê. Worktrees ficam FORA do repo (README, "Worktrees de
@@ -150,6 +153,7 @@ volumes:
   db_data:
   app_node_modules:
   app_next:
+  app_anexos:
   evolution_instances:
   evolution_db_data:
   evolution_redis_data:

@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
   // Sem otimizador (/_next/image): a imagem de produção poda o sharp. Os
   // assets da marca já saem pré-dimensionados em WebP (public/images/marca).
   images: { unoptimized: true },
+  // GAB-84: o pdf.js do `unpdf` (1,6 MB, carregado sob demanda por import
+  // dinâmico) roda direto do node_modules em vez de entrar no bundle do
+  // servidor; o tracing do standalone copia o pacote.
+  serverExternalPackages: ["unpdf"],
   // Detalhe do card mudou para /projetos/[id] (GAB-80); links antigos redirecionam.
   async redirects() {
     return REDIRECTS_ROTAS_ANTIGAS;

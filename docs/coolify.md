@@ -55,6 +55,12 @@ arquivo. O Coolify fornece o proxy HTTPS. Evolution, seu banco e Redis se
 comunicam em redes internas; apenas a Evolution também tem rede de saída para
 conectar ao WhatsApp. Os três volumes da Evolution persistem entre redeploys.
 
+O `app` tem um volume próprio, `app_anexos`, montado em `/data/anexos`
+(`ANEXOS_DIR`): os arquivos anexados aos Projetos (GAB-84). Ele persiste entre
+redeploys como os da Evolution; o Coolify prefixa o nome com o UUID do recurso
+(`docker volume ls | grep app_anexos`). A imagem cria `/data/anexos` com dono
+`node` (uid 1000), então o volume novo já nasce gravável pelo app.
+
 Se uma tentativa com `compose.prod.yml` já criou um serviço `db`, não confunda
 esse banco com o recurso PostgreSQL original. Confira a `DATABASE_URL` antes do
 deploy. Volumes antigos não são apagados por esta alteração; não use
@@ -94,7 +100,18 @@ Os scripts de operação existentes (`deploy.sh`, `backup.sh`, `restore.sh` e
 `compose.prod.yml`, seu serviço `db` e/ou Caddy. Não os execute esperando que
 administrem este recurso Coolify. Use o backup do recurso PostgreSQL no painel,
 as telas de administração do CRM e comandos/API direcionados explicitamente aos
-containers deste stack. O webhook interno da Evolution deve apontar para
+containers deste stack.
+
+**Os anexos dos Projetos não entram no backup do PostgreSQL.** Não há backup
+automático do volume `app_anexos`: faça à mão, logo depois do dump do banco,
+com os comandos de backup e restore em `docs/runbook.md`, seção "Anexos dos
+Projetos (volume `app_anexos`, GAB-84)". Em resumo:
+
+```bash
+APP=<nome-do-container-app>    # docker ps --format '{{.Names}}' | grep '^app'
+docker exec "$APP" tar czf - --exclude='*.tmp' -C /data/anexos . > anexos-$(date -u +%Y%m%dT%H%M%SZ).tar.gz   # backup
+docker exec -i "$APP" tar xzf - -C /data/anexos < anexos-<UTC>.tar.gz                                    # restore
+``` O webhook interno da Evolution deve apontar para
 `http://app:3000/api/webhooks/evolution`, com o header `x-webhook-secret` igual a
 `EVOLUTION_WEBHOOK_SECRET`, conforme o contrato descrito no README.
 

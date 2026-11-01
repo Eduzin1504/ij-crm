@@ -63,7 +63,10 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result["networks"]["coolify"]["name"] == "coolify"
     assert result["networks"]["rede-whatsapp"]["internal"]
     assert result["networks"]["rede-evolution"]["internal"]
-    assert set(result["volumes"]) == {"evolution_instances", "evolution_db_data", "evolution_redis_data"}
+    assert set(result["volumes"]) == {"app_anexos", "evolution_instances", "evolution_db_data", "evolution_redis_data"}
+    # Anexos (GAB-84): volume nomeado no ponto que o app usa (ANEXOS_DIR), senão somem no redeploy.
+    anexos = [v for v in services["app"]["volumes"] if v["source"] == "app_anexos"]
+    assert anexos and anexos[0]["target"] == services["app"]["environment"]["ANEXOS_DIR"] == "/data/anexos"
     assert services["evolution"]["depends_on"]["evolution-db"]["condition"] == "service_healthy"
     assert services["evolution"]["depends_on"]["evolution-redis"]["condition"] == "service_healthy"
 
