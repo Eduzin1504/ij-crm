@@ -4,12 +4,14 @@ import { ArrowLeft } from "lucide-react";
 import { DiasNaFase } from "@/components/kanban/aging";
 import { Avatar } from "@/components/kanban/avatar";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
+import { listarAnexos } from "@/lib/anexos/anexos";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { listarPipelines } from "@/lib/fases/fases";
 import { diaEmFuso, diasNaFase, estadoProximaAcao, nivelAging } from "@/lib/projetos/aging";
 import { ROTULO_ORIGEM, UFS } from "@/lib/projetos/campos";
 import { formatarDataHora, formatarDinheiro, formatarDia } from "@/lib/projetos/formatar";
 import { idDoCardQueAbsorveu, listarResponsaveis, nomesDeUsuarios, obterCard } from "@/lib/projetos/projetos";
+import { AnexosDoProjeto } from "./anexos";
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
 import { MoverFase } from "./mover-fase";
@@ -50,11 +52,12 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   }
   const agora = new Date();
   const hoje = diaEmFuso(agora);
-  const [pipelines, responsaveis, nomes, prazos] = await Promise.all([
+  const [pipelines, responsaveis, nomes, prazos, anexos] = await Promise.all([
     listarPipelines({ incluirArquivadas: true }),
     listarResponsaveis(),
     nomesDeUsuarios(idsUsuarios),
     listarPrazosDoCard(card.id, ator, hoje),
+    listarAnexos(card.id),
   ]);
   const todasFases = pipelines.flatMap((p) => p.fases);
   const nomesFases = new Map(todasFases.map((f) => [f.id, f.nome]));
@@ -199,6 +202,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <DescricaoCard cardId={card.id} valor={card.descricao} somenteLeitura={leitura} />
+
+          <AnexosDoProjeto cardId={card.id} anexos={anexos} somenteLeitura={leitura} />
 
           <PrazosProvider
             eu={{ id: ator.id, nome: ator.nome }}

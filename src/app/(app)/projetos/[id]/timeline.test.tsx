@@ -84,3 +84,22 @@ describe("Timeline: avaliação do contato (GAB-85)", () => {
     expect(screen.getAllByText(/\/5$/)).toHaveLength(1);
   });
 });
+
+describe("Timeline: ANEXO (GAB-84)", () => {
+  const anexo = (payload: object) => ({ ...entrada(payload), tipo: "ANEXO" as const });
+
+  it("adicionado (com e sem texto), excluído, restaurado e apagado", () => {
+    const { rerender } = render(<Timeline entradas={[anexo({ evento: "adicionado", anexoId: "a1", nome: "Proposta.pdf", semTexto: false })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/anexou/)).toBeInTheDocument();
+    expect(screen.getByText("Proposta.pdf")).toBeInTheDocument();
+    expect(screen.queryByText(/sem texto/)).not.toBeInTheDocument();
+    rerender(<Timeline entradas={[anexo({ evento: "adicionado", anexoId: "a1", nome: "foto.png", semTexto: true })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/sem texto/)).toBeInTheDocument();
+    rerender(<Timeline entradas={[anexo({ evento: "excluido", anexoId: "a1", nome: "foto.png" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/excluiu o anexo/)).toBeInTheDocument();
+    rerender(<Timeline entradas={[anexo({ evento: "restaurado", anexoId: "a1", nome: "foto.png" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/restaurou da lixeira o anexo/)).toBeInTheDocument();
+    rerender(<Timeline entradas={[anexo({ evento: "apagado", anexoId: "a1", nome: "foto.png" })]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/apagou definitivamente o anexo/)).toBeInTheDocument();
+  });
+});

@@ -28,6 +28,7 @@ vi.mock("@/lib/prazos/prazos");
 vi.mock("@/lib/contatos/contatos");
 vi.mock("@/lib/empresas/empresas");
 vi.mock("@/lib/lixeira/cards");
+vi.mock("@/lib/lixeira/anexos");
 vi.mock("@/lib/preferencias/servico");
 
 const kanban = await import("./kanban/actions");
@@ -44,6 +45,7 @@ const prazos = await import("@/lib/prazos/prazos");
 const servContatos = await import("@/lib/contatos/contatos");
 const servEmpresas = await import("@/lib/empresas/empresas");
 const lixeiraCards = await import("@/lib/lixeira/cards");
+const lixeiraAnexos = await import("@/lib/lixeira/anexos");
 const preferencias = await import("@/lib/preferencias/servico");
 
 const ESCRITAS: [string, () => Promise<unknown>][] = [
@@ -68,6 +70,7 @@ const ESCRITAS: [string, () => Promise<unknown>][] = [
   ["empresas.criar", () => empresas.criarEmpresaAction({ nome: "ACME" })],
   ["empresas.editarCampo", () => empresas.editarEmpresaCampoAction("e1", "nome", "ACME")],
   ["lixeira.excluirCard", () => lixeira.excluirCardAction("c1", "vendas")],
+  ["lixeira.excluirAnexo", () => lixeira.excluirAnexoAction("a".repeat(32))],
 ];
 
 beforeEach(() => {
@@ -80,7 +83,7 @@ describe("VISUALIZADOR não escreve (server actions)", () => {
     await expect(chamar()).rejects.toBe(proibido);
     expect(exigirEscrita).toHaveBeenCalledTimes(1);
     expect(exigirUsuario).not.toHaveBeenCalled();
-    for (const servico of [projetos, feita, servVinculos, prazos, servContatos, servEmpresas, lixeiraCards]) {
+    for (const servico of [projetos, feita, servVinculos, prazos, servContatos, servEmpresas, lixeiraCards, lixeiraAnexos]) {
       for (const fn of Object.values(servico)) if (vi.isMockFunction(fn)) expect(fn).not.toHaveBeenCalled();
     }
   });

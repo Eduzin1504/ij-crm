@@ -6,11 +6,19 @@ import { AcaoConfirmada } from "@/components/lixeira/acao-confirmada";
 import { Restaurar } from "@/components/lixeira/restaurar";
 import { PageHeader } from "@/components/shell/page-header";
 import { exigirPapel } from "@/lib/auth/atual";
-import { listarCardsNaLixeira, listarContatosNaLixeira, listarEmpresasNaLixeira } from "@/lib/lixeira/lixeira";
+import { formatarTamanho, ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
+import { listarAnexosNaLixeira, listarCardsNaLixeira, listarContatosNaLixeira, listarEmpresasNaLixeira } from "@/lib/lixeira/lixeira";
 import { podeApagarDeVez } from "@/lib/lixeira/regras";
 import { formatarCnpj } from "@/lib/normalizacao";
 import { formatarDataHora } from "@/lib/projetos/formatar";
-import { apagarCardAction, apagarEntidadeAction, restaurarCardAction, restaurarEntidadeAction } from "../../_lixeira/actions";
+import {
+  apagarAnexoAction,
+  apagarCardAction,
+  apagarEntidadeAction,
+  restaurarAnexoAction,
+  restaurarCardAction,
+  restaurarEntidadeAction,
+} from "../../_lixeira/actions";
 
 export const metadata = { title: "Lixeira" };
 
@@ -18,6 +26,7 @@ const ABAS = [
   { chave: "cards", rotulo: "Cards" },
   { chave: "contatos", rotulo: "Contatos" },
   { chave: "empresas", rotulo: "Empresas" },
+  { chave: "anexos", rotulo: "Anexos" },
 ] as const;
 type Aba = (typeof ABAS)[number]["chave"];
 
@@ -130,6 +139,39 @@ export default async function LixeiraPage({ searchParams }: { searchParams: Prom
         {c.deletadoEm ? <Quando em={c.deletadoEm} /> : null}
       </Linha>
     ));
+  } else if (aba === "anexos") {
+    const anexos = await listarAnexosNaLixeira(q);
+    conteudo = anexos.map((a) => (
+      <Linha
+        key={a.id}
+        acoes={
+          <>
+            <Restaurar acao={restaurarAnexoAction.bind(null, a.id)} />
+            {admin ? (
+              <AcaoConfirmada
+                rotulo="Apagar de vez"
+                variante="destructive"
+                titulo="Apagar o anexo definitivamente?"
+                descricao="O arquivo sai do servidor, sem volta. A Timeline do projeto registra quem apagou."
+                digitar={a.nome}
+                confirmar="Apagar de vez"
+                rotuloAcao="apagar o anexo"
+                acao={apagarAnexoAction.bind(null, a.id)}
+              />
+            ) : null}
+          </>
+        }
+      >
+        <p className="truncate text-sm font-medium text-foreground">{a.nome}</p>
+        <p className="mt-0.5 text-xs text-fg-soft">
+          {ROTULO_TIPO_ANEXO[a.tipo]} · <span className="font-mono tabular">{formatarTamanho(a.tamanho)}</span> ·{" "}
+          <Link href={`/projetos/${a.projeto.id}`} className="underline decoration-fg-faint underline-offset-2 hover:text-foreground">
+            {a.projeto.titulo}
+          </Link>
+        </p>
+        <Quando em={a.deletadoEm} por={a.porNome} />
+      </Linha>
+    ));
   } else {
     const empresas = await listarEmpresasNaLixeira(q);
     conteudo = empresas.map((e) => (
@@ -172,7 +214,7 @@ export default async function LixeiraPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
-      <PageHeader eyebrow="gestão" title="Lixeira" description="Cards, contatos e empresas excluídos. Restaurar devolve tudo como estava." />
+      <PageHeader eyebrow="gestão" title="Lixeira" description="Cards, contatos, empresas e anexos excluídos. Restaurar devolve tudo como estava." />
       <nav aria-label="Tipo" className="mb-4 flex gap-1 border-b border-border">
         {ABAS.map((a) => (
           <Link
@@ -185,7 +227,7 @@ export default async function LixeiraPage({ searchParams }: { searchParams: Prom
           </Link>
         ))}
       </nav>
-      <FormBusca key={aba} ocultos={{ aba }} valor={q} rotulo="Buscar na lixeira" placeholder={aba === "cards" ? "título do card" : aba === "contatos" ? "nome, telefone ou email" : "nome ou CNPJ"} />
+      <FormBusca key={aba} ocultos={{ aba }} valor={q} rotulo="Buscar na lixeira" placeholder={aba === "cards" ? "título do card" : aba === "contatos" ? "nome, telefone ou email" : aba === "anexos" ? "nome do arquivo ou título do card" : "nome ou CNPJ"} />
       {vazio ? (
         <EstadoVazio
           mascote="piscando"
