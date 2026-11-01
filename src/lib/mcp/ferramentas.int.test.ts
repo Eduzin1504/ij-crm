@@ -53,7 +53,7 @@ let dirAnexos: string;
 beforeEach(async () => {
   dirAnexos = await mkdtemp(path.join(tmpdir(), "mcp-anexos-"));
   process.env.ANEXOS_DIR = dirAnexos;
-  await limparBanco(["anexo", "prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
+  await limparBanco(["proposta_versao", "proposta", "anexo", "prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
   invalidarCachePipelines();
 });
 afterEach(async () => {
@@ -80,6 +80,9 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       vincular_empresa_contato: { id, campo: "empresa", alvo_id: empresa.id },
       criar_prazo: { titulo: "Entregar", dia: "2026-11-20", projeto_id: id },
       concluir_prazo: { prazo_id: prazo.id },
+      criar_proposta: { projeto_id: id },
+      editar_proposta: { projeto_id: id, revisao: 0, markdown: "x" },
+      salvar_versao_proposta: { projeto_id: id, revisao: 0 },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };
@@ -89,6 +92,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       expect(texto(r)).toBe(SO_LEITURA);
     }
     expect({ cards: await db.projeto.count(), timeline: await db.timeline.count() }).toEqual(antes);
+    expect(await db.proposta.count()).toBe(0);
     expect(await db.prazo.count()).toBe(1);
     expect((await db.prazo.findUniqueOrThrow({ where: { id: prazo.id } })).feitoEm).toBeNull();
     const c = await db.projeto.findUniqueOrThrow({ where: { id } });
@@ -319,5 +323,78 @@ describe("anexos (GAB-84): mesmos serviços da tela", () => {
     expect(r.isError).toBe(true);
     expect(texto(r)).toMatch(/Anexo não encontrado/);
     expect((await executarFerramenta("listar_anexos", { projeto_id: card.id }, visualizador)).isError).toBe(true);
+  });
+});
+
+describe("proposta via MCP (GAB-86): mesmas operações e permissões da tela", () => {
+  async function comProjeto() {
+    const s = await semear();
+    const card = await criarCard({ pipelineId: s.vendas.id, faseId: fase(s.vendas, "primeiro_contato").id, titulo: "Site da Padaria" }, s.vendedora);
+    if (!card.ok) throw new Error("seed");
+    return { ...s, id: card.id };
+  }
+
+  it("criar → ler → editar texto e estruturado → salvar versão → listar/ler versões; Timeline via MCP", async () => {
+    const { id, vendedora } = await comProjeto();
+    expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora))).toMatchObject({ existe: false, voceEdita: true });
+    expect(dados(await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora))).toMatchObject({ criada: true, revisao: 0 });
+    const lida = dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora));
+    expect(lida).toMatchObject({ existe: true, status: "Rascunho", revisao: 0, voceEdita: true, versoes: [] });
+
+    const ed = dados(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "# Proposta\n\nTexto __forte__ <b>x</b>" }, vendedora));
+    expect(ed).toMatchObject({ mudou: true, revisao: 1, markdownGravado: "# Proposta\n\nTexto **forte** \\<b>x\\</b>" });
+    const est = dados(
+      await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 1, valor: "20.000,00", prazo_dias: "60", entregas: [{ titulo: "MVP", dia: "2026-12-15", valor: "8.000,00" }] }, vendedora),
+    );
+    expect(est.estruturado).toEqual({ valor: "20.000,00", prazo_dias: 60, escopo_resumo: null, entregas: [{ titulo: "MVP", dia: "2026-12-15", valor: "8.000,00" }] });
+    // só o escopo: o resto do estruturado continua
+    const so = dados(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 2, escopo_resumo: "Site institucional" }, vendedora));
+    expect(so.estruturado).toMatchObject({ valor: "20.000,00", escopo_resumo: "Site institucional" });
+
+    expect(dados(await executarFerramenta("salvar_versao_proposta", { projeto_id: id, revisao: 3, nota: "primeira do Claude" }, vendedora))).toMatchObject({ versao: 1 });
+    expect(dados(await executarFerramenta("listar_versoes_proposta", { projeto_id: id }, vendedora)).versoes).toEqual([
+      { numero: 1, nota: "primeira do Claude", autor: "Ana", em: expect.any(String), viaMcp: true },
+    ]);
+    const v1 = dados(await executarFerramenta("ler_versao_proposta", { projeto_id: id, numero: 1 }, vendedora));
+    expect(v1).toMatchObject({ numero: 1, markdown: "# Proposta\n\nTexto **forte** \\<b>x\\</b>", estruturado: { valor: "20.000,00", prazo_dias: 60 } });
+    expect((await executarFerramenta("ler_versao_proposta", { projeto_id: id, numero: 9 }, vendedora)).isError).toBe(true);
+
+    const tl = await db.timeline.findMany({ where: { projetoId: id, tipo: "PROPOSTA" }, orderBy: { em: "asc" } });
+    expect(tl.map((t) => (t.payload as { evento: string }).evento)).toEqual(["criada", "versao_salva"]);
+    expect(tl.every((t) => t.viaMcp && t.usuarioId === vendedora.id)).toBe(true);
+  });
+
+  it("conflito: revisão velha não sobrescreve; a mensagem manda reler", async () => {
+    const { id, vendedora } = await comProjeto();
+    await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora);
+    await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "da tela" }, vendedora);
+    const r = await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "do Claude" }, vendedora);
+    expect(r.isError).toBe(true);
+    expect(texto(r)).toMatch(/alterada em outro lugar.*revisão 1.*Use ler_proposta/);
+    expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora)).markdown).toBe("da tela");
+    expect(texto(await executarFerramenta("salvar_versao_proposta", { projeto_id: id, revisao: 0 }, vendedora))).toMatch(/Use ler_proposta/);
+  });
+
+  it("projetos e outro vendedor leem mas não editam (mesma regra da tela); gestor edita", async () => {
+    const { id, vendedora, projetos, gestor } = await comProjeto();
+    const outro = await db.usuario.create({ data: { nome: "Beto", email: "beto@ij.test", papel: "VENDEDOR" } });
+    await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora);
+    for (const quem of [projetos, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
+      expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, quem))).toMatchObject({ existe: true, voceEdita: false });
+      const r = await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "x" }, quem);
+      expect(texto(r)).toMatch(/Só quem é de vendas e responsável/);
+    }
+    expect((await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "x" }, gestor)).isError).toBeFalsy();
+  });
+
+  it("estruturado inválido volta a mensagem da validação; sem nada para mudar é recusado", async () => {
+    const { id, vendedora } = await comProjeto();
+    await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora);
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, entregas: [{ titulo: "A", dia: "2026-02-31" }] }, vendedora))).toBe(
+      "Entrega 1: data inválida (use AAAA-MM-DD).",
+    );
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, valor: "-1" }, vendedora))).toMatch(/Valor inválido/);
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0 }, vendedora))).toMatch(/Informe o markdown/);
+    expect(texto(await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora))).toMatch(/já tem uma proposta/);
   });
 });
