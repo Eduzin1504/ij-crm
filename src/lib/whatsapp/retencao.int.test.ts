@@ -57,6 +57,22 @@ describe("apagarJsonLlmVencido", () => {
     expect(pn.saida).toEqual(LLM.saida);
   });
 
+  it("o sentimento do lead (GAB-85) e a nota do contato ficam: são colunas, não JSON da LLM", async () => {
+    const velha = await dbT.mensagemBruta.update({ where: { id: (await mensagem(dias(120))).id }, data: { sentimento: "POSITIVO" } });
+    const t = await dbT.timeline.update({ where: { id: (await entrada(dias(120), velha.id)).id }, data: { sentimento: "POSITIVO" } });
+    const nota = await dbT.timeline.create({ data: { projetoId: opId, tipo: "NOTA", em: dias(120), usuarioId, payload: { texto: "reunião" }, nota: 5 } });
+
+    expect(await apagarJsonLlmVencido({ agora: AGORA })).toEqual({ mensagens: 1, timeline: 1 });
+
+    const m = await dbT.mensagemBruta.findUniqueOrThrow({ where: { id: velha.id } });
+    expect(m.resultadoLlm).toBeNull();
+    expect(m.sentimento).toBe("POSITIVO");
+    const tl = await dbT.timeline.findUniqueOrThrow({ where: { id: t.id } });
+    expect((tl.payload as Record<string, unknown>).saida).toBeUndefined();
+    expect(tl.sentimento).toBe("POSITIVO");
+    expect((await dbT.timeline.findUniqueOrThrow({ where: { id: nota.id } })).nota).toBe(5);
+  });
+
   it("idempotente e em lotes", async () => {
     for (let i = 0; i < 5; i++) await entrada(dias(100), (await mensagem(dias(100))).id);
     expect(await apagarJsonLlmVencido({ agora: AGORA, lote: 2 })).toEqual({ mensagens: 5, timeline: 5 });

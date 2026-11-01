@@ -5,6 +5,7 @@ import { ehCampoEditavel, ROTULO_CAMPO } from "@/lib/projetos/campos";
 import { ROTULO_CAMPO_TERMINAL, ehCampoTerminal, formatarCampoTerminal, formatarDataHora, formatarDia, formatarValorCampo } from "@/lib/projetos/formatar";
 import type { DetalheCard } from "@/lib/projetos/projetos";
 import { ehCampoVinculo, ROTULO_VINCULO } from "@/lib/projetos/vinculos";
+import { BadgeSentimento, NotaContatoExibida } from "@/components/avaliacao/nota-contato";
 import { MensagemWhatsapp } from "./mensagem-whatsapp";
 
 type Entrada = DetalheCard["timeline"][number];
@@ -261,6 +262,13 @@ export function Timeline({
             {e.tipo === "MENSAGEM_WHATSAPP" ? <MensagemWhatsapp payload={p} /> : null}
             {e.tipo === "NOTA" && typeof p.texto === "string" ? (
               <p className="mt-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm whitespace-pre-wrap text-foreground">{p.texto}</p>
+            ) : null}
+            {e.nota !== null || e.sentimento !== null ? (
+              // GAB-85: avaliação do contato (colunas próprias; ficam depois da purga do JSON da LLM).
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {e.nota !== null ? <NotaContatoExibida nota={e.nota} /> : null}
+                {e.sentimento !== null ? <BadgeSentimento sentimento={e.sentimento} /> : null}
+              </div>
             ) : null}
             <time dateTime={e.em.toISOString()} className="mt-0.5 block font-mono text-[11px] text-fg-faint tabular">
               {formatarDataHora(e.em)}

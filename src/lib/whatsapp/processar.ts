@@ -44,8 +44,8 @@ import { db } from "@/lib/db";
 import { registrarErro } from "@/lib/erros/registrar";
 import { alertarSeSemCredito, marcarCreditoOk } from "@/lib/llm/alerta-credito";
 import { ErroLlm, extrairAtualizacao, type ContextoExtracao, type ResultadoExtracao } from "@/lib/llm/extracao";
-import type { ContatoCandidato, EmpresaCandidata } from "@/lib/llm/prompts/extracao.v2";
-import { VERSAO_EXTRACAO } from "@/lib/llm/prompts/extracao.v2";
+import type { ContatoCandidato, EmpresaCandidata } from "@/lib/llm/prompts/extracao.v3";
+import { VERSAO_EXTRACAO } from "@/lib/llm/prompts/extracao.v3";
 import { ErroDeRegra } from "@/lib/projetos/erros";
 import { PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 import { FASES_DO_WHATSAPP } from "./ciclo-vendas";
@@ -317,6 +317,7 @@ async function processar(id: string, opts: { participantJid?: string | null }, p
                 extracao: r.extracao,
                 limiar: limiarConfianca(),
                 registroLlm: llm,
+                sentimento: r.extracao.sentimento,
                 candidatas: ctx.projetos,
                 alvoResposta: ctx.alvoResposta,
                 respostaInvalida: ctx.respostaInvalida,
@@ -327,6 +328,8 @@ async function processar(id: string, opts: { participantJid?: string | null }, p
             status: d.tipo === "PENDENTE" ? "PENDENTE_REVISAO" : "PROCESSADA",
             erro: null,
             resultadoLlm: { ...llm, aplicacao: resumoDesfecho(d) } as Prisma.InputJsonValue,
+            // GAB-85: fora do resultado_llm (purgado em 90 dias); "Resolver manualmente" copia para a Timeline.
+            sentimento: r.extracao.sentimento,
           },
         });
         return d;

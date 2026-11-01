@@ -11,6 +11,8 @@ const entrada = (payload: object) => ({
   mensagemBrutaId: null,
   em: new Date("2026-10-27T13:00:00Z"),
   viaMcp: false,
+  nota: null,
+  sentimento: null,
   usuario: { id: "u1", nome: "Ana Vendas" },
 });
 
@@ -66,5 +68,19 @@ describe("Timeline: ações pelo conector MCP (GAB-83)", () => {
     render(<Timeline entradas={[{ ...entrada({ faseId: "f1", via: "UI" }), tipo: "CRIACAO" as const }]} fases={new Map()} nomes={new Map()} />);
     expect(screen.queryByText("via MCP")).not.toBeInTheDocument();
     expect(screen.getByText(/pelo app/)).toBeInTheDocument();
+  });
+});
+
+describe("Timeline: avaliação do contato (GAB-85)", () => {
+  it("NOTA com nota 1–5 mostra a nota; MENSAGEM_WHATSAPP mostra o sentimento do lead; sem nada, nada", () => {
+    const entradas = [
+      { ...entrada({ texto: "Reunião ótima" }), id: "a", tipo: "NOTA" as const, nota: 5, sentimento: null },
+      { ...entrada({ texto: "#crm curtiu" }), id: "b", tipo: "MENSAGEM_WHATSAPP" as const, nota: null, sentimento: "POSITIVO" as const },
+      { ...entrada({ texto: "Sem nota" }), id: "c", tipo: "NOTA" as const, nota: null, sentimento: null },
+    ];
+    render(<Timeline entradas={entradas} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByLabelText("Contato avaliado em 5 de 5")).toBeInTheDocument();
+    expect(screen.getByText("Lead: positivo")).toBeInTheDocument();
+    expect(screen.getAllByText(/\/5$/)).toHaveLength(1);
   });
 });

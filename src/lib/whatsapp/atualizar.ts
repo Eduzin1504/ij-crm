@@ -345,7 +345,15 @@ export async function aplicarAtualizacao(tx: Tx, e: EntradaAplicacao, locks: { v
       remetente,
     );
     await tx.timeline.create({
-      data: { projetoId, tipo: "MENSAGEM_WHATSAPP", usuarioId: remetente.id, mensagemBrutaId: e.mensagem.id, em: new Date(agora.getTime() + 1), payload: payloadMensagem },
+      data: {
+        projetoId,
+        tipo: "MENSAGEM_WHATSAPP",
+        usuarioId: remetente.id,
+        mensagemBrutaId: e.mensagem.id,
+        em: new Date(agora.getTime() + 1),
+        payload: payloadMensagem,
+        sentimento: e.sentimento ?? null,
+      },
     });
     return {
       tipo: "CRIADO",
@@ -367,7 +375,7 @@ export async function aplicarAtualizacao(tx: Tx, e: EntradaAplicacao, locks: { v
   // ---- ESCRITA: card existente
   let t = agora.getTime();
   await tx.timeline.create({
-    data: { projetoId: base.id, tipo: "MENSAGEM_WHATSAPP", usuarioId: remetente.id, mensagemBrutaId: e.mensagem.id, em: new Date(t), payload: payloadMensagem },
+    data: { projetoId: base.id, tipo: "MENSAGEM_WHATSAPP", usuarioId: remetente.id, mensagemBrutaId: e.mensagem.id, em: new Date(t), payload: payloadMensagem, sentimento: e.sentimento ?? null },
   });
 
   const alterados: string[] = [];

@@ -4,8 +4,9 @@
  * A visibilidade é decidida AQUI: com o ranking escondido o vendedor recebe só
  * a própria linha — a lista dos outros nunca sai do servidor.
  */
-import { Prisma, type OrigemTransicao, type Papel, type PrismaClient } from "@prisma/client";
+import { type OrigemTransicao, type Papel, type PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
+import { utc } from "@/lib/sql-utc";
 import { QUEM_ATUA, temPapelMinimo } from "@/lib/auth/papeis";
 import { obterConfiguracao, salvarConfiguracao } from "@/lib/configuracao/servico";
 import { calcularRanking, cobreJanelaFeed, janelaFeed, montarFeed, type DadosRanking, type Intervalo, type ItemFeed, type LinhaRanking, type Participante, type Ranking } from "./calculo";
@@ -36,13 +37,6 @@ type Linha = {
 /** Quem pode rodar a consulta: o `db` ou uma transação (testes fixam o fuso da sessão nela). */
 type Consultor = Pick<PrismaClient, "$queryRaw">;
 
-/**
- * Instante JS → `timestamp` (sem fuso) em UTC, como o Prisma grava as colunas
- * `timestamp(3)`. O Prisma manda `Date` como `timestamptz`; comparado direto com
- * `timestamp`, o Postgres converteria pela TimeZone da SESSÃO. Aqui a conversão
- * é explícita e não depende dela.
- */
-const utc = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
 
 /**
  * Eventos do intervalo [inicio, fim) — só a PARTE DE VENDAS do ciclo, de cards

@@ -172,3 +172,14 @@ describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () =
     expect(await db.projeto.count()).toBe(2);
   });
 });
+
+describe("adicionarNotaAction com nota do contato (GAB-85)", () => {
+  it("grava a nota 1–5; fora da faixa devolve a mensagem em português e não grava", async () => {
+    const { p, fase, u } = await semear();
+    const c = await db.projeto.create({ data: { titulo: "Padaria", pipelineId: p.id, faseId: fase.id, responsavelId: u.id, criadoVia: "UI" } });
+    exigirUsuario.mockResolvedValue({ id: u.id, papel: "VENDEDOR" });
+    expect(await adicionarNotaAction(c.id, "reunião", 7)).toEqual({ erro: "A avaliação do contato vai de 1 a 5." });
+    expect(await adicionarNotaAction(c.id, "reunião boa", 4)).toEqual({ ok: true });
+    expect((await db.timeline.findFirstOrThrow({ where: { projetoId: c.id, tipo: "NOTA" } })).nota).toBe(4);
+  });
+});

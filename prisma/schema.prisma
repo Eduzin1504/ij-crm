@@ -97,6 +97,14 @@ enum TipoTimeline {
   PRAZO        // prazo do card criado/concluído (GAB-51); payload.evento = "criado" | "concluido"
 }
 
+/// GAB-85 (spec fase 2 §4.14, Q23): como o lead reagiu ao contato, inferido pela LLM
+/// nas mensagens #crm (extracao.v3). Espelha SENTIMENTOS de src/lib/llm/prompts/extracao.v3.ts.
+enum Sentimento {
+  POSITIVO
+  NEUTRO
+  NEGATIVO
+}
+
 enum StatusMensagem {
   RECEBIDA
   PROCESSANDO // GAB-34: reivindicada por `processarMensagem` (LLM em andamento)
@@ -460,6 +468,12 @@ model Timeline {
   em              DateTime      @default(now())
   /// GAB-83: ação feita pelo conector MCP (o Claude da pessoa), em nome de `usuario`.
   viaMcp          Boolean       @default(false) @map("via_mcp")
+  /// GAB-85: nota de 1 a 5 que o vendedor deu ao contato (NOTA da tela/MCP; opcional).
+  /// CHECK 1..5 na migration 20261101140000_nota_sentimento.
+  nota            Int?          @db.SmallInt
+  /// GAB-85: sentimento do lead lido pela LLM (MENSAGEM_WHATSAPP). Coluna própria, fora do
+  /// `payload`: a purga de 90 dias do JSON da LLM (retencao.ts) não apaga o dado do painel.
+  sentimento      Sentimento?
 
   projeto         Projeto  @relation(fields: [projetoId], references: [id], onDelete: Cascade)
   usuario         Usuario?      @relation(fields: [usuarioId], references: [id])
@@ -502,6 +516,9 @@ model MensagemBruta {
   /// GAB-41: "Resolver manualmente" no painel (PROCESSADA sem LLM): quem e quando.
   resolvidaPorId      String?        @map("resolvida_por_id")
   resolvidaEm         DateTime?      @map("resolvida_em")
+  /// GAB-85: sentimento do lead extraído junto com o resto (extracao.v3). Fica depois da purga
+  /// do `resultado_llm`; "Resolver manualmente" copia para a Timeline.
+  sentimento          Sentimento?
   criadoEm            DateTime       @default(now()) @map("criado_em")
   atualizadoEm        DateTime       @updatedAt @map("atualizado_em")
 

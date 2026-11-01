@@ -135,6 +135,27 @@ describe("escrita via MCP: mesma camada de serviço, Timeline marcada 'via MCP' 
     expect(await db.transicaoFase.count({ where: { projetoId: c.id, usuarioId: vendedora.id } })).toBe(2);
   });
 
+  it("registrar_nota aceita nota do contato 1–5 opcional (GAB-85); inválida não grava; ler_projeto mostra", async () => {
+    const { vendedora } = await semear();
+    const criado = dados(await executarFerramenta("criar_projeto", { titulo: "Loja" }, vendedora));
+    for (const nota of [0, 6, 2.5, "4"]) {
+      const r = await executarFerramenta("registrar_nota", { id: criado.id, texto: "Reunião", nota }, vendedora);
+      expect(r.isError, String(nota)).toBe(true);
+      expect(texto(r)).toMatch(/nota/);
+    }
+    expect(await db.timeline.count({ where: { projetoId: criado.id, tipo: "NOTA" } })).toBe(0);
+    expect((await executarFerramenta("registrar_nota", { id: criado.id, texto: "Reunião ótima", nota: 5 }, vendedora)).isError).toBeFalsy();
+    expect((await executarFerramenta("registrar_nota", { id: criado.id, texto: "Sem nota" }, vendedora)).isError).toBeFalsy();
+    const notas = await db.timeline.findMany({ where: { projetoId: criado.id, tipo: "NOTA" }, orderBy: [{ em: "asc" }, { id: "asc" }] });
+    expect(notas.map((n) => [n.nota, n.viaMcp])).toEqual([
+      [5, true],
+      [null, true],
+    ]);
+    const p = dados(await executarFerramenta("ler_projeto", { id: criado.id }, vendedora));
+    const lidas = (p.timeline as { tipo: string; nota?: number }[]).filter((t) => t.tipo === "NOTA");
+    expect(lidas.map((t) => t.nota ?? null).sort()).toEqual([5, null].sort());
+  });
+
   it("a mesma ação pela tela (serviço direto, fora do MCP) não é marcada", async () => {
     const { vendas, vendedora } = await semear();
     const r = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Pela tela" }, vendedora);

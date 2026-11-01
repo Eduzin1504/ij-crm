@@ -203,6 +203,9 @@ const lerProjeto = ferramenta({
           tipo: t.tipo,
           autor: t.usuario?.nome ?? "Sistema",
           viaMcp: t.viaMcp,
+          // GAB-85: nota do vendedor (1–5) e sentimento do lead lido pela LLM, quando houver.
+          ...(t.nota !== null ? { nota: t.nota } : {}),
+          ...(t.sentimento !== null ? { sentimento: t.sentimento } : {}),
           ...(t.tipo === "MOVIMENTACAO" ? { de: nomeFase(p.deFaseId), para: nomeFase(p.paraFaseId) } : {}),
           dados: p,
         };
@@ -303,11 +306,17 @@ const moverProjeto = ferramenta({
 const registrarNota = ferramenta({
   nome: "registrar_nota",
   titulo: "Registrar nota",
-  descricao: "Registra uma nota na Timeline do projeto (até 5000 caracteres).",
+  descricao:
+    "Registra uma nota na Timeline do projeto (até 5000 caracteres). `nota` opcional: como foi o contato com o lead, de 1 (ruim) a 5 (ótimo) — só se a pessoa disser.",
   escrita: true,
-  entrada: { id, texto: z.string().max(10_000) },
+  entrada: {
+    id,
+    texto: z.string().max(10_000),
+    // GAB-85: avaliação do contato; o serviço valida de novo (mesma regra da tela).
+    nota: z.number().int().min(1).max(5).nullish().describe("avaliação do contato, 1 a 5 (opcional)"),
+  },
   executar: async (a, eu) => {
-    const r = await adicionarNota(a.id, a.texto, eu);
+    const r = await adicionarNota(a.id, a.texto, eu, { nota: a.nota ?? null });
     if (!r.ok) return erro(MENSAGEM_ERRO_PROJETO[r.erro]);
     return ok({ registrada: true, url: urlProjeto(a.id) });
   },

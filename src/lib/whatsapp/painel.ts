@@ -7,7 +7,7 @@
  * O texto das mensagens aparece aqui (dentro do app é permitido); remetente
  * desconhecido NUNCA tem conteúdo guardado e o telefone/LID sai mascarado.
  */
-import type { Papel, Prisma, StatusMensagem } from "@prisma/client";
+import type { Papel, Prisma, Sentimento, StatusMensagem } from "@prisma/client";
 import { podeAtribuirPapel, QUEM_ATUA } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
@@ -199,8 +199,8 @@ export async function resolverManualmente(
 ): Promise<{ ok: true; projetoId: string } | { ok: false; erro: ErroResolver }> {
   try {
     const projetoId = await db.$transaction(async (tx) => {
-      const [m] = await tx.$queryRaw<{ status: StatusMensagem; texto: string; remetente_usuario_id: string | null }[]>`
-        SELECT status::text AS status, texto, remetente_usuario_id FROM mensagem_bruta WHERE id = ${mensagemId} FOR UPDATE`;
+      const [m] = await tx.$queryRaw<{ status: StatusMensagem; texto: string; remetente_usuario_id: string | null; sentimento: Sentimento | null }[]>`
+        SELECT status::text AS status, texto, remetente_usuario_id, sentimento::text AS sentimento FROM mensagem_bruta WHERE id = ${mensagemId} FOR UPDATE`;
       if (!m) throw new Recusa("MENSAGEM_NAO_ENCONTRADA");
       if (m.status === "PROCESSANDO" || m.status === "RECEBIDA") throw new Recusa("MENSAGEM_EM_PROCESSAMENTO");
       if (!STATUS_FILA.includes(m.status)) throw new Recusa("MENSAGEM_JA_RESOLVIDA");
@@ -232,6 +232,8 @@ export async function resolverManualmente(
           mensagemBrutaId: mensagemId,
           em: new Date(agora.getTime() + 1),
           payload: { texto: m.texto, resolvidaManualmente: true },
+          // GAB-85: o sentimento que a LLM já leu (coluna da mensagem, sobrevive à purga do JSON).
+          sentimento: m.sentimento,
         },
       });
       await tx.mensagemBruta.update({ where: { id: mensagemId }, data: { status: "PROCESSADA", resolvidaPorId: por.id, resolvidaEm: agora } });

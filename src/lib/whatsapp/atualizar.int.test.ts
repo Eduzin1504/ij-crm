@@ -578,3 +578,35 @@ describe("review do PR #23", () => {
     });
   });
 });
+
+describe("sentimento do lead (GAB-85): extraído junto, gravado fora do JSON da LLM", () => {
+  it("CRIAR e ATUALIZAR gravam o sentimento na Timeline e na mensagem; sem sentimento na resposta → null", async () => {
+    const c = await enviar("#crm falei com o Gustavo da Sensata Ltda, curtiu muito", () => ({
+      ...saida({ contato: { nome: "Gustavo" }, empresa: { nome: "Sensata Ltda" } }),
+      sentimento: "POSITIVO",
+    }));
+    const id = (c.r as { projetoId: string }).projetoId;
+    const a = await enviar(
+      "#crm Gustavo achou caro",
+      (p) => ({ ...saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente") }), sentimento: "NEGATIVO" }),
+      { recebidaEm: new Date(RECEBIDA_EM.getTime() + MIN) },
+    );
+    expect(a.r).toMatchObject({ tipo: "PROCESSADA", projetoId: id });
+    const s = await enviar("#crm Gustavo: cnpj depois", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente") }), {
+      recebidaEm: new Date(RECEBIDA_EM.getTime() + 2 * MIN),
+    });
+    expect(s.r).toMatchObject({ tipo: "PROCESSADA", projetoId: id });
+
+    const tl = await dbT.timeline.findMany({ where: { projetoId: id, tipo: "MENSAGEM_WHATSAPP" }, orderBy: { em: "asc" } });
+    expect(tl.map((t) => t.sentimento)).toEqual(["POSITIVO", "NEGATIVO", null]);
+    expect(tl.map((t) => t.usuarioId)).toEqual([joao.id, joao.id, joao.id]);
+    const msgs = await dbT.mensagemBruta.findMany({ where: { id: { in: [c.m.id, a.m.id, s.m.id] } }, orderBy: { recebidaEm: "asc" } });
+    expect(msgs.map((m) => m.sentimento)).toEqual(["POSITIVO", "NEGATIVO", null]);
+  });
+
+  it("mensagem que vai para revisão guarda o sentimento na própria mensagem", async () => {
+    const p = await enviar("#crm alguém curtiu", () => ({ ...saida({ confianca: 0.2 }), sentimento: "POSITIVO" }));
+    expect(p.r).toMatchObject({ tipo: "PENDENTE_REVISAO" });
+    expect((await dbT.mensagemBruta.findUniqueOrThrow({ where: { id: p.m.id } })).sentimento).toBe("POSITIVO");
+  });
+});

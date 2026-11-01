@@ -237,6 +237,30 @@ describe("adicionarNota", () => {
     const nota = await db.timeline.findFirstOrThrow({ where: { projetoId: c.id, tipo: "NOTA" } });
     expect(nota).toMatchObject({ usuarioId: vendedora.id, payload: { texto: "Ligou, pediu proposta até sexta" } });
     expect(nota.em).toBeInstanceOf(Date);
+    expect(nota.nota).toBeNull();
+  });
+
+  it("nota do contato (1 a 5, GAB-85) opcional: grava na coluna; fora de 1..5 ou não inteira recusa sem gravar", async () => {
+    const { vendas, vendedora } = await semear();
+    const c = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "em_negociacao").id, titulo: "Acme" }, vendedora);
+    if (!c.ok) throw new Error(c.erro);
+    for (const ruim of [0, 6, 2.5, Number.NaN]) {
+      expect(await adicionarNota(c.id, "reunião", vendedora, { nota: ruim })).toEqual({ ok: false, erro: "NOTA_CONTATO_INVALIDA" });
+    }
+    expect(await db.timeline.count({ where: { tipo: "NOTA" } })).toBe(0);
+    expect(await adicionarNota(c.id, "Reunião ótima, pediu proposta", vendedora, { nota: 5 })).toEqual({ ok: true });
+    expect(await adicionarNota(c.id, "Ligação rápida", vendedora, { nota: null })).toEqual({ ok: true });
+    const notas = await db.timeline.findMany({ where: { tipo: "NOTA" }, orderBy: { em: "asc" } });
+    expect(notas.map((n) => n.nota)).toEqual([5, null]);
+    // A nota fica fora do payload (o payload continua só com o texto).
+    expect(notas[0].payload).toEqual({ texto: "Reunião ótima, pediu proposta" });
+  });
+
+  it("o banco também barra nota fora de 1..5 (CHECK)", async () => {
+    const { vendas, vendedora } = await semear();
+    const c = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "em_negociacao").id, titulo: "Acme" }, vendedora);
+    if (!c.ok) throw new Error(c.erro);
+    await expect(db.timeline.create({ data: { projetoId: c.id, tipo: "NOTA", payload: {}, nota: 7 } })).rejects.toThrow();
   });
 });
 

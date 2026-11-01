@@ -11,7 +11,7 @@
  */
 import { provedorConfigurado } from "./extracao";
 import { JSON_SCHEMA_CLASSIFICACAO, MAX_TOKENS_CLASSIFICACAO, PROMPT_SISTEMA_CLASSIFICACAO, esquemaClassificacao, montarMensagemClassificacao } from "./prompts/classificacao.v1";
-import { JSON_SCHEMA_EXTRACAO, PROMPT_SISTEMA, esquemaExtracao, montarMensagemUsuario } from "./prompts/extracao.v2";
+import { JSON_SCHEMA_EXTRACAO, PROMPT_SISTEMA, esquemaExtracao, montarMensagemUsuario } from "./prompts/extracao.v3";
 import { JSON_SCHEMA_RESUMO, MAX_TOKENS_RESUMO, PROMPT_SISTEMA_RESUMO, esquemaResumo, montarMensagemResumo } from "./prompts/resumo.v1";
 import { ErroLlm, type PedidoExtracao, type ProvedorLlm } from "./tipos";
 
