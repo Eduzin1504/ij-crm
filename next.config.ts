@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { REDIRECTS_ROTAS_ANTIGAS } from "./src/lib/rotas/antigas";
+import { HEADERS_APP } from "./src/lib/rotas/seguranca";
 
 const nextConfig: NextConfig = {
   // Não gerar AGENTS.md automático no dev (o contexto do projeto vive no design doc / README).
@@ -13,6 +14,10 @@ const nextConfig: NextConfig = {
   // Detalhe do card mudou para /projetos/[id] (GAB-80); links antigos redirecionam.
   async redirects() {
     return REDIRECTS_ROTAS_ANTIGAS;
+  },
+  // Anti-clickjacking no app todo (GAB-83): no Coolify não há Caddy para pôr estes headers.
+  async headers() {
+    return HEADERS_APP;
   },
   // App inteiro é autenticado (cookie lido no layout) → tudo é dinâmico por
   // natureza; cacheComponents/PPR não trazem ganho aqui e exigem Suspense em
