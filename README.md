@@ -710,6 +710,29 @@ campos com problema, nunca o valor) e a tela avisa "valor salvo inválido". Grav
 otimista: o formulário manda o `atualizado_em` que carregou e, se outra pessoa salvou no meio, recebe
 "Outra pessoa alterou esta configuração. Recarregue para ver os valores atuais."
 
+## Painel de vendas (GAB-94)
+
+`/painel` (todos os papéis — spec fase 2 §4.12/§4.14, sem visão restrita): Semana | Mês de São
+Paulo (`?periodo=semana|mes&ref=YYYY-MM-DD`) e filtro por vendedor (`?vendedor=<id>`). Quatro
+perguntas, sem dashboards configuráveis; barras em HTML/CSS (sem biblioteca de gráficos):
+
+- **Estamos convertendo?** ganhos, perdidos, conversão e R$ fechado com as regras do ranking; por
+  fase aberta de Vendas, entradas, saídas (avanço/perda/recuo), conversão da fase
+  (avanços ÷ (avanços + perdas)) e tempo médio na fase. Valor em proposta e versões até fechar
+  mostram "sem dados" até a Proposta (GAB-86) — ponto de encaixe em `src/lib/painel/proposta.ts`.
+- **O time está engajado?** interações por vendedor (WhatsApp `#crm`, tela e MCP) e próximas ações
+  feitas no prazo (dia de SP).
+- **Os leads estão sendo acompanhados?** (agora) cards abertos sem próxima ação, vencidos e dias
+  desde o último contato, com os 10 mais parados.
+- **Os leads gostaram do contato?** nota média 1–5 e sentimento (`avaliacoesPorVendedor`, GAB-85).
+
+Cálculo puro em `src/lib/painel/calculo.ts` (fórmulas no topo; texto em `definicoes.ts`); uma
+consulta agregada por indicador em `servico.ts`, em paralelo. Só movimentos de gente (`UI`/
+`WHATSAPP`): importação do Pipefy (`IMPORT`) e migração (`SISTEMA`) não contam como movimento, mas
+a data de entrada importada abre a estadia na fase. Lixeira e cascas absorvidas (`absorvido_por_id`)
+ficam de fora. Pelo MCP: `consultar_painel_vendas` (indicador, período, `ref`, vendedor), mesmos
+números da tela e as definições junto.
+
 ## Admin: configuração técnica e logs
 
 Só ADMIN (gestor recebe 403): **Gestão → Admin**.
