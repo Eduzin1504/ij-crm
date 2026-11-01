@@ -26,6 +26,12 @@ import { CAMPOS_EDITAVEIS, descricaoSchema, interpretarCampo, type CampoEditavel
 import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { adicionarNota, criarCard, editarCard, listarQuadro, listarResponsaveis, moverCard, obterCard, type PatchCard } from "@/lib/projetos/projetos";
 import { MOTIVOS_PERDA, PIPELINE_PROJETOS, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
+import { vincularAoCard } from "@/lib/projetos/vinculos";
+import { buscarContatosPorNome } from "@/lib/contatos/contatos";
+import { buscarEmpresasPorNome } from "@/lib/empresas/empresas";
+import { MENSAGEM_VINCULO } from "@/lib/entidades/mensagens";
+import { mensagemFalhaPrazo } from "@/lib/prazos/mensagens";
+import { criarPrazo, listarPrazosDoCard, marcarPrazoFeito } from "@/lib/prazos/prazos";
 import type { UsuarioMcp } from "./oauth";
 import { urlBase } from "./url";
 
@@ -148,10 +154,10 @@ const lerProjeto = ferramenta({
   nome: "ler_projeto",
   titulo: "Ler projeto",
   descricao:
-    "Lê um projeto: dados do card, quadro e fase, responsável, Empresa e Contato, próxima ação e a Timeline recente (mais nova primeiro; cada entrada com autor e se foi via MCP).",
+    "Lê um projeto: dados do card, quadro e fase, responsável, Empresa e Contato, próxima ação, prazos e a Timeline recente (mais nova primeiro; cada entrada com autor e se foi via MCP).",
   escrita: false,
   entrada: { id, timeline: z.number().int().min(0).max(200).optional().describe(`quantas entradas da Timeline (padrão ${TIMELINE_PADRAO})`) },
-  executar: async (a) => {
+  executar: async (a, eu) => {
     const c = await obterCard(a.id);
     if (!c) return erro(MENSAGEM_ERRO_PROJETO.CARD_NAO_ENCONTRADO);
     const fases = await mapaDeFases();
@@ -180,6 +186,14 @@ const lerProjeto = ferramenta({
         valorFechado: c.valorFechado?.toFixed(2) ?? null,
         motivoPerda: c.motivoPerda,
       },
+      prazos: (await listarPrazosDoCard(c.id, eu, diaEmFuso(new Date()))).map((p) => ({
+        id: p.id,
+        titulo: p.titulo,
+        dia: p.dia,
+        estado: p.estado,
+        responsavel: { id: p.responsavel.id, nome: p.responsavel.nome },
+        voceMexe: p.podeMexer,
+      })),
       criadoEm: c.criadoEm.toISOString(),
       url: urlProjeto(c.id),
       timeline: recentes.map((t) => {
@@ -299,6 +313,65 @@ const registrarNota = ferramenta({
   },
 });
 
+const buscarEmpresasContatos = ferramenta({
+  nome: "buscar_empresas_contatos",
+  titulo: "Buscar empresas e contatos",
+  descricao: "Busca Empresas e/ou Contatos vivos pelo nome (prefixo primeiro), para achar o id antes de vincular a um projeto.",
+  escrita: false,
+  entrada: { texto: z.string().min(1).max(100), tipo: z.enum(["empresa", "contato"]).optional().describe("sem ele, os dois") },
+  executar: async (a) =>
+    ok({
+      empresas: a.tipo === "contato" ? [] : await buscarEmpresasPorNome(a.texto, 10),
+      contatos: a.tipo === "empresa" ? [] : await buscarContatosPorNome(a.texto, 10),
+    }),
+});
+
+const vincularEmpresaContato = ferramenta({
+  nome: "vincular_empresa_contato",
+  titulo: "Vincular empresa ou contato ao projeto",
+  descricao: "Vincula ao projeto uma Empresa ou um Contato existente (id de buscar_empresas_contatos). alvo_id vazio desvincula. A troca vai para a Timeline.",
+  escrita: true,
+  entrada: { id, campo: z.enum(["empresa", "contato"]), alvo_id: z.string().max(64).describe('id da empresa/contato; "" desvincula') },
+  executar: async (a, eu) => {
+    const r = await vincularAoCard(a.id, a.campo, a.alvo_id.trim() || null, eu);
+    if (!r.ok) return erro(MENSAGEM_VINCULO[r.erro]);
+    return ok({ mudou: r.mudou, url: urlProjeto(a.id) });
+  },
+});
+
+const criarPrazoMcp = ferramenta({
+  nome: "criar_prazo",
+  titulo: "Criar prazo",
+  descricao:
+    "Cria um prazo (linha de chegada no Calendário), de um projeto ou solto. responsavel_id padrão: você. Como na tela: vendedor/projetos só cria prazo de si mesmo; gestão, de qualquer um.",
+  escrita: true,
+  entrada: {
+    titulo: z.string().max(1000),
+    dia: z.string().max(20).describe("AAAA-MM-DD"),
+    projeto_id: id.optional(),
+    responsavel_id: id.optional().describe('id da pessoa ou "eu"'),
+  },
+  executar: async (a, eu) => {
+    const responsavelId = !a.responsavel_id || a.responsavel_id === "eu" ? eu.id : a.responsavel_id;
+    const r = await criarPrazo(eu, { titulo: a.titulo, dia: a.dia, responsavelId, projetoId: a.projeto_id ?? null });
+    if (!r.ok) return erro(mensagemFalhaPrazo(r));
+    return ok({ id: r.id });
+  },
+});
+
+const concluirPrazo = ferramenta({
+  nome: "concluir_prazo",
+  titulo: "Concluir prazo",
+  descricao: "Marca um prazo como feito (ou reabre, com feito=false). O id vem de ler_projeto.",
+  escrita: true,
+  entrada: { prazo_id: id, feito: z.boolean().optional().describe("padrão true") },
+  executar: async (a, eu) => {
+    const r = await marcarPrazoFeito(eu, a.prazo_id, a.feito ?? true);
+    if (!r.ok) return erro(mensagemFalhaPrazo(r));
+    return ok({ feito: a.feito ?? true });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -309,6 +382,10 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   definirProximaAcao,
   moverProjeto,
   registrarNota,
+  buscarEmpresasContatos,
+  vincularEmpresaContato,
+  criarPrazoMcp,
+  concluirPrazo,
 ];
 
 function resultado(r: Resposta): CallToolResult {

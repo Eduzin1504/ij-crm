@@ -44,7 +44,7 @@ const texto = (r: { content: unknown[] }) => (r.content[0] as { text: string }).
 const dados = (r: { content: unknown[] }) => JSON.parse(texto(r));
 
 beforeEach(async () => {
-  await limparBanco(["transicao_fase", "timeline", "oportunidade", "fase", "pipeline", "sessao", "usuario"]);
+  await limparBanco(["prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
   invalidarCachePipelines();
 });
 afterEach(() => vi.restoreAllMocks());
@@ -55,6 +55,8 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
     if (!card.ok) throw new Error("seed");
     const id = card.id;
+    const empresa = await db.empresa.create({ data: { nome: "Padaria SA" } });
+    const prazo = await db.prazo.create({ data: { titulo: "P", data: new Date("2026-11-20T12:00:00Z"), responsavelId: visualizador.id, criadoPorId: vendedora.id } });
     // Um caso por ferramenta de escrita: ferramenta nova sem caso aqui quebra o teste.
     const casos: Record<string, object> = {
       criar_projeto: { titulo: "Novo" },
@@ -62,6 +64,9 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       definir_proxima_acao: { id, acao: "Ligar", data: "2026-11-10" },
       mover_projeto: { id, fase_id: fase(vendas, "em_negociacao").id },
       registrar_nota: { id, texto: "oi" },
+      vincular_empresa_contato: { id, campo: "empresa", alvo_id: empresa.id },
+      criar_prazo: { titulo: "Entregar", dia: "2026-11-20", projeto_id: id },
+      concluir_prazo: { prazo_id: prazo.id },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };
@@ -71,6 +76,8 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       expect(texto(r)).toBe(SO_LEITURA);
     }
     expect({ cards: await db.projeto.count(), timeline: await db.timeline.count() }).toEqual(antes);
+    expect(await db.prazo.count()).toBe(1);
+    expect((await db.prazo.findUniqueOrThrow({ where: { id: prazo.id } })).feitoEm).toBeNull();
     const c = await db.projeto.findUniqueOrThrow({ where: { id } });
     expect(c.titulo).toBe("Padaria");
     expect(c.faseId).toBe(fase(vendas, "primeiro_contato").id);
@@ -168,6 +175,48 @@ describe("escrita via MCP: mesma camada de serviço, Timeline marcada 'via MCP' 
     const ref = /ref: ([0-9a-f]{8})/.exec(texto(r))?.[1];
     expect(ref).toBeDefined();
     expect(String(log.mock.calls[0][0])).toMatch(new RegExp(`^\\[mcp\\.criar_projeto\\] ref=${ref} TypeError: banco caiu`));
+  });
+});
+
+describe("empresa/contato e prazos (mesmos serviços da tela)", () => {
+  it("busca e vincula empresa e contato; desvincula com vazio; tudo via MCP na Timeline", async () => {
+    const { vendedora } = await semear();
+    const emp = await db.empresa.create({ data: { nome: "Padaria São João" } });
+    const ctt = await db.contato.create({ data: { nome: "Joana Lima", empresaId: emp.id } });
+    const criado = dados(await executarFerramenta("criar_projeto", { titulo: "Site" }, vendedora));
+    const achados = dados(await executarFerramenta("buscar_empresas_contatos", { texto: "pad" }, vendedora));
+    expect(achados.empresas.map((e: { id: string }) => e.id)).toEqual([emp.id]);
+    expect(dados(await executarFerramenta("buscar_empresas_contatos", { texto: "joa", tipo: "contato" }, vendedora)).contatos[0]).toMatchObject({ id: ctt.id, empresa: "Padaria São João" });
+
+    expect(dados(await executarFerramenta("vincular_empresa_contato", { id: criado.id, campo: "empresa", alvo_id: emp.id }, vendedora)).mudou).toBe(true);
+    await executarFerramenta("vincular_empresa_contato", { id: criado.id, campo: "contato", alvo_id: ctt.id }, vendedora);
+    const lido = dados(await executarFerramenta("ler_projeto", { id: criado.id }, vendedora));
+    expect(lido.empresa).toEqual({ id: emp.id, nome: "Padaria São João" });
+    expect(lido.contato).toEqual({ id: ctt.id, nome: "Joana Lima" });
+    await executarFerramenta("vincular_empresa_contato", { id: criado.id, campo: "contato", alvo_id: "" }, vendedora);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: criado.id } })).contatoId).toBeNull();
+    expect(texto(await executarFerramenta("vincular_empresa_contato", { id: criado.id, campo: "empresa", alvo_id: "nao-existe" }, vendedora))).toMatch(/Empresa não encontrada/);
+    const vinculos = await db.timeline.findMany({ where: { projetoId: criado.id, tipo: "CAMPO_ALTERADO" } });
+    expect(vinculos).toHaveLength(3);
+    expect(vinculos.every((t) => t.viaMcp)).toBe(true);
+  });
+
+  it("prazo: cria do projeto (Timeline via MCP), aparece no ler_projeto, conclui; vendedor não cria prazo de outra pessoa", async () => {
+    const { vendedora, gestor } = await semear();
+    const criado = dados(await executarFerramenta("criar_projeto", { titulo: "Site" }, vendedora));
+    const p = dados(await executarFerramenta("criar_prazo", { titulo: "Enviar proposta", dia: "2026-11-20", projeto_id: criado.id }, vendedora));
+    const lido = dados(await executarFerramenta("ler_projeto", { id: criado.id }, vendedora));
+    expect(lido.prazos).toEqual([expect.objectContaining({ id: p.id, titulo: "Enviar proposta", dia: "2026-11-20", responsavel: { id: vendedora.id, nome: "Ana" }, voceMexe: true })]);
+    expect(dados(await executarFerramenta("concluir_prazo", { prazo_id: p.id }, vendedora)).feito).toBe(true);
+    expect((await db.prazo.findUniqueOrThrow({ where: { id: p.id } })).feitoEm).not.toBeNull();
+    const tl = await db.timeline.findMany({ where: { projetoId: criado.id, tipo: "PRAZO" } });
+    expect(tl.map((t) => (t.payload as { evento: string }).evento).sort()).toEqual(["concluido", "criado"]);
+    expect(tl.every((t) => t.viaMcp)).toBe(true);
+
+    // Regra da tela (`podeMexerNoPrazo`): vendedor só de si; gestor de qualquer um.
+    expect(texto(await executarFerramenta("criar_prazo", { titulo: "X", dia: "2026-11-21", responsavel_id: gestor.id }, vendedora))).toBe("Só o responsável pelo prazo ou a gestão podem mexer nele.");
+    expect((await executarFerramenta("criar_prazo", { titulo: "X", dia: "2026-11-21", responsavel_id: vendedora.id }, gestor)).isError).toBeFalsy();
+    expect(texto(await executarFerramenta("criar_prazo", { titulo: "X", dia: "31/12" }, vendedora))).toBe("Data inválida.");
   });
 });
 
