@@ -1229,6 +1229,12 @@ a tela de autorização avisa quando o retorno é para `localhost`.
 - Access token: 1 h. Refresh: 30 dias, renovado a cada uso (o antigo morre).
   Banco guarda só sha256 (`mcp_conexao`, `oauth_codigo`). Clientes registrados
   que nunca conectaram somem após 7 dias.
+- Refresh já usado que reaparece = cópia vazada ou replay: a conexão inteira é
+  apagada (log `[auditoria] mcp.refresh_reusado`) e a pessoa conecta de novo.
+  Se alguém relatar "o Claude desconectou sozinho", procure essa linha.
+- O app manda `X-Frame-Options: DENY` e `frame-ancestors 'none'` em toda rota
+  (`next.config.ts`), porque no Coolify não há Caddy para isso: a tela de
+  autorização não pode ser embutida (clickjacking).
 - Erro numa ferramenta: o Claude recebe a mensagem da regra (a mesma da tela)
   ou `Erro no servidor (ref: abcd1234)`; no log, `grep 'ref=abcd1234'` mostra
   `[mcp.<ferramenta>] ref=abcd1234 <causa>`. Falhas do OAuth logam como
