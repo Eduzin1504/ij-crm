@@ -11,4 +11,13 @@ describe("destinoSeguro (voltar depois do login)", () => {
       expect(destinoSeguro(v)).toBeNull();
     }
   });
+  it("recusa TAB/CR/LF e controles: o navegador os remove e /\\t/evil.com vira //evil.com", () => {
+    // `/%09/evil.com` chega já decodificado pelo searchParams do Next.
+    for (const v of [decodeURIComponent("/%09/evil.com"), "/\t/evil.com", "/\n/evil.com", "/\r/evil.com", "/\t\\evil.com", "/\x00/evil.com", "/\x7f/evil.com", "/a\\b"]) {
+      expect(destinoSeguro(v), JSON.stringify(v)).toBeNull();
+    }
+  });
+  it("devolve só caminho + query resolvidos (sem fragmento nem outro host)", () => {
+    expect(destinoSeguro("/a/../kanban?x=1#y")).toBe("/kanban?x=1");
+  });
 });
