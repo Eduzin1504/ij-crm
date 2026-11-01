@@ -4,6 +4,8 @@ node_modules
 .next
 coverage
 .vitest
+# anexos de dev (GAB-84): arquivos de usuário nunca entram na imagem
+.anexos
 .claude
 .code-review-graph
 graphify-out

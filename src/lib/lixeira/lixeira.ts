@@ -103,3 +103,31 @@ export async function listarEmpresasNaLixeira(busca?: string) {
 
 export type ContatoNaLixeira = Awaited<ReturnType<typeof listarContatosNaLixeira>>[number];
 export type EmpresaNaLixeira = Awaited<ReturnType<typeof listarEmpresasNaLixeira>>[number];
+
+/**
+ * Anexos excluídos (GAB-84). Busca por nome do arquivo ou título do Projeto.
+ * Anexo de card que está na lixeira não aparece aqui: volta com o card.
+ */
+export async function listarAnexosNaLixeira(busca?: string) {
+  const q = termoDeBusca(busca);
+  const filtro: Prisma.AnexoWhereInput = q
+    ? { OR: [{ nome: { contains: q, mode: "insensitive" } }, { projeto: { titulo: { contains: q, mode: "insensitive" } } }] }
+    : {};
+  const anexos = await db.anexo.findMany({
+    where: { deletadoEm: { not: null }, projeto: { deletadoEm: null }, ...filtro },
+    orderBy: [{ deletadoEm: "desc" }, { id: "asc" }],
+    take: LISTA_MAX,
+    select: {
+      id: true,
+      nome: true,
+      tipo: true,
+      tamanho: true,
+      deletadoEm: true,
+      deletadoPor: { select: { nome: true } },
+      projeto: { select: { id: true, titulo: true } },
+    },
+  });
+  return anexos.map(({ deletadoPor, deletadoEm, ...a }) => ({ ...a, deletadoEm: deletadoEm!, porNome: deletadoPor?.nome ?? null }));
+}
+
+export type AnexoNaLixeira = Awaited<ReturnType<typeof listarAnexosNaLixeira>>[number];
