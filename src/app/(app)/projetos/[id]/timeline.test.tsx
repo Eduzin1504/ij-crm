@@ -10,6 +10,7 @@ const entrada = (payload: object) => ({
   usuarioId: "u1",
   mensagemBrutaId: null,
   em: new Date("2026-10-27T13:00:00Z"),
+  viaMcp: false,
   usuario: { id: "u1", nome: "Ana Vendas" },
 });
 
@@ -48,5 +49,22 @@ describe("Timeline: pares não unidos do ciclo único (GAB-81)", () => {
     expect(screen.getByRole("link", { name: "Oficina (projeto)" })).toHaveAttribute("href", "/projetos/p2");
     rerender(<Timeline entradas={[vinculo({ evento: "reganho_projeto_existente", vendaId: "v1" })]} fases={new Map()} nomes={new Map()} relacionados={relacionados} />);
     expect(screen.getByRole("link", { name: "Oficina" })).toHaveAttribute("href", "/projetos/v1");
+  });
+});
+
+describe("Timeline: ações pelo conector MCP (GAB-83)", () => {
+  it("marca 'via MCP' com o autor; a criação não diz 'pelo app'", () => {
+    const criacao = { ...entrada({ faseId: "f1", via: "UI" }), tipo: "CRIACAO" as const, viaMcp: true };
+    const nota = { ...entrada({ texto: "Ligar amanhã" }), id: "t2", tipo: "NOTA" as const, viaMcp: true };
+    render(<Timeline entradas={[criacao, nota]} fases={new Map([["f1", "Proposta"]])} nomes={new Map()} />);
+    expect(screen.getAllByText("via MCP")).toHaveLength(2);
+    expect(screen.getAllByText("Ana Vendas")).toHaveLength(2);
+    expect(screen.queryByText(/pelo app/)).not.toBeInTheDocument();
+  });
+
+  it("ação pela tela não ganha a marca", () => {
+    render(<Timeline entradas={[{ ...entrada({ faseId: "f1", via: "UI" }), tipo: "CRIACAO" as const }]} fases={new Map()} nomes={new Map()} />);
+    expect(screen.queryByText("via MCP")).not.toBeInTheDocument();
+    expect(screen.getByText(/pelo app/)).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { emViaMcp } from "./canal";
 import { sanitizarErroPrisma } from "./erros/prisma"; // relativo: o db também roda em scripts (tsx)
 
 /**
@@ -11,6 +12,9 @@ import { sanitizarErroPrisma } from "./erros/prisma"; // relativo: o db também 
  *   passa pelo `$allOperations`: `$transaction` é embrulhado para o mesmo fim;
  * - o log do Prisma vai por evento e só com o `target`, sem a mensagem.
  * `errorFormat: "minimal"` não resolve: ainda ecoa a query.
+ *
+ * GAB-83: Timeline criada dentro de `comViaMcp` (ferramentas do conector MCP)
+ * sai com `via_mcp = true` — ver `./canal.ts`.
  */
 function criar(): PrismaClient {
   const base = new PrismaClient({
@@ -19,18 +23,33 @@ function criar(): PrismaClient {
   base.$on("error", (e) => console.error(`prisma:error target=${e.target}`));
   // Extensão só de `query`: não muda tipos de modelos/resultados. O cast mantém
   // `db` compatível com `Prisma.TransactionClient` e com quem tipa `PrismaClient`.
-  const estendido = base.$extends({
-    query: {
-      async $allOperations({ args, query }) {
-        try {
-          return await query(args);
-        } catch (e) {
-          sanitizarErroPrisma(e);
-          throw e;
-        }
+  const estendido = base
+    .$extends({
+      query: {
+        timeline: {
+          async create({ args, query }) {
+            if (emViaMcp()) args.data = { ...args.data, viaMcp: true };
+            return query(args);
+          },
+          async createMany({ args, query }) {
+            if (emViaMcp()) args.data = (Array.isArray(args.data) ? args.data : [args.data]).map((d) => ({ ...d, viaMcp: true }));
+            return query(args);
+          },
+        },
       },
-    },
-  }) as unknown as PrismaClient;
+    })
+    .$extends({
+      query: {
+        async $allOperations({ args, query }) {
+          try {
+            return await query(args);
+          } catch (e) {
+            sanitizarErroPrisma(e);
+            throw e;
+          }
+        },
+      },
+    }) as unknown as PrismaClient;
   const transacao = estendido.$transaction.bind(estendido) as (...a: unknown[]) => Promise<unknown>;
   const $transaction = (...a: unknown[]) =>
     transacao(...a).catch((e: unknown) => {
