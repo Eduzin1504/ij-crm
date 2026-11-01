@@ -13,7 +13,6 @@ const ORIGEM = "http://ij-crm.interno";
 
 export function destinoSeguro(v: unknown): string | null {
   if (typeof v !== "string" || v.length > MAX) return null;
-  // eslint-disable-next-line no-control-regex
   if (!v.startsWith("/") || /[\x00-\x1F\x7F\\]/.test(v)) return null;
   let u: URL;
   try {
