@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import nextConfig from "../../../next.config";
 import { REDIRECTS_ROTAS_ANTIGAS } from "./antigas";
 import { NAV_ITEMS } from "@/components/shell/nav-config";
