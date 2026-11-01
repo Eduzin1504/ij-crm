@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURES_EXTRACAO } from "../fixtures/extracao";
 import { JSON_SCHEMA_CLASSIFICACAO } from "../prompts/classificacao.v1";
 import { JSON_SCHEMA_EXTRACAO } from "../prompts/extracao.v2";
+import { JSON_SCHEMA_EXTRACAO as JSON_SCHEMA_EXTRACAO_V3 } from "../prompts/extracao.v3";
 import { JSON_SCHEMA_RESUMO } from "../prompts/resumo.v1";
 import { ErroLlm } from "../tipos";
 import { MAX_TOKENS_EXTRACAO } from "./comum";
@@ -295,5 +296,9 @@ describe("paraSchemaGemini (subconjunto de JSON Schema do responseJsonSchema)", 
     expect(paraSchemaGemini(JSON_SCHEMA_EXTRACAO)).toMatchSnapshot("extracao");
     expect(paraSchemaGemini(JSON_SCHEMA_CLASSIFICACAO)).toMatchSnapshot("classificacao");
     expect(paraSchemaGemini(JSON_SCHEMA_RESUMO)).toMatchSnapshot("resumo");
+  });
+
+  it("trava o schema convertido da extração v3 (GAB-85: + sentimento)", () => {
+    expect(paraSchemaGemini(JSON_SCHEMA_EXTRACAO_V3)).toMatchSnapshot("extracao.v3");
   });
 });

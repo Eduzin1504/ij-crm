@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extrairAtualizacao, provedorConfigurado } from "./extracao";
 import { FIXTURES_EXTRACAO, RECEBIDA_EM } from "./fixtures/extracao";
 import { definirRespostaMock } from "./provedores/mock";
-import type { ContextoExtracao } from "./prompts/extracao.v2";
+import type { ContextoExtracao } from "./prompts/extracao.v3";
+import type { PedidoExtracao } from "./tipos";
 
 const CTX: ContextoExtracao = { remetente: "João", recebidaEm: RECEBIDA_EM, respondendoA: null, fases: [], contatos: [], empresas: [], projetos: [], alvoResposta: null };
 const envOriginal = { ...process.env };
@@ -116,12 +117,29 @@ describe("extrairAtualizacao (mock)", () => {
   it("fixture conhecida → saída validada, versão e uso; log sem o texto", async () => {
     const f = FIXTURES_EXTRACAO[0];
     const r = await extrairAtualizacao(f.texto, CTX, { ref: "m1" });
-    expect(r.extracao).toEqual(f.saida);
-    expect(r.versao).toBe("extracao.v2.1");
+    // Fixture no formato da v2 (sem `sentimento`): a extração não quebra, sentimento = null (GAB-85).
+    expect(r.extracao).toStrictEqual({ ...f.saida, sentimento: null });
+    expect(r.versao).toBe("extracao.v3");
     expect(r.uso).toMatchObject({ provedor: "mock", modelo: "mock-extracao" });
     const l = logs(console.info);
-    expect(l).toMatch(/\[llm\] extracao ref=m1 provedor=mock modelo=mock-extracao versao=extracao\.v2\.1 ms=\d+ tokens_in=0 tokens_out=0 ok/);
+    expect(l).toMatch(/\[llm\] extracao ref=m1 provedor=mock modelo=mock-extracao versao=extracao\.v3 ms=\d+ tokens_in=0 tokens_out=0 ok/);
     expect(l).not.toContain("Gustavo");
+  });
+
+  it("sentimento vem na MESMA chamada (prompt/schema v3); valor desconhecido vira null sem quebrar", async () => {
+    const pedidos: PedidoExtracao[] = [];
+    definirRespostaMock((_t, pedido) => {
+      pedidos.push(pedido);
+      return { ...FIXTURES_EXTRACAO[0].saida, sentimento: "POSITIVO" };
+    });
+    const r = await extrairAtualizacao("#crm x", CTX, { ref: "m4" });
+    expect(r.extracao.sentimento).toBe("POSITIVO");
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0].sistema).toContain("- sentimento:");
+    expect(pedidos[0].schema).toMatchObject({ required: expect.arrayContaining(["sentimento"]) });
+
+    definirRespostaMock(() => ({ ...FIXTURES_EXTRACAO[0].saida, sentimento: "EUFORICO" }));
+    expect((await extrairAtualizacao("#crm x", CTX, { ref: "m5" })).extracao.sentimento).toBeNull();
   });
 
   it("saída inválida → SAIDA_INVALIDA com o bruto anexado e só caminhos no log", async () => {
@@ -144,7 +162,7 @@ describe("extrairAtualizacao (mock)", () => {
     };
     await extrairAtualizacao("#crm x", CTX, { ref: "m3", provedor });
     expect(logs(console.info)).toMatch(
-      /\[llm\] extracao ref=m3 provedor=openai modelo=gpt-6\.1-sol versao=extracao\.v2\.1 ms=900 tokens_in=1500 tokens_out=260 tokens_reasoning=64 ok/,
+      /\[llm\] extracao ref=m3 provedor=openai modelo=gpt-6\.1-sol versao=extracao\.v3 ms=900 tokens_in=1500 tokens_out=260 tokens_reasoning=64 ok/,
     );
   });
 });
