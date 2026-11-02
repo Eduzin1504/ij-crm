@@ -5,7 +5,7 @@ import { avaliacoesPorVendedor } from "./avaliacao-consulta";
 const db = dbTeste();
 
 beforeEach(async () => {
-  await limparBanco(["timeline", "mensagem_bruta", "oportunidade", "fase", "pipeline", "usuario"]);
+  await limparBanco(["transicao_fase", "timeline", "mensagem_bruta", "oportunidade", "fase", "pipeline", "usuario"]);
 });
 
 async function semear() {
@@ -92,5 +92,30 @@ describe("avaliacoesPorVendedor: lixeira e fuso (review do PR #52)", () => {
       return avaliacoesPorVendedor(periodo, tx);
     });
     expect(r).toEqual([{ vendedorId: ana.id, notas: 1, notaMedia: 5, positivos: 0, neutros: 0, negativos: 0 }]);
+  });
+});
+
+describe("avaliacoesPorVendedor: soVendas (painel de vendas, GAB-94)", () => {
+  it("nota dada com o card já em Projetos não entra; antes de sair de Vendas, entra", async () => {
+    const { ana, card } = await semear();
+    const vendasFase = (await db.projeto.findUniqueOrThrow({ where: { id: card.id } })).faseId;
+    const projetos = await db.pipeline.create({ data: { chave: "projetos", nome: "Projetos", ordem: 1, fases: { create: [{ chave: "handoff", nome: "Handoff", ordem: 0 }] } }, include: { fases: true } });
+    const paula = await db.usuario.create({ data: { nome: "Paula", email: "paula@ij.test", papel: "PROJETOS" } });
+    await db.projeto.update({ where: { id: card.id }, data: { pipelineId: projetos.id, faseId: projetos.fases[0].id } });
+    await db.transicaoFase.createMany({
+      data: [
+        { projetoId: card.id, paraFaseId: vendasFase, origem: "UI", em: em("2026-10-01T12:00:00Z") },
+        { projetoId: card.id, deFaseId: vendasFase, paraFaseId: projetos.fases[0].id, origem: "SISTEMA", em: em("2026-10-15T12:00:00Z") },
+      ],
+    });
+    await db.timeline.createMany({
+      data: [
+        { projetoId: card.id, tipo: "NOTA", usuarioId: ana.id, nota: 4, em: em("2026-10-10T12:00:00Z") }, // ainda em Vendas
+        { projetoId: card.id, tipo: "NOTA", usuarioId: paula.id, nota: 1, em: em("2026-10-20T12:00:00Z") }, // já em Projetos
+      ],
+    });
+    const periodo = { de: em("2026-10-01T00:00:00Z"), ate: em("2026-11-01T00:00:00Z") };
+    expect(await avaliacoesPorVendedor(periodo)).toHaveLength(2);
+    expect(await avaliacoesPorVendedor(periodo, db, { soVendas: true })).toEqual([{ vendedorId: ana.id, notas: 1, notaMedia: 4, positivos: 0, neutros: 0, negativos: 0 }]);
   });
 });

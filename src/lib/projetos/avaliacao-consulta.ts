@@ -10,8 +10,12 @@
  *   cards na lixeira (`deletado_em`) ficam de fora.
  *
  * Não depende do JSON da LLM: continua certo depois da purga de 90 dias.
+ *
+ * `soVendas` (painel de vendas, GAB-94): só interações registradas enquanto o
+ * card estava em Vendas (como o ranking): card em Vendas, ou entrada anterior à
+ * primeira transição para fora de Vendas. Nota dada em Projetos não entra.
  */
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { utc } from "@/lib/sql-utc";
 
@@ -26,7 +30,18 @@ export type AvaliacaoVendedor = {
 };
 
 /** `cliente`: o `db` ou uma transação (testes fixam o fuso da sessão nela). */
-export async function avaliacoesPorVendedor(periodo: { de: Date; ate: Date }, cliente: Pick<PrismaClient, "$queryRaw"> = db): Promise<AvaliacaoVendedor[]> {
+export async function avaliacoesPorVendedor(
+  periodo: { de: Date; ate: Date },
+  cliente: Pick<PrismaClient, "$queryRaw"> = db,
+  opcoes: { soVendas?: boolean } = {},
+): Promise<AvaliacaoVendedor[]> {
+  const soVendas = opcoes.soVendas
+    ? Prisma.sql`
+       AND (o.pipeline_id IN (SELECT id FROM pipeline WHERE chave = 'vendas')
+            OR t.em < (SELECT min(tf.em) FROM transicao_fase tf
+                        WHERE tf.oportunidade_id = o.id
+                          AND tf.para_fase_id NOT IN (SELECT f.id FROM fase f JOIN pipeline p ON p.id = f.pipeline_id WHERE p.chave = 'vendas')))`
+    : Prisma.empty;
   return cliente.$queryRaw<AvaliacaoVendedor[]>`
     SELECT COALESCE(mb.remetente_usuario_id, t.usuario_id)         AS "vendedorId",
            COUNT(t.nota)::int                                      AS "notas",
@@ -39,7 +54,7 @@ export async function avaliacoesPorVendedor(periodo: { de: Date; ate: Date }, cl
       LEFT JOIN mensagem_bruta mb ON mb.id = t.mensagem_bruta_id
      WHERE t.em >= ${utc(periodo.de)} AND t.em < ${utc(periodo.ate)}
        AND (t.nota IS NOT NULL OR t.sentimento IS NOT NULL)
-       AND COALESCE(mb.remetente_usuario_id, t.usuario_id) IS NOT NULL
+       AND COALESCE(mb.remetente_usuario_id, t.usuario_id) IS NOT NULL${soVendas}
      GROUP BY 1
      ORDER BY 1`;
 }
