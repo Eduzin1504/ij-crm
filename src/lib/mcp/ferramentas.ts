@@ -34,6 +34,9 @@ import { buscarEmpresasPorNome } from "@/lib/empresas/empresas";
 import { MENSAGEM_VINCULO } from "@/lib/entidades/mensagens";
 import { mensagemFalhaPrazo } from "@/lib/prazos/mensagens";
 import { criarPrazo, listarPrazosDoCard, marcarPrazoFeito } from "@/lib/prazos/prazos";
+import { carregarPainelPara, INDICADORES } from "@/lib/painel/servico";
+import { DEFINICOES_PAINEL, VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes";
+import { resolverPeriodo } from "@/lib/ranking/periodo";
 import type { UsuarioMcp } from "./oauth";
 import { urlBase } from "./url";
 
@@ -438,6 +441,48 @@ const lerAnexo = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- painel (GAB-94)
+
+const consultarPainelVendas = ferramenta({
+  nome: "consultar_painel_vendas",
+  titulo: "Consultar o painel de vendas",
+  descricao:
+    "Indicadores do painel de vendas (os MESMOS números da tela /painel): conversao (estamos convertendo? ganhos, perdidos, conversão, R$ fechado, conversão e tempo médio por fase), engajamento (interações por vendedor via WhatsApp #crm, tela e MCP; próximas ações feitas no prazo), acompanhamento (situação de agora: cards abertos sem próxima ação, com próxima ação vencida, dias desde o último contato, os mais parados) e satisfacao (nota média 1–5 e sentimento). Período: semana (seg–dom) ou mês civil de São Paulo, o que contém `ref` (padrão: hoje). Filtro opcional por vendedor (id ou \"eu\"); com o ranking oculto pelo gestor, quem não é gestor só vê as próprias linhas e os totais do time. Valor em proposta e versões até fechar ainda não têm dados (dependem da Proposta). A resposta traz `definicoes` com a fórmula de cada indicador.",
+  escrita: false,
+  entrada: {
+    indicador: z.enum([...INDICADORES, "todos"]).optional().describe("padrão: todos"),
+    periodo: z.enum(["semana", "mes"]).optional().describe("padrão: mes"),
+    ref: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "use AAAA-MM-DD")
+      .optional()
+      .describe("um dia (AAAA-MM-DD) do período; padrão: hoje"),
+    vendedor_id: id.optional().describe('id da pessoa, ou "eu"'),
+  },
+  executar: async (a, eu) => {
+    const agora = new Date();
+    const periodo = resolverPeriodo(a.periodo ?? "mes", a.ref, agora);
+    const vendedorId = a.vendedor_id === "eu" ? eu.id : (a.vendedor_id ?? null);
+    const indicadores = !a.indicador || a.indicador === "todos" ? INDICADORES : [a.indicador];
+    const v = await carregarPainelPara(eu, { periodo, vendedorId }, agora, indicadores);
+    if (!v.ok)
+      return erro(
+        v.erro === "VENDEDOR_DESCONHECIDO"
+          ? "Vendedor não encontrado. Use listar_responsaveis para ver os ids."
+          : 'O gestor ocultou o ranking: você só pode consultar os seus números (vendedor_id "eu") ou os totais do time (sem vendedor_id).',
+      );
+    const painel = v.painel;
+    return ok({
+      visao: v.modo === "completo" ? "completa" : "só as suas linhas e os totais do time (ranking oculto pelo gestor)",
+      periodo: { tipo: periodo.tipo, rotulo: periodo.rotulo, primeiroDia: periodo.primeiroDia, ultimoDia: periodo.ultimoDia, atual: periodo.atual },
+      vendedor: painel.vendedor ? { id: painel.vendedor.id, nome: painel.vendedor.nome } : null,
+      ...Object.fromEntries(indicadores.map((i) => [i, painel[i]])),
+      definicoes: { ...Object.fromEntries(indicadores.map((i) => [i, DEFINICOES_PAINEL[i]])), visibilidade: VISIBILIDADE_PAINEL },
+      tela: `${urlBase()}/painel?periodo=${periodo.tipo}&ref=${periodo.primeiroDia}${vendedorId ? `&vendedor=${vendedorId}` : ""}`,
+    });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -454,6 +499,7 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   concluirPrazo,
   listarAnexosMcp,
   lerAnexo,
+  consultarPainelVendas,
 ];
 
 function resultado(r: Resposta): CallToolResult {
