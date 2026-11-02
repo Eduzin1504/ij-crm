@@ -36,15 +36,27 @@ describe("extrairPdfEmProcesso (filho com teto de tempo e memória)", () => {
     expect(process.memoryUsage().rss - antes).toBeLessThan(100 * 1024 * 1024);
   }, 30_000);
 
+  // Sem teto de RSS que alcance (1 GB): a bomba Tj também cresce em memória (~150 MB em
+  // ~0,6 s, ~240 MB em 6 s) e o teto de produção a mataria antes do tempo — aqui o caminho
+  // testado é o do relógio (o da memória é o teste acima).
+  const SEM_TETO_RSS = 1024 * 1024 * 1024;
+
   it("bomba de CPU (Tj repetidos): morto pelo tempo, sem travar o event loop do pai", async () => {
     const bomba = pdfBomba(16, "tj");
-    let ticks = 0;
-    const t = setInterval(() => ticks++, 50);
-    const r = await extrairPdfEmProcesso(bomba, { textoMax: 1000, tempoMaxMs: 1500 });
-    clearInterval(t);
-    expect(r).toMatchObject({ tipo: "falha" });
-    // O pai seguiu atendendo: o timer de 50 ms rodou durante a extração.
-    expect(ticks).toBeGreaterThan(10);
+    let pendente = true;
+    const extracao = extrairPdfEmProcesso(bomba, { textoMax: 1000, tempoMaxMs: 1500, rssMaxBytes: SEM_TETO_RSS }).finally(() => {
+      pendente = false;
+    });
+    // O pai segue atendendo timers ENQUANTO o filho trabalha: 5 voltas de 50 ms do event
+    // loop terminam com a extração ainda pendente. Se o pdf.js rodasse no processo do pai
+    // (síncrono), nenhum timer rodaria antes de a extração acabar. Não conta ticks por
+    // duração: só a ordem dos eventos importa (folga de ~6× até o teto de 1,5 s).
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(pendente).toBe(true);
+    }
+    const r = await extracao;
+    expect(r).toEqual({ tipo: "falha", motivo: "tempo esgotado (1500 ms)" });
   }, 30_000);
 
   it("uma extração por vez: chamadas simultâneas saem em fila (nunca 2 filhos vivos)", async () => {
@@ -56,9 +68,9 @@ describe("extrairPdfEmProcesso (filho com teto de tempo e memória)", () => {
     let maximo = 0;
     const amostra = setInterval(() => (maximo = Math.max(maximo, filhos() - base)), 20);
     const inicio = Date.now();
-    const rs = await Promise.all([1, 2, 3].map(() => extrairPdfEmProcesso(pdf, { textoMax: 1000, tempoMaxMs: 400 })));
+    const rs = await Promise.all([1, 2, 3].map(() => extrairPdfEmProcesso(pdf, { textoMax: 1000, tempoMaxMs: 400, rssMaxBytes: SEM_TETO_RSS })));
     clearInterval(amostra);
-    expect(rs.every((r) => r.tipo === "falha")).toBe(true);
+    expect(rs).toEqual(Array(3).fill({ tipo: "falha", motivo: "tempo esgotado (400 ms)" }));
     expect(Date.now() - inicio).toBeGreaterThanOrEqual(1200);
     expect(maximo).toBe(1);
   }, 30_000);

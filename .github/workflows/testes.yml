@@ -1,0 +1,69 @@
+# Suíte vitest inteira (unitários + *.int.test.ts) em todo PR para a main.
+#
+# Os testes de integração batem num Postgres de verdade: serviço `postgres:16-alpine`
+# (mesma imagem do compose.yml/compose.coolify.yml). O globalSetup
+# (src/test/global-setup.ts) roda `prisma migrate deploy` no schema de teste;
+# `DATABASE_URL_TEST` fixa o schema `ijcrm_test` (src/test/db.ts só aceita
+# `ijcrm_test` ou `ijcrm_test_<sufixo>`) — o banco do runner é descartável.
+#
+# Nenhuma outra env de app: cada teste define (e restaura) as variáveis de que
+# precisa, e o .env local não é lido pelo vitest — o que passa aqui passa numa
+# máquina sem .env. LLM e Evolution são sempre mockados (sem rede, sem chave).
+# Linux obrigatório: a extração de PDF lê o RSS do filho em /proc (o runner tem).
+#
+# Mesmo padrão de build.yml: node 22, pnpm do `packageManager`, actions por SHA.
+name: testes
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Push novo no mesmo PR cancela a rodada anterior.
+concurrency:
+  group: testes-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ijcrm
+          POSTGRES_PASSWORD: ijcrm
+          POSTGRES_DB: ijcrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ijcrm -d ijcrm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ijcrm:ijcrm@localhost:5432/ijcrm?schema=public
+      DATABASE_URL_TEST: postgresql://ijcrm:ijcrm@localhost:5432/ijcrm?schema=ijcrm_test
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Sem `version`: lê o `packageManager` do package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: ./node_modules/.bin/prisma generate
+
+      - name: vitest
+        run: pnpm test

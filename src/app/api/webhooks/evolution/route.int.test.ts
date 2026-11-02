@@ -11,12 +11,14 @@ import { invalidarConfigTecnica } from "@/lib/config/tecnica";
 import { contagemNaoAutorizados } from "@/lib/logs/tecnicos";
 
 // `after()` do Next só funciona dentro de um request scope. Aqui o handler é
-// chamado direto, então a tarefa roda imediatamente e fica numa fila que o
-// teste aguarda antes de inspecionar o envio.
-const { tarefasDepois } = vi.hoisted(() => ({ tarefasDepois: [] as Promise<unknown>[] }));
+// chamado direto: a tarefa fica numa fila e só roda quando o teste chama
+// `aguardarDepois()` — como no Next, depois da resposta. (Rodar já no microtask
+// deixava a tarefa correr contra as asserções "antes do after()": no CI o
+// RECEBIDA às vezes já era PROCESSANDO.)
+const { tarefasDepois } = vi.hoisted(() => ({ tarefasDepois: [] as (() => unknown)[] }));
 vi.mock("next/server", () => ({
   after: (tarefa: () => unknown) => {
-    tarefasDepois.push(Promise.resolve().then(tarefa));
+    tarefasDepois.push(tarefa);
   },
 }));
 
@@ -59,8 +61,10 @@ async function postar(nome: NomeFixture | Record<string, unknown>, headers?: Rec
   return { status: res.status, json };
 }
 
+/** Roda as tarefas de `after()` pendentes, uma por vez e na ordem em que foram agendadas
+ *  (e as que elas agendarem), até a fila esvaziar. Em ordem: os logs saem com ids previsíveis. */
 async function aguardarDepois() {
-  await Promise.all(tarefasDepois.splice(0));
+  for (let t = tarefasDepois.shift(); t; t = tarefasDepois.shift()) await t();
 }
 
 async function vendedor(extra: { nome?: string; telefoneWhatsapp?: string | null; whatsappLid?: string; ativo?: boolean; papel?: "VISUALIZADOR" } = {}) {
