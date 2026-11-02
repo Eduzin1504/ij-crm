@@ -48,7 +48,7 @@ describe("extrairTexto", () => {
     const bomba = docxBomba(2048);
     const inicio = performance.now();
     expect(await extrairTexto("DOCX", bomba)).toEqual({ ok: false, erro: "CORROMPIDO" });
-    // fflate.unzipSync levava ~5,6 s de CPU descompactando tudo; o zlib nativo para em 30 MB.
+    // fflate.unzipSync levava ~5,6 s de CPU descompactando tudo; o zlib nativo para em 10 MB.
     expect(performance.now() - inicio).toBeLessThan(1000);
   }, 60_000);
 

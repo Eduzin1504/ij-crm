@@ -9,6 +9,7 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { apagarCardDefinitivo, excluirCard, restaurarCard } from "@/lib/lixeira/cards";
 import { apagarAnexoDefinitivo, excluirAnexo, restaurarAnexo } from "@/lib/lixeira/anexos";
 import { listarAnexosNaLixeira } from "@/lib/lixeira/lixeira";
+import { mensagemLixeira } from "@/lib/lixeira/regras";
 import { criarCard } from "@/lib/projetos/projetos";
 import { anexarArquivo, lerTextoDoAnexo, listarAnexos, obterAnexoParaDownload } from "./anexos";
 import { lerArquivo } from "./armazenamento";
@@ -209,6 +210,21 @@ describe("lixeira de anexos", () => {
 
     const eventos = await db.timeline.findMany({ where: { projetoId: cardId, tipo: "ANEXO" }, orderBy: { em: "asc" } });
     expect(eventos.map((e) => (e.payload as { evento: string }).evento)).toEqual(["adicionado", "excluido", "restaurado", "excluido", "restaurado"]);
+  });
+
+  it("restaurar quando o mesmo arquivo já foi anexado de novo → ANEXO_DUPLICADO, nada muda", async () => {
+    const { vend, gestor, cardId } = await semear();
+    const bytes = enc.encode("mesmo conteúdo");
+    const antigo = await anexarArquivo(cardId, { nome: "v1.txt", bytes }, vend);
+    if (!antigo.ok) throw new Error(antigo.erro);
+    await excluirAnexo(antigo.anexo.id, vend);
+    const novo = await anexarArquivo(cardId, { nome: "v2.txt", bytes }, vend);
+    expect(novo.ok).toBe(true);
+    const r = await restaurarAnexo(antigo.anexo.id, gestor);
+    expect(r).toEqual({ ok: false, erro: "ANEXO_DUPLICADO" });
+    if (!r.ok) expect(mensagemLixeira(r)).toMatch(/^Já existe um anexo igual neste projeto/);
+    expect((await db.anexo.findUniqueOrThrow({ where: { id: antigo.anexo.id } })).deletadoEm).not.toBeNull();
+    expect((await listarAnexos(cardId)).map((a) => a.nome)).toEqual(["v2.txt"]);
   });
 
   it("apagar de vez: só admin, só da lixeira, digitando o nome; remove o arquivo do disco", async () => {

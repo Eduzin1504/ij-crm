@@ -554,7 +554,7 @@ molde do import do Pipefy); o **tipo vem dos bytes** (magic number, `src/lib/ane
 a extensão só precisa conferir com eles. No upload o texto é extraído sem LLM
 (`src/lib/anexos/extrair.ts`): PDF digital pelo `unpdf` (pdf.js em JS puro) num **processo
 filho** (`pdf-processo.ts` → `pdf-filho.mjs`, uma extração por vez, morto acima de 20 s ou
-200 MB de RSS: o anexo entra "sem texto" e o log tem `[anexos.extrairTexto] ref=…`), .docx
+150 MB de RSS: o anexo entra "sem texto" e o log tem `[anexos.extrairTexto] ref=…`), .docx
 pelo `word/document.xml` (zlib nativo com `maxOutputLength`, contra zip bomb), .md/.txt direto. PDF escaneado e
 imagens ficam marcados **sem texto** até o OCR (GAB-90). O texto fica em `anexo.texto` (para a
 proposta e o MCP) e abre em `/api/anexos/[id]/texto`. Download em `/api/anexos/[id]`: só com

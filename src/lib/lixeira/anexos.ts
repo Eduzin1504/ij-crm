@@ -11,7 +11,7 @@
  * Apagar o card de vez leva os anexos (FK CASCADE); os arquivos são removidos
  * por `removerArquivosDeAnexos` depois do commit (./cards.ts).
  */
-import type { Papel } from "@prisma/client";
+import { Prisma, type Papel } from "@prisma/client";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { removerArquivo } from "@/lib/anexos/armazenamento";
@@ -36,6 +36,16 @@ export async function excluirAnexo(id: string, por: Ator): Promise<ResultadoLixe
 
 export async function restaurarAnexo(id: string, por: Ator): Promise<ResultadoLixeira> {
   if (!podeRestaurar(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
+  try {
+    return await restaurarNaTransacao(id, por);
+  } catch (e) {
+    // Índice único parcial dos vivos: o mesmo arquivo foi anexado de novo depois da exclusão.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, erro: "ANEXO_DUPLICADO" };
+    throw e;
+  }
+}
+
+function restaurarNaTransacao(id: string, por: Ator): Promise<ResultadoLixeira> {
   return db.$transaction(async (tx) => {
     // Anexo de card que está na lixeira não volta sozinho: volta com o card.
     const a = await tx.anexo.findFirst({ where: { id, projeto: { deletadoEm: null } }, select: { projetoId: true, nome: true, deletadoEm: true } });

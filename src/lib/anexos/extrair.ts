@@ -26,7 +26,7 @@ import { decodificarTexto } from "./tipos";
 /** ~1 milhão de caracteres: uma proposta longa tem dezenas de milhares. */
 export const TEXTO_MAX = 1_000_000;
 /** Teto do XML descompactado de um .docx. */
-export const DOCX_XML_MAX = 30 * 1024 * 1024;
+export const DOCX_XML_MAX = 10 * 1024 * 1024;
 /** Abaixo disto (caracteres visíveis por página, em média) o PDF conta como escaneado. */
 const PDF_MIN_POR_PAGINA = 10;
 

@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 export const TEMPO_MAX_MS = 20_000;
-export const RSS_MAX_BYTES = 200 * 1024 * 1024;
+export const RSS_MAX_BYTES = 150 * 1024 * 1024;
 const INTERVALO_RSS_MS = 50;
 
 export type ResultadoPdf =

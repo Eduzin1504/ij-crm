@@ -11,6 +11,7 @@ export type ErroLixeira =
   | "CONTATO_NAO_ENCONTRADO"
   | "EMPRESA_NAO_ENCONTRADA"
   | "ANEXO_NAO_ENCONTRADO"
+  | "ANEXO_DUPLICADO"
   | "NAO_ESTA_NA_LIXEIRA"
   | "FASE_ARQUIVADA_ESCOLHA"
   | "FASE_INVALIDA"
@@ -65,6 +66,8 @@ export function mensagemLixeira(f: FalhaLixeira): string {
       return "Contato não encontrado (pode ter sido excluído, mesclado ou apagado). Recarregue a página.";
     case "EMPRESA_NAO_ENCONTRADA":
       return "Empresa não encontrada (pode ter sido excluída, mesclada ou apagada). Recarregue a página.";
+    case "ANEXO_DUPLICADO":
+      return "Já existe um anexo igual neste projeto (o mesmo arquivo foi anexado de novo). Exclua o outro antes de restaurar este.";
     case "ANEXO_NAO_ENCONTRADO":
       return "Anexo não encontrado (pode já ter sido excluído ou apagado). Recarregue a página.";
     case "NAO_ESTA_NA_LIXEIRA":
