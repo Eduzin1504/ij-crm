@@ -26,6 +26,18 @@ type Ator = { id: string; papel: Papel };
 
 export type ResultadoAnexo<T = object> = ({ ok: true } & T) | { ok: false; erro: ErroAnexo };
 
+/**
+ * P2002 no índice único parcial `anexo_oportunidade_id_sha256_vivo_key`
+ * (oportunidade_id, sha256) dos anexos vivos — e só nele. Qualquer outro P2002
+ * é inesperado e sobe (convenção do repo: contatos.ts, auth/conta.ts).
+ */
+export function ehAnexoDuplicadoNoBanco(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") return false;
+  const alvo = (e.meta as { target?: unknown } | undefined)?.target;
+  const texto = Array.isArray(alvo) ? alvo.join(",") : String(alvo ?? "");
+  return /anexo_oportunidade_id_sha256_vivo_key|sha256/i.test(texto);
+}
+
 export type AnexoCriado = { id: string; nome: string; semTexto: boolean };
 
 export async function anexarArquivo(projetoId: string, arquivo: { nome: string; bytes: Uint8Array }, por: Ator): Promise<ResultadoAnexo<{ anexo: AnexoCriado }>> {
@@ -68,7 +80,7 @@ export async function anexarArquivo(projetoId: string, arquivo: { nome: string; 
   } catch (e) {
     await removerArquivo(anexoId).catch(() => {});
     // Índice único parcial (oportunidade_id, sha256) dos vivos: dois uploads iguais ao mesmo tempo.
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, erro: "DUPLICADO" };
+    if (ehAnexoDuplicadoNoBanco(e)) return { ok: false, erro: "DUPLICADO" };
     throw e;
   }
   return { ok: true, anexo: { id: anexoId, nome, semTexto } };

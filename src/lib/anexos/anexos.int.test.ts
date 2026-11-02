@@ -3,6 +3,8 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+import { db as dbApp } from "@/lib/db";
 import { dbTeste, limparBanco } from "@/test/db";
 import { docxDeParagrafos, pdfBomba, pdfDeTexto, PNG } from "@/test/fixtures/anexos";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
@@ -225,6 +227,22 @@ describe("lixeira de anexos", () => {
     if (!r.ok) expect(mensagemLixeira(r)).toMatch(/^Já existe um anexo igual neste projeto/);
     expect((await db.anexo.findUniqueOrThrow({ where: { id: antigo.anexo.id } })).deletadoEm).not.toBeNull();
     expect((await listarAnexos(cardId)).map((a) => a.nome)).toEqual(["v2.txt"]);
+  });
+
+  it("restaurar: P2002 de outro alvo e erro que não é P2002 são relançados (não viram ANEXO_DUPLICADO)", async () => {
+    const { vend, gestor, cardId } = await semear();
+    const r = await anexarArquivo(cardId, { nome: "a.txt", bytes: enc.encode("x") }, vend);
+    if (!r.ok) throw new Error(r.erro);
+    await excluirAnexo(r.anexo.id, vend);
+    const outroAlvo = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "6", meta: { target: ["id"] } });
+    const espiao = vi.spyOn(dbApp, "$transaction");
+    espiao.mockRejectedValueOnce(outroAlvo);
+    await expect(restaurarAnexo(r.anexo.id, gestor)).rejects.toBe(outroAlvo);
+    const qualquer = new Error("conexão caiu");
+    espiao.mockRejectedValueOnce(qualquer);
+    await expect(restaurarAnexo(r.anexo.id, gestor)).rejects.toBe(qualquer);
+    espiao.mockRestore();
+    expect(await restaurarAnexo(r.anexo.id, gestor)).toEqual({ ok: true });
   });
 
   it("apagar de vez: só admin, só da lixeira, digitando o nome; remove o arquivo do disco", async () => {

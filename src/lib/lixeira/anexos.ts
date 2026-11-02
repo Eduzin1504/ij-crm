@@ -11,9 +11,10 @@
  * Apagar o card de vez leva os anexos (FK CASCADE); os arquivos são removidos
  * por `removerArquivosDeAnexos` depois do commit (./cards.ts).
  */
-import { Prisma, type Papel } from "@prisma/client";
+import type { Papel } from "@prisma/client";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
+import { ehAnexoDuplicadoNoBanco } from "@/lib/anexos/anexos";
 import { removerArquivo } from "@/lib/anexos/armazenamento";
 import { registrarErro } from "@/lib/erros/registrar";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar } from "./regras";
@@ -40,7 +41,7 @@ export async function restaurarAnexo(id: string, por: Ator): Promise<ResultadoLi
     return await restaurarNaTransacao(id, por);
   } catch (e) {
     // Índice único parcial dos vivos: o mesmo arquivo foi anexado de novo depois da exclusão.
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, erro: "ANEXO_DUPLICADO" };
+    if (ehAnexoDuplicadoNoBanco(e)) return { ok: false, erro: "ANEXO_DUPLICADO" };
     throw e;
   }
 }
