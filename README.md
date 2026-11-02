@@ -712,19 +712,24 @@ otimista: o formulário manda o `atualizado_em` que carregou e, se outra pessoa 
 
 ## Painel de vendas (GAB-94)
 
-`/painel` (todos os papéis — spec fase 2 §4.12/§4.14, sem visão restrita): Semana | Mês de São
-Paulo (`?periodo=semana|mes&ref=YYYY-MM-DD`) e filtro por vendedor (`?vendedor=<id>`). Quatro
+`/painel` (todos os papéis): Semana | Mês de São Paulo (`?periodo=semana|mes&ref=YYYY-MM-DD`) e
+filtro por vendedor (`?vendedor=<id>`). **Visibilidade** = a do ranking (`podeVerRanking`): com
+"Mostrar ranking aos vendedores" desligado, vendedor e projetos veem os totais do time e só as
+próprias linhas, sem filtro por outra pessoa (o servidor recusa; o MCP responde com erro); gestor,
+admin e visualizador veem tudo. Quatro
 perguntas, sem dashboards configuráveis; barras em HTML/CSS (sem biblioteca de gráficos):
 
 - **Estamos convertendo?** ganhos, perdidos, conversão e R$ fechado com as regras do ranking; por
   fase aberta de Vendas, entradas, saídas (avanço/perda/recuo), conversão da fase
-  (avanços ÷ (avanços + perdas)) e tempo médio na fase. Valor em proposta e versões até fechar
+  (avanços ÷ (avanços + perdas)) e tempo médio na fase; no filtro por vendedor o card conta para o
+  responsável ATUAL. Valor em proposta e versões até fechar
   mostram "sem dados" até a Proposta (GAB-86) — ponto de encaixe em `src/lib/painel/proposta.ts`.
 - **O time está engajado?** interações por vendedor (WhatsApp `#crm`, tela e MCP) e próximas ações
   feitas no prazo (dia de SP).
 - **Os leads estão sendo acompanhados?** (agora) cards abertos sem próxima ação, vencidos e dias
   desde o último contato, com os 10 mais parados.
-- **Os leads gostaram do contato?** nota média 1–5 e sentimento (`avaliacoesPorVendedor`, GAB-85).
+- **Os leads gostaram do contato?** nota média 1–5 e sentimento (`avaliacoesPorVendedor`, GAB-85,
+  com `soVendas`: só enquanto o card estava em Vendas).
 
 Cálculo puro em `src/lib/painel/calculo.ts` (fórmulas no topo; texto em `definicoes.ts`); uma
 consulta agregada por indicador em `servico.ts`, em paralelo. Só movimentos de gente (`UI`/
