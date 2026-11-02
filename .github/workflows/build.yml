@@ -48,3 +48,16 @@ jobs:
 
       - name: next build
         run: pnpm build
+
+      # GAB-84: a extração de texto de PDF roda num processo filho
+      # (src/lib/anexos/pdf-filho.mjs + unpdf), que só entra no standalone por
+      # `outputFileTracingIncludes`. Roda o filho de uma CÓPIA do standalone fora
+      # do repo (senão o Node acharia o `unpdf` do node_modules da raiz e o teste
+      # passaria mesmo sem o tracing), como o `node` faz no container.
+      - name: Extração de PDF no standalone
+        run: |
+          ./node_modules/.bin/tsx --eval 'import { pdfDeTexto } from "./src/test/fixtures/anexos.ts"; process.stdout.write(pdfDeTexto(["Proposta do CI"]));' > "$RUNNER_TEMP/ci.pdf"
+          cp -a .next/standalone "$RUNNER_TEMP/standalone"
+          cd "$RUNNER_TEMP/standalone"
+          node src/lib/anexos/pdf-filho.mjs < "$RUNNER_TEMP/ci.pdf" | tee "$RUNNER_TEMP/saida.json"
+          grep -q '"paginas":\["Proposta do CI"\]' "$RUNNER_TEMP/saida.json"

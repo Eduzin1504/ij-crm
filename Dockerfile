@@ -24,6 +24,8 @@ RUN corepack enable && corepack prepare pnpm@12.6.0 --activate
 # Os diretórios abaixo precisam existir com dono `node` ANTES do volume nomeado
 # ser montado — o Docker copia a ownership para o volume novo.
 RUN mkdir -p /app/node_modules /app/.next && chown -R node:node /app
+# Anexos (GAB-84): idem para o volume `app_anexos` do compose.yml.
+RUN mkdir -p /data/anexos && chown -R node:node /data
 USER node
 ENV HOME=/home/node
 EXPOSE 3000
@@ -86,6 +88,11 @@ ENV NODE_ENV=production \
 COPY --from=standalone --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
+# Anexos dos Projetos (GAB-84): volume nomeado montado aqui (compose). O
+# diretório precisa existir com dono `node` ANTES do volume ser criado — o
+# Docker copia a ownership para o volume novo; sem isso, EACCES no upload.
+RUN mkdir -p /data/anexos && chown -R node:node /data
+ENV ANEXOS_DIR=/data/anexos
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \

@@ -508,6 +508,51 @@ Teste de restore (rodar a cada poucos meses; foi executado no GAB-30): restaurar
 o dump mais recente, conferir contagens (`dc exec db psql -U ijcrm -d ijcrm -c
 'select count(*) from oportunidade'`) e abrir o Kanban.
 
+### Anexos dos Projetos (volume `app_anexos`, GAB-84)
+
+Os arquivos anexados aos Projetos **não estão no banco**: o banco guarda só os
+metadados (nome, tipo, tamanho, sha256, autor, texto extraído). Os bytes ficam
+no volume nomeado `app_anexos`, montado em `/data/anexos` no serviço `app`
+(`ANEXOS_DIR`), um arquivo por anexo com o id como nome. **Nenhum backup
+automático cobre esse volume** (nem o `backup.sh`, nem o backup do recurso
+PostgreSQL no Coolify): faça à mão, junto com o do banco.
+
+Achar o container do app (o volume e o caminho aparecem no `inspect`):
+
+```bash
+# standalone (compose.prod.yml): use `dc exec -T app ...` nos comandos abaixo no lugar de `docker exec -i "$APP" ...`
+# Coolify: o nome do container leva o UUID do recurso
+docker ps --format '{{.Names}}' | grep '^app'
+APP=<nome-do-container-app>
+docker inspect -f '{{range .Mounts}}{{.Name}} -> {{.Destination}}{{"\n"}}{{end}}' "$APP"   # deve listar … -> /data/anexos
+```
+
+**Backup** (com o app no ar; o app grava cada arquivo inteiro de uma vez, então
+não há arquivo pela metade — só `*.tmp` em trânsito, que ficam de fora):
+
+```bash
+docker exec "$APP" tar czf - --exclude='*.tmp' -C /data/anexos . > /var/backups/ij-crm/anexos-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+tar tzf /var/backups/ij-crm/anexos-<UTC>.tar.gz | wc -l   # nº de arquivos ≈ select count(*) from anexo
+```
+
+Faça o dump do banco **antes** do tar: assim todo anexo do dump tem arquivo no
+tar (arquivo a mais, de um upload entre os dois, é inofensivo). Para off-site:
+`rclone copy /var/backups/ij-crm/anexos-<UTC>.tar.gz "$BACKUP_REMOTE"`.
+
+**Restore** (depois de restaurar o banco, com o app no ar; o `tar` roda como o
+usuário `node` do container, então os arquivos já saem com o dono certo):
+
+```bash
+docker exec -i "$APP" tar xzf - -C /data/anexos < /var/backups/ij-crm/anexos-<UTC>.tar.gz
+docker exec "$APP" sh -c 'ls /data/anexos | wc -l'
+```
+
+Anexo sem arquivo (volume perdido, restore incompleto): o detalhe do Projeto
+lista normalmente, mas o download responde 500 com `ref`; o log tem
+`[api.anexos.download] ref=… ENOENT`. O texto extraído continua no banco.
+
+**Nunca** `docker compose down -v` nem "Delete volumes" no Coolify: apaga os anexos.
+
 ## 4. Trocar o número do bot
 
 O número é só a sessão do WhatsApp na instância da Evolution. O CRM guarda o

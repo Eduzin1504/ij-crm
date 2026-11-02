@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { temPapelMinimo } from "@/lib/auth/papeis";
 import { registrarErro } from "@/lib/erros/registrar";
+import { lerCorpo, mesmoSite } from "@/lib/http/upload";
 import { decodificarArquivo } from "@/lib/importacao/pipefy/csv";
 import { LIMITE_BYTES, criarPrevia } from "@/lib/importacao/pipefy/servico";
 
@@ -22,41 +23,6 @@ const falha = (status: number, erro: string, ref?: string) => NextResponse.json(
 
 const grandeDemais = (tamanho: string) =>
   falha(413, `Arquivo com ${tamanho} MB; o limite é ${MB(LIMITE_BYTES)} MB. Divida o export (por fase ou período) ou use o CLI.`);
-
-/** Lê o corpo contando bytes; `null` = passou do limite (leitura cancelada). */
-async function lerCorpo(req: Request, limite: number): Promise<Uint8Array | null> {
-  if (!req.body) return new Uint8Array();
-  const leitor = req.body.getReader();
-  const partes: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await leitor.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limite) {
-      await leitor.cancel();
-      return null;
-    }
-    partes.push(value);
-  }
-  const tudo = new Uint8Array(total);
-  let pos = 0;
-  for (const p of partes) {
-    tudo.set(p, pos);
-    pos += p.byteLength;
-  }
-  return tudo;
-}
-
-function mesmoSite(req: Request): boolean {
-  const origem = req.headers.get("origin");
-  if (!origem) return true; // navegador sempre manda em POST cross-site; ausência = mesmo site/ferramenta
-  try {
-    return new URL(origem).host === (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? new URL(req.url).host);
-  } catch {
-    return false;
-  }
-}
 
 export async function POST(req: Request) {
   try {

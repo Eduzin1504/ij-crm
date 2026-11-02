@@ -18,6 +18,8 @@
  *   cada um ganha uma entrada na Timeline explicando. Mensagens enviadas ficam
  *   (histórico), sem card. Trava os quadros de TODOS os cards envolvidos antes
  *   da linha, como `excluirCard`/`restaurarCard`.
+ * - GAB-84: apagar de vez leva os anexos do card (FK CASCADE); os arquivos
+ *   saem do disco depois do commit (`removerArquivosDeAnexos`).
  * - GAB-81: o card de projetos da v1 absorvido pela migração do ciclo único
  *   (`absorvidoPorId`) não é card da lixeira: não restaura nem é apagado
  *   sozinho; apagar de vez o Projeto leva a casca junto (FK CASCADE).
@@ -26,6 +28,7 @@ import type { Papel, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
 import { destinoCompativel } from "@/lib/fases/regras";
+import { removerArquivosDeAnexos } from "./anexos";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar, type FalhaLixeira } from "./regras";
 
 type Tx = Prisma.TransactionClient;
@@ -113,7 +116,8 @@ export async function apagarCardDefinitivo(id: string, por: Ator, confirmacao: s
   if (!podeApagarDeVez(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
   for (let tentativa = 1; ; tentativa++) {
     try {
-      await db.$transaction((tx) => apagarCardNaTransacao(tx, id, por, confirmacao));
+      const anexos = await db.$transaction((tx) => apagarCardNaTransacao(tx, id, por, confirmacao));
+      await removerArquivosDeAnexos(anexos);
       return { ok: true };
     } catch (e) {
       if (e instanceof VinculosMudaram && tentativa < 3) continue;
@@ -130,7 +134,8 @@ const SELECAO_LIGADOS = {
   reaberturas: { select: { id: true, pipelineId: true } },
 } as const;
 
-async function apagarCardNaTransacao(tx: Tx, id: string, por: Ator, confirmacao: string): Promise<void> {
+/** Devolve os ids dos anexos que o CASCADE apagou (os arquivos saem do disco depois do commit). */
+async function apagarCardNaTransacao(tx: Tx, id: string, por: Ator, confirmacao: string): Promise<string[]> {
   // Ordem documentada: pipelines (todos os quadros envolvidos, por id) → linha.
   // Escrevemos na Timeline dos cards ligados (venda ↔ projeto, reaberturas) e o
   // DELETE zera as FKs deles, então os quadros deles entram no lock também.
@@ -159,8 +164,10 @@ async function apagarCardNaTransacao(tx: Tx, id: string, por: Ator, confirmacao:
     ...card.reaberturas.map((r) => nota(r.id, "origem_reabertura_apagada")),
   ];
   if (notas.length > 0) await tx.timeline.createMany({ data: notas });
-  // Cascade: TransicaoFase, Timeline, cascas absorvidas. SET NULL: projeto.origem, reaberturas.reabertaDe, MensagemEnviada.
+  const anexos = await tx.anexo.findMany({ where: { projetoId: id }, select: { id: true } });
+  // Cascade: TransicaoFase, Timeline, anexos, cascas absorvidas. SET NULL: projeto.origem, reaberturas.reabertaDe, MensagemEnviada.
   await tx.projeto.delete({ where: { id } });
+  return anexos.map((a) => a.id);
 }
 
 function pipelinesEnvolvidos(c: {

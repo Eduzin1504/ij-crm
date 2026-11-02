@@ -10,6 +10,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { exigirEscrita, exigirPapel } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
+import { apagarAnexoDefinitivo, excluirAnexo, restaurarAnexo } from "@/lib/lixeira/anexos";
 import { apagarCardDefinitivo, excluirCard, restaurarCard, type ResultadoLixeira } from "@/lib/lixeira/cards";
 import { apagarEntidadeDefinitivo, excluirEntidade, restaurarEntidade } from "@/lib/lixeira/entidades";
 import { mensagemLixeira } from "@/lib/lixeira/regras";
@@ -57,6 +58,31 @@ export async function apagarCardAction(cardId: string, texto: string): Promise<E
     const ator = await exigirPapel("ADMIN");
     if (!id.safeParse(cardId).success || !confirmacao.safeParse(texto).success) return { erro: "Dados inválidos." };
     return responder(await apagarCardDefinitivo(cardId, ator, texto));
+  });
+}
+
+/** Anexo do Projeto (GAB-84): excluir = quem escreve; fica no detalhe do card (recarrega). */
+export async function excluirAnexoAction(anexoId: string): Promise<EstadoLixeira> {
+  return comTratamento("lixeira.excluirAnexo", async (): Promise<EstadoLixeira> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(anexoId).success) return { erro: "Dados inválidos." };
+    return responder(await excluirAnexo(anexoId, ator));
+  });
+}
+
+export async function restaurarAnexoAction(anexoId: string): Promise<EstadoLixeira> {
+  return comTratamento("lixeira.restaurarAnexo", async (): Promise<EstadoLixeira> => {
+    const ator = await exigirPapel("GESTOR");
+    if (!id.safeParse(anexoId).success) return { erro: "Dados inválidos." };
+    return responder(await restaurarAnexo(anexoId, ator));
+  });
+}
+
+export async function apagarAnexoAction(anexoId: string, texto: string): Promise<EstadoLixeira> {
+  return comTratamento("lixeira.apagarAnexo", async (): Promise<EstadoLixeira> => {
+    const ator = await exigirPapel("ADMIN");
+    if (!id.safeParse(anexoId).success || !confirmacao.safeParse(texto).success) return { erro: "Dados inválidos." };
+    return responder(await apagarAnexoDefinitivo(anexoId, ator, texto));
   });
 }
 

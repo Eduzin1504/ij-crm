@@ -51,3 +51,5 @@ coverage/
 
 # worktrees de agentes ficam fora do repo (README); isto é só rede de segurança
 /.claude/worktrees/
+# anexos do dev nativo sem ANEXOS_DIR (GAB-84)
+/.anexos/

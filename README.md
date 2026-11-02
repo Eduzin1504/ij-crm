@@ -545,6 +545,30 @@ Busca por nome é só autocomplete (curingas do LIKE escapados), nunca vínculo.
 passam `{ exigirDdi: true }` em `normalizarTelefoneBr`. Vínculo para registro excluído/mesclado
 aparece como tal (`src/lib/entidades/vinculo.ts`), nunca como link ativo.
 
+## Anexos do Projeto (GAB-84)
+
+No detalhe do Projeto, a seção **Anexos** recebe PDF, Word (.docx), Markdown (.md), texto (.txt)
+e imagens (PNG, JPEG, WebP) até 10 MB. Quem escreve anexa e exclui; VISUALIZADOR só baixa e lê.
+Upload pela rota `POST /api/projetos/[id]/anexos` (corpo cru, nome em `X-Nome-Arquivo`, mesmo
+molde do import do Pipefy); o **tipo vem dos bytes** (magic number, `src/lib/anexos/tipos.ts`) e
+a extensão só precisa conferir com eles. No upload o texto é extraído sem LLM
+(`src/lib/anexos/extrair.ts`): PDF digital pelo `unpdf` (pdf.js em JS puro) num **processo
+filho** (`pdf-processo.ts` → `pdf-filho.mjs`, uma extração por vez, morto acima de 20 s ou
+150 MB de RSS: o anexo entra "sem texto" e o log tem `[anexos.extrairTexto] ref=…`), .docx
+pelo `word/document.xml` (zlib nativo com `maxOutputLength`, contra zip bomb), .md/.txt direto. PDF escaneado e
+imagens ficam marcados **sem texto** até o OCR (GAB-90). O texto fica em `anexo.texto` (para a
+proposta e o MCP) e abre em `/api/anexos/[id]/texto`. Download em `/api/anexos/[id]`: só com
+sessão, `attachment` com o nome sanitizado, `nosniff` e CSP `sandbox` (posta pelo
+`next.config`, que sobrescreve a da rota: `src/lib/rotas/seguranca.ts`). Pelo MCP:
+`listar_anexos` e `ler_anexo` (texto em trechos). Arquivo repetido no mesmo
+Projeto (mesmo sha256, índice único parcial) é recusado. Cada upload/exclusão vira Timeline `ANEXO`.
+
+Os bytes ficam em disco, em `ANEXOS_DIR` (um arquivo por anexo, nome = id; dev nativo:
+`.anexos/`), no compose o volume `app_anexos` em `/data/anexos`. **Fora do backup do banco**:
+backup/restore à mão, runbook, "Anexos dos Projetos". Excluir manda para a **Lixeira** (aba
+Anexos: gestor+ restaura, admin apaga de vez e o arquivo sai do disco); apagar o card de vez leva
+os anexos e os arquivos.
+
 ## Lixeira e merge
 
 Qualquer usuário exclui um card (detalhe → Excluir): `deletado_em` + Timeline `EXCLUSAO`, e ele

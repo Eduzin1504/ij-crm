@@ -95,6 +95,18 @@ enum TipoTimeline {
   EXCLUSAO     // card foi para a lixeira (GAB-36)
   RESTAURACAO  // card voltou da lixeira (GAB-36)
   PRAZO        // prazo do card criado/concluído (GAB-51); payload.evento = "criado" | "concluido"
+  ANEXO        // GAB-84: payload.evento = "adicionado" | "excluido" | "restaurado" | "apagado"; payload.anexoId, payload.nome
+}
+
+// GAB-84: tipo do anexo, detectado pelos BYTES no servidor (src/lib/anexos/tipos.ts).
+enum TipoAnexo {
+  PDF
+  DOCX
+  MARKDOWN
+  TEXTO
+  PNG
+  JPEG
+  WEBP
 }
 
 /// GAB-85 (spec fase 2 §4.14, Q23): como o lead reagiu ao contato, inferido pela LLM
@@ -157,6 +169,8 @@ model Usuario {
   prazos            Prazo[]          @relation("prazoResponsavel")
   prazosCriados     Prazo[]          @relation("prazoCriadoPor")
   prazosFeitos      Prazo[]          @relation("prazoFeitoPor")
+  anexos            Anexo[]          @relation("anexoAutor")
+  anexosExcluidos   Anexo[]          @relation("anexoExcluidoPor")
 
   @@map("usuario")
 }
@@ -424,6 +438,7 @@ model Projeto {
   timeline              Timeline[]
   mensagensEnviadas     MensagemEnviada[]
   prazos                Prazo[]
+  anexos                Anexo[]
 
   @@index([pipelineId, faseId])
   @@index([responsavelId])
@@ -720,4 +735,37 @@ model Prazo {
   @@index([data]) // semana do time
   @@index([projetoId])
   @@map("prazo")
+}
+
+// GAB-84: arquivo de base anexado ao Projeto (spec fase 2 §4.7). Os BYTES ficam
+// no disco (`ANEXOS_DIR/<id>`, src/lib/anexos/armazenamento.ts), fora do banco;
+// aqui só os metadados e o texto extraído no upload (sem LLM). `semTexto` =
+// escaneado/imagem: aguarda o OCR (GAB-90). Soft-delete como os cards (lixeira).
+model Anexo {
+  id            String    @id
+  projetoId     String    @map("oportunidade_id")
+  /// Nome original, já sanitizado (sem caminho nem caracteres de controle).
+  nome          String
+  tipo          TipoAnexo
+  mime          String
+  tamanho       Int
+  sha256        String
+  /// Texto extraído (PDF digital, .docx, .md, .txt). Null quando `semTexto`.
+  texto         String?
+  semTexto      Boolean   @map("sem_texto")
+  autorId       String    @map("autor_id")
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+  deletadoEm    DateTime? @map("deletado_em")
+  deletadoPorId String?   @map("deletado_por_id")
+
+  // Apagar de vez o Projeto leva os anexos (o serviço remove os arquivos do disco).
+  projeto       Projeto   @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  autor         Usuario   @relation("anexoAutor", fields: [autorId], references: [id])
+  deletadoPor   Usuario?  @relation("anexoExcluidoPor", fields: [deletadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([projetoId, criadoEm])
+  @@index([deletadoEm])
+  // + índice único PARCIAL (oportunidade_id, sha256) WHERE deletado_em IS NULL,
+  // só na migração 20261101130000_anexos (o Prisma não representa índice parcial).
+  @@map("anexo")
 }

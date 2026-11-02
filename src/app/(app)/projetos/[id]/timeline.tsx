@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag } from "lucide-react";
+import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip } from "lucide-react";
 import type { TipoTimeline } from "@prisma/client";
 import { ehCampoEditavel, ROTULO_CAMPO } from "@/lib/projetos/campos";
 import { ROTULO_CAMPO_TERMINAL, ehCampoTerminal, formatarCampoTerminal, formatarDataHora, formatarDia, formatarValorCampo } from "@/lib/projetos/formatar";
@@ -22,6 +22,7 @@ const ICONE: Record<TipoTimeline, typeof Plus> = {
   EXCLUSAO: Trash2,
   RESTAURACAO: ArchiveRestore,
   PRAZO: Flag,
+  ANEXO: Paperclip,
 };
 
 /** Card ligado a este (venda ↔ projeto), para os links da Timeline. */
@@ -207,6 +208,19 @@ function Descricao({
       return <>excluiu o card (foi para a lixeira)</>;
     case "RESTAURACAO":
       return <>restaurou o card da lixeira</>;
+    case "ANEXO": {
+      // GAB-84. O nome fica como texto (sem link): o anexo pode já ter sido excluído.
+      const nome = <b className="font-medium text-foreground">{typeof p.nome === "string" ? p.nome : "arquivo"}</b>;
+      if (p.evento === "excluido") return <>excluiu o anexo {nome} (foi para a lixeira)</>;
+      if (p.evento === "restaurado") return <>restaurou da lixeira o anexo {nome}</>;
+      if (p.evento === "apagado") return <>apagou definitivamente o anexo {nome}</>;
+      return (
+        <>
+          anexou {nome}
+          {p.semTexto === true ? <span className="text-fg-mute"> (sem texto: escaneado ou imagem)</span> : null}
+        </>
+      );
+    }
     case "PRAZO": {
       const titulo = typeof p.titulo === "string" ? p.titulo : "prazo";
       const dia = typeof p.dia === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.dia) ? p.dia : null;
