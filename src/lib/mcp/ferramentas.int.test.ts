@@ -110,6 +110,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       ["buscar_empresas_contatos", { texto: "pad" }],
       ["listar_anexos", { projeto_id: card.id }],
       ["ler_anexo", { anexo_id: anexo.anexo.id }],
+      ["consultar_painel_vendas", { indicador: "acompanhamento" }],
     ] as const;
     // Um caso por ferramenta de leitura: ferramenta nova sem caso aqui quebra o teste.
     expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());
