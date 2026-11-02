@@ -4,7 +4,9 @@ import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { executarFerramenta } from "@/lib/mcp/ferramentas";
 import { resolverPeriodo } from "@/lib/ranking/periodo";
-import { carregarAbertos, carregarFluxo, carregarInteracoes, carregarPainel } from "./servico";
+import { CONFIG_RANKING_PADRAO } from "@/lib/ranking/config";
+import { salvarConfigRanking } from "@/lib/ranking/servico";
+import { carregarAbertos, carregarFluxo, carregarInteracoes, carregarPainel, carregarPainelPara } from "./servico";
 
 const db = dbTeste();
 const sp = (iso: string) => new Date(`${iso}-03:00`);
@@ -71,7 +73,7 @@ async function card(
   return o.id;
 }
 
-type Nota = { usuarioId: string; em: Date; viaMcp?: boolean; nota?: number; feito?: string | null; mensagem?: { id: string; remetente: string }; sentimento?: "POSITIVO" | "NEUTRO" | "NEGATIVO" };
+type Nota = { usuarioId: string | null; em: Date; viaMcp?: boolean; nota?: number; feito?: string | null; mensagem?: { id: string; remetente: string }; sentimento?: "POSITIVO" | "NEUTRO" | "NEGATIVO" };
 
 async function interacao(projetoId: string, n: Nota) {
   if (n.mensagem) {
@@ -150,6 +152,10 @@ async function cenario() {
   await interacao(c3, { usuarioId: bia.id, em: sp("2026-09-30T10:00:00") }); // setembro
   await interacao(c3, { usuarioId: bia.id, em: sp("2026-10-09T12:00:00"), mensagem: { id: "m2", remetente: bia.id }, sentimento: "NEGATIVO" });
   await interacao(c4, { usuarioId: bia.id, em: sp("2026-10-05T10:00:00"), nota: 1 }); // lixeira
+  // Nota do Gil (PROJETOS) com o card já em Projetos: não entra na satisfação nem no engajamento.
+  await interacao(c1, { usuarioId: gil.id, em: sp("2026-10-21T10:00:00"), nota: 1 });
+  // NOTA sem autor (sistema) não é contato.
+  await interacao(c3, { usuarioId: null, em: sp("2026-10-31T10:00:00") });
   return { ...s, c1, c2, c3, c4, c6 };
 }
 
@@ -277,5 +283,76 @@ describe("MCP consultar_painel_vendas: mesmos números da tela", () => {
     expect(texto(r)).toContain("Vendedor não encontrado");
     const v = await executarFerramenta("consultar_painel_vendas", { indicador: "satisfacao" }, { id: vera.id, nome: "Vera", papel: "VISUALIZADOR" });
     expect(v.isError).toBeFalsy();
+  });
+});
+
+describe("visibilidade: segue o \"Mostrar ranking aos vendedores\" (review do PR #54)", () => {
+  async function esconderRanking() {
+    const gestora = await db.usuario.create({ data: { nome: "Gê", email: "ge@ij.test", papel: "GESTOR" } });
+    const r = await salvarConfigRanking({ ...CONFIG_RANKING_PADRAO, mostrarAosVendedores: false }, { id: gestora.id, papel: "GESTOR" }, null);
+    expect(r.ok).toBe(true);
+    return gestora;
+  }
+  const bia = (s: S) => ({ id: s.bia.id, papel: "VENDEDOR" as const });
+
+  it("ranking visível (padrão): vendedor vê tudo e filtra por qualquer um", async () => {
+    const s = await cenario();
+    const v = await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: s.ana.id }, AGORA);
+    expect(v).toMatchObject({ ok: true, modo: "completo" });
+  });
+
+  it("ranking oculto: vendedor vê os totais do time e só as próprias linhas; filtro por outro é recusado", async () => {
+    const s = await cenario();
+    await esconderRanking();
+    const v = await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: null }, AGORA);
+    if (!v.ok) throw new Error(v.erro);
+    expect(v.modo).toBe("proprio");
+    const p = v.painel;
+    expect(p.vendedores.map((x) => x.id)).toEqual([s.bia.id]);
+    expect(p.engajamento!.porVendedor.map((l) => l.usuario.id)).toEqual([s.bia.id]);
+    expect(p.engajamento!.time.interacoes).toBe(8); // total do time
+    expect(p.satisfacao!.porVendedor.map((l) => l.usuario.id)).toEqual([s.bia.id]);
+    expect(p.acompanhamento!.porResponsavel.map((l) => l.usuario.id)).toEqual([s.bia.id]);
+    expect(p.acompanhamento!.maisParados.map((c) => c.titulo)).toEqual(["C3 importado"]);
+    expect(p.acompanhamento!.abertos).toBe(3); // total do time
+    expect(p.conversao).toMatchObject({ ganhos: 1, perdidos: 1 });
+
+    expect(await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: s.ana.id }, AGORA)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    const propria = await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: s.bia.id }, AGORA);
+    expect(propria).toMatchObject({ ok: true, modo: "proprio", painel: { vendedor: { id: s.bia.id } } });
+    // PROJETOS também é escondido (como no ranking).
+    expect(await carregarPainelPara({ id: s.gil.id, papel: "PROJETOS" }, { periodo: OUTUBRO, vendedorId: s.ana.id }, AGORA)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+  });
+
+  it("ranking oculto: gestor e visualizador continuam vendo tudo", async () => {
+    const s = await cenario();
+    const gestora = await esconderRanking();
+    const vera = await db.usuario.create({ data: { nome: "Vera", email: "vera@ij.test", papel: "VISUALIZADOR" } });
+    for (const ator of [{ id: gestora.id, papel: "GESTOR" as const }, { id: vera.id, papel: "VISUALIZADOR" as const }]) {
+      const v = await carregarPainelPara(ator, { periodo: OUTUBRO, vendedorId: s.ana.id }, AGORA);
+      expect(v, ator.papel).toMatchObject({ ok: true, modo: "completo", painel: { vendedor: { id: s.ana.id } } });
+    }
+  });
+
+  it("vendedor desconhecido é recusado antes de calcular", async () => {
+    const s = await cenario();
+    expect(await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: "nao-existe" }, AGORA)).toEqual({ ok: false, erro: "VENDEDOR_DESCONHECIDO" });
+  });
+
+  it("MCP com ranking oculto: vendedor_id de outro → erro; \"eu\" e sem filtro funcionam, só com as próprias linhas", async () => {
+    const s = await cenario();
+    await esconderRanking();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(AGORA);
+    const eu = { id: s.bia.id, nome: "Bia", papel: "VENDEDOR" as const };
+    const outro = await executarFerramenta("consultar_painel_vendas", { vendedor_id: s.ana.id, ref: "2026-10-15" }, eu);
+    expect(outro.isError).toBe(true);
+    expect(texto(outro)).toContain("ocultou o ranking");
+    const proprio = await executarFerramenta("consultar_painel_vendas", { vendedor_id: "eu", ref: "2026-10-15" }, eu);
+    expect(proprio.isError).toBeFalsy();
+    const time = JSON.parse(texto(await executarFerramenta("consultar_painel_vendas", { indicador: "engajamento", ref: "2026-10-15" }, eu)));
+    expect(time.engajamento.porVendedor.map((l: { usuario: { id: string } }) => l.usuario.id)).toEqual([s.bia.id]);
+    expect(time.engajamento.time.interacoes).toBe(8);
+    expect(time.definicoes.visibilidade).toContain("Mostrar ranking aos vendedores");
   });
 });

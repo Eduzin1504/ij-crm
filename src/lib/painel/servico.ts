@@ -9,15 +9,17 @@
  * (`absorvido_por_id`) — que estão em Vendas ou passaram por ele. Timestamps
  * comparados em UTC explícito (`utc`), sem depender da TimeZone da sessão.
  *
- * Visibilidade: o painel é de todos (spec fase 2 §4.12/§4.14 — "todo mundo vê
- * tudo"); não segue o "esconder dos vendedores" do ranking.
+ * Visibilidade (decisão do usuário na revisão do PR #54): o painel segue a
+ * MESMA regra do ranking (`podeVerRanking`, "Mostrar ranking aos vendedores").
+ * Quem o ranking esconde vê só as próprias linhas e os totais do time; pedir o
+ * filtro de outra pessoa é recusado (`carregarPainelPara`) — tela e MCP.
  */
-import type { PrismaClient } from "@prisma/client";
+import type { Papel, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { utc } from "@/lib/sql-utc";
 import { FUSO_NEGOCIO } from "@/lib/projetos/aging";
 import { avaliacoesPorVendedor } from "@/lib/projetos/avaliacao-consulta";
-import { carregarDados, listarParticipantes, QUADRO_VENDAS } from "@/lib/ranking/servico";
+import { carregarDados, listarParticipantes, obterConfigRanking, podeVerRanking, QUADRO_VENDAS } from "@/lib/ranking/servico";
 import type { Periodo } from "@/lib/ranking/periodo";
 import {
   montarAcompanhamento,
@@ -146,7 +148,7 @@ export async function carregarAbertos(cliente: Consultor = db): Promise<CardAber
   return cliente.$queryRaw<CardAberto[]>`
     SELECT o.id, o.titulo, o.responsavel_id AS "responsavelId", f.nome AS "faseNome",
            o.proxima_acao_em AS "proximaAcaoEm", o.criado_em AS "criadoEm",
-           (SELECT max(t.em) FROM timeline t WHERE t.oportunidade_id = o.id AND t.tipo IN ('NOTA', 'MENSAGEM_WHATSAPP')) AS "ultimoContatoEm"
+           (SELECT max(t.em) FROM timeline t WHERE t.oportunidade_id = o.id AND t.tipo IN ('NOTA', 'MENSAGEM_WHATSAPP') AND t.usuario_id IS NOT NULL) AS "ultimoContatoEm"
       FROM oportunidade o
       JOIN pipeline p ON p.id = o.pipeline_id
       JOIN fase f ON f.id = o.fase_id
@@ -185,7 +187,7 @@ export async function carregarAcompanhamento({ vendedorId }: FiltroPainel, ctx: 
 }
 
 export async function carregarSatisfacao({ periodo, vendedorId }: FiltroPainel, ctx: Contexto, cliente: Consultor = db): Promise<Satisfacao> {
-  return montarSatisfacao(await avaliacoesPorVendedor({ de: periodo.inicio, ate: periodo.fim }, cliente), ctx.pessoas, ctx.participantes, vendedorId);
+  return montarSatisfacao(await avaliacoesPorVendedor({ de: periodo.inicio, ate: periodo.fim }, cliente, { soVendas: true }), ctx.pessoas, ctx.participantes, vendedorId);
 }
 
 export type Painel = {
@@ -200,17 +202,18 @@ export type Painel = {
 };
 
 /**
- * Carrega os indicadores pedidos (padrão: todos), em paralelo. `vendedorId`
- * desconhecido → sem filtro e `vendedor: null` (a tela mostra o time; o MCP
- * recusa com mensagem).
+ * Carrega os indicadores pedidos (padrão: todos), em paralelo, SEM checar
+ * visibilidade (a porta da tela e do MCP é `carregarPainelPara`). `vendedorId`
+ * desconhecido → sem filtro e `vendedor: null`.
  */
 export async function carregarPainel(
   pedido: FiltroPainel,
   agora: Date,
   indicadores: readonly Indicador[] = INDICADORES,
   cliente: Consultor = db,
+  contexto?: Contexto,
 ): Promise<Painel> {
-  const ctx = await carregarPessoas();
+  const ctx = contexto ?? (await carregarPessoas());
   const vendedor = pedido.vendedorId ? (ctx.pessoas.get(pedido.vendedorId) ?? null) : null;
   const filtro = { ...pedido, vendedorId: vendedor?.id ?? null };
   const quer = (i: Indicador) => indicadores.includes(i);
@@ -229,4 +232,49 @@ export async function carregarPainel(
     ...(acompanhamento && { acompanhamento }),
     ...(satisfacao && { satisfacao }),
   };
+}
+
+/**
+ * Visão restrita (ranking oculto): só as linhas da própria pessoa; os totais
+ * (`time`, KPIs, conversão por fase) continuam sendo do time. A lista dos
+ * outros nunca sai do servidor.
+ */
+export function restringirAoProprio(p: Painel, id: string): Painel {
+  return {
+    ...p,
+    vendedores: p.vendedores.filter((v) => v.id === id),
+    ...(p.engajamento && { engajamento: { ...p.engajamento, porVendedor: p.engajamento.porVendedor.filter((l) => l.usuario.id === id) } }),
+    ...(p.satisfacao && { satisfacao: { ...p.satisfacao, porVendedor: p.satisfacao.porVendedor.filter((l) => l.usuario.id === id) } }),
+    ...(p.acompanhamento && {
+      acompanhamento: {
+        ...p.acompanhamento,
+        porResponsavel: p.acompanhamento.porResponsavel.filter((l) => l.usuario.id === id),
+        maisParados: p.acompanhamento.maisParados.filter((c) => c.responsavel?.id === id),
+      },
+    }),
+  };
+}
+
+export type Ator = { id: string; papel: Papel };
+
+export type VisaoPainel = { ok: true; modo: "completo" | "proprio"; painel: Painel } | { ok: false; erro: "VENDEDOR_DESCONHECIDO" | "SEM_PERMISSAO" };
+
+/**
+ * Porta da tela e do MCP: aplica a visibilidade do ranking. Valida o
+ * `vendedorId` ANTES de calcular. Ranking oculto para o ator: filtro só por
+ * ele mesmo (outro → `SEM_PERMISSAO`) e, sem filtro, `restringirAoProprio`.
+ */
+export async function carregarPainelPara(
+  ator: Ator,
+  pedido: FiltroPainel,
+  agora: Date,
+  indicadores: readonly Indicador[] = INDICADORES,
+  cliente: Consultor = db,
+): Promise<VisaoPainel> {
+  const [config, ctx] = await Promise.all([obterConfigRanking(), carregarPessoas()]);
+  if (pedido.vendedorId && !ctx.pessoas.has(pedido.vendedorId)) return { ok: false, erro: "VENDEDOR_DESCONHECIDO" };
+  const completo = podeVerRanking(ator, config);
+  if (!completo && pedido.vendedorId && pedido.vendedorId !== ator.id) return { ok: false, erro: "SEM_PERMISSAO" };
+  const painel = await carregarPainel(pedido, agora, indicadores, cliente, ctx);
+  return completo ? { ok: true, modo: "completo", painel } : { ok: true, modo: "proprio", painel: restringirAoProprio(painel, ator.id) };
 }
