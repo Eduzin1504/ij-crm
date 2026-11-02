@@ -324,6 +324,19 @@ describe("visibilidade: segue o \"Mostrar ranking aos vendedores\" (review do PR
     expect(await carregarPainelPara({ id: s.gil.id, papel: "PROJETOS" }, { periodo: OUTUBRO, vendedorId: s.ana.id }, AGORA)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
   });
 
+  it("ranking oculto: >10 cards parados de outra pessoa não escondem o card do ator (corte depois do filtro)", async () => {
+    const s = await cenario();
+    await esconderRanking();
+    for (let i = 0; i < 11; i++) await card(s, `Velho ${i}`, s.ana, [{ para: "contato", origem: "UI", em: sp("2026-01-01T10:00:00") }]);
+    const v = await carregarPainelPara(bia(s), { periodo: OUTUBRO, vendedorId: null }, AGORA);
+    if (!v.ok) throw new Error(v.erro);
+    expect(v.painel.acompanhamento!.maisParados.map((c) => c.titulo)).toEqual(["C3 importado"]);
+    // Na visão completa, os 10 mais parados são os velhos da Ana.
+    const g = await carregarPainelPara({ id: s.ana.id, papel: "GESTOR" }, { periodo: OUTUBRO, vendedorId: null }, AGORA);
+    if (!g.ok) throw new Error(g.erro);
+    expect(g.painel.acompanhamento!.maisParados.every((c) => c.titulo.startsWith("Velho"))).toBe(true);
+  });
+
   it("ranking oculto: gestor e visualizador continuam vendo tudo", async () => {
     const s = await cenario();
     const gestora = await esconderRanking();

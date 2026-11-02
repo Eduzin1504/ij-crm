@@ -98,7 +98,7 @@ export default async function PainelPage({ searchParams }: { searchParams: Promi
       <div className="space-y-12">
         {p.conversao ? <SecaoConversao c={p.conversao} /> : null}
         {p.engajamento ? <SecaoEngajamento e={p.engajamento} /> : null}
-        {p.acompanhamento ? <SecaoAcompanhamento a={p.acompanhamento} /> : null}
+        {p.acompanhamento ? <SecaoAcompanhamento a={p.acompanhamento} soMeus={v.modo === "proprio"} /> : null}
         {p.satisfacao ? <SecaoSatisfacao s={p.satisfacao} /> : null}
         <p className="text-xs text-fg-faint">Período em dias de São Paulo. Acompanhamento é a situação de agora; os demais indicadores são do período escolhido. {VISIBILIDADE_PAINEL}</p>
       </div>

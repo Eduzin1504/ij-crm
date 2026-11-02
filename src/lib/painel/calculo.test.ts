@@ -151,6 +151,14 @@ describe("montarAcompanhamento", () => {
     ]);
   });
 
+  it("paradosDe (ranking oculto): a lista sai dos cards da pessoa ANTES do corte de 10", () => {
+    const daAna = Array.from({ length: LIMITE_PARADOS + 1 }, (_, i) => card(`ana${i}`, "ana", null, null, sp("2026-01-01T10:00:00")));
+    const daBia = card("bia1", "bia", null, sp("2026-10-31T10:00:00"));
+    const a = montarAcompanhamento([...daAna, daBia], PESSOAS, PARTICIPANTES, null, agora, { paradosDe: "bia" });
+    expect(a.maisParados.map((c) => c.id)).toEqual(["bia1"]);
+    expect(a.abertos).toBe(LIMITE_PARADOS + 2); // totais continuam do time
+  });
+
   it("filtro por responsável e limite da lista de parados", () => {
     const muitos = Array.from({ length: LIMITE_PARADOS + 3 }, (_, i) => card(`x${i}`, "bia", null, null));
     const a = montarAcompanhamento([...cards, ...muitos], PESSOAS, PARTICIPANTES, "bia", agora);

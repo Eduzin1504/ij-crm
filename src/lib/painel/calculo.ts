@@ -260,11 +260,24 @@ function metricasAcompanhamento(cs: readonly CardAberto[], agora: Date): Metrica
   };
 }
 
-export function montarAcompanhamento(cards: readonly CardAberto[], pessoas: Map<string, Pessoa>, participantes: readonly string[], vendedorId: string | null, agora: Date): Acompanhamento {
+/**
+ * `paradosDe` (visão restrita, ranking oculto): a lista dos mais parados sai só
+ * dos cards dessa pessoa, filtrados ANTES do corte de `LIMITE_PARADOS` — senão
+ * os 10 mais parados do time poderiam esconder todos os dela.
+ */
+export function montarAcompanhamento(
+  cards: readonly CardAberto[],
+  pessoas: Map<string, Pessoa>,
+  participantes: readonly string[],
+  vendedorId: string | null,
+  agora: Date,
+  opcoes: { paradosDe?: string } = {},
+): Acompanhamento {
   const filtro = doVendedor(vendedorId);
   const doFiltro = cards.filter((c) => filtro(c.responsavelId));
   const porResp = Map.groupBy(doFiltro, (c) => c.responsavelId);
   const maisParados = doFiltro
+    .filter((c) => opcoes.paradosDe === undefined || c.responsavelId === opcoes.paradosDe)
     .map((c) => ({ c, dias: diasSemContato(c, agora) }))
     .sort((a, b) => b.dias - a.dias || a.c.titulo.localeCompare(b.c.titulo, "pt-BR"))
     .slice(0, LIMITE_PARADOS)

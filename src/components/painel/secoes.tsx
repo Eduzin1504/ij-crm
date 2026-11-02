@@ -207,7 +207,8 @@ export function SecaoEngajamento({ e }: { e: Engajamento }) {
   );
 }
 
-export function SecaoAcompanhamento({ a }: { a: Acompanhamento }) {
+/** `soMeus`: visão restrita (ranking oculto) — a lista de parados é só dos cards da pessoa. */
+export function SecaoAcompanhamento({ a, soMeus = false }: { a: Acompanhamento; soMeus?: boolean }) {
   return (
     <Secao titulo="acompanhamento · agora" pergunta="Os leads estão sendo acompanhados?" indicador="acompanhamento">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -238,9 +239,9 @@ export function SecaoAcompanhamento({ a }: { a: Acompanhamento }) {
           ))}
         </Tabela>
         <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="eyebrow">há mais tempo sem contato</p>
+          <p className="eyebrow">{soMeus ? "seus cards há mais tempo sem contato" : "há mais tempo sem contato"}</p>
           {a.maisParados.length === 0 ? (
-            <p className="mt-2 text-sm text-fg-mute">Nenhum card aberto em Vendas.</p>
+            <p className="mt-2 text-sm text-fg-mute">{soMeus ? "Você não tem cards abertos em Vendas." : "Nenhum card aberto em Vendas."}</p>
           ) : (
             <ol className="mt-3 space-y-2">
               {a.maisParados.map((c) => (

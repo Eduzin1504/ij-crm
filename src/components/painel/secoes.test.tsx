@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { SEM_DADOS_PROPOSTA } from "@/lib/painel/proposta";
-import { SecaoConversao, SecaoSatisfacao } from "./secoes";
+import { SecaoAcompanhamento, SecaoConversao, SecaoSatisfacao } from "./secoes";
 
 describe("seções do painel (GAB-94)", () => {
   it("conversão: valor em proposta e versões até fechar aparecem como 'sem dados' enquanto não há Proposta", () => {
@@ -28,5 +28,12 @@ describe("seções do painel (GAB-94)", () => {
     render(<SecaoSatisfacao s={{ porVendedor: [], time: { notas: 0, notaMedia: null, positivos: 0, neutros: 0, negativos: 0 } }} />);
     expect(screen.queryByRole("img", { name: "Distribuição do sentimento" })).toBeNull();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("acompanhamento na visão restrita: lista vazia fala dos cards da pessoa, não do time", () => {
+    const a = { abertos: 12, semProximaAcao: 0, vencidas: 0, mediaDiasSemContato: 5, semContatoRegistrado: 0, porResponsavel: [], maisParados: [] };
+    render(<SecaoAcompanhamento a={a} soMeus />);
+    expect(screen.getByText("Você não tem cards abertos em Vendas.")).toBeInTheDocument();
+    expect(screen.queryByText("Nenhum card aberto em Vendas.")).toBeNull();
   });
 });

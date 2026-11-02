@@ -182,8 +182,9 @@ export async function carregarEngajamento({ periodo, vendedorId }: FiltroPainel,
   return montarEngajamento(await carregarInteracoes(periodo, cliente), ctx.pessoas, ctx.participantes, vendedorId);
 }
 
-export async function carregarAcompanhamento({ vendedorId }: FiltroPainel, ctx: Contexto, agora: Date, cliente: Consultor = db): Promise<Acompanhamento> {
-  return montarAcompanhamento(await carregarAbertos(cliente), ctx.pessoas, ctx.participantes, vendedorId, agora);
+/** `restritoA`: visão restrita — os mais parados saem só dos cards dessa pessoa (antes do corte). */
+export async function carregarAcompanhamento({ vendedorId }: FiltroPainel, ctx: Contexto, agora: Date, cliente: Consultor = db, restritoA?: string): Promise<Acompanhamento> {
+  return montarAcompanhamento(await carregarAbertos(cliente), ctx.pessoas, ctx.participantes, vendedorId, agora, { paradosDe: restritoA });
 }
 
 export async function carregarSatisfacao({ periodo, vendedorId }: FiltroPainel, ctx: Contexto, cliente: Consultor = db): Promise<Satisfacao> {
@@ -212,6 +213,8 @@ export async function carregarPainel(
   indicadores: readonly Indicador[] = INDICADORES,
   cliente: Consultor = db,
   contexto?: Contexto,
+  /** Visão restrita (ranking oculto): monta as listas por card a partir dos cards desta pessoa. */
+  restritoA?: string,
 ): Promise<Painel> {
   const ctx = contexto ?? (await carregarPessoas());
   const vendedor = pedido.vendedorId ? (ctx.pessoas.get(pedido.vendedorId) ?? null) : null;
@@ -220,7 +223,7 @@ export async function carregarPainel(
   const [conversao, engajamento, acompanhamento, satisfacao] = await Promise.all([
     quer("conversao") ? carregarConversao(filtro, cliente) : undefined,
     quer("engajamento") ? carregarEngajamento(filtro, ctx, cliente) : undefined,
-    quer("acompanhamento") ? carregarAcompanhamento(filtro, ctx, agora, cliente) : undefined,
+    quer("acompanhamento") ? carregarAcompanhamento(filtro, ctx, agora, cliente, restritoA) : undefined,
     quer("satisfacao") ? carregarSatisfacao(filtro, ctx, cliente) : undefined,
   ]);
   return {
@@ -235,7 +238,9 @@ export async function carregarPainel(
 }
 
 /**
- * Visão restrita (ranking oculto): só as linhas da própria pessoa; os totais
+ * Visão restrita (ranking oculto): só as linhas da própria pessoa (a lista de
+ * mais parados já vem montada só com os cards dela — `restritoA` em
+ * `carregarPainel`, antes do corte de 10; o filtro aqui é só defesa); os totais
  * (`time`, KPIs, conversão por fase) continuam sendo do time. A lista dos
  * outros nunca sai do servidor.
  */
@@ -275,6 +280,6 @@ export async function carregarPainelPara(
   if (pedido.vendedorId && !ctx.pessoas.has(pedido.vendedorId)) return { ok: false, erro: "VENDEDOR_DESCONHECIDO" };
   const completo = podeVerRanking(ator, config);
   if (!completo && pedido.vendedorId && pedido.vendedorId !== ator.id) return { ok: false, erro: "SEM_PERMISSAO" };
-  const painel = await carregarPainel(pedido, agora, indicadores, cliente, ctx);
+  const painel = await carregarPainel(pedido, agora, indicadores, cliente, ctx, completo ? undefined : ator.id);
   return completo ? { ok: true, modo: "completo", painel } : { ok: true, modo: "proprio", painel: restringirAoProprio(painel, ator.id) };
 }
