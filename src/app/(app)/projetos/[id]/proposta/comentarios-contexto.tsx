@@ -76,10 +76,14 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   const fonte = useRef<(() => Ancora | null) | null>(null);
   // Respostas fora de ordem (polling + recarga depois de comentar): só a da última requisição vale.
   const requisicao = useRef(0);
+  // Requisições em andamento: o tick do polling não empilha outra (rede lenta > 5 s
+  // faria toda resposta chegar "velha" pelo contador e a tela nunca atualizar).
+  const emAndamento = useRef(0);
   const [expirada, setExpirada] = useState(false);
 
   const recarregar = useCallback(async () => {
     const minha = ++requisicao.current;
+    emAndamento.current++;
     try {
       const r = await fetch(`/api/projetos/${encodeURIComponent(projetoId)}/comentarios?v=${encodeURIComponent(versao.current)}`, { cache: "no-store" });
       const corpo = (await r.json().catch(() => ({}))) as { versao?: string; comentarios?: ThreadJson[]; ref?: string };
@@ -96,27 +100,34 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
         return;
       }
       setErroCarga(null);
+      // Sessão voltou (ex.: recarga depois de uma ação respondeu ok): o polling retoma.
+      setExpirada(false);
       if (corpo.versao) versao.current = corpo.versao;
       if (corpo.comentarios) setThreads(corpo.comentarios);
     } catch {
       // Rede oscilou: mantém o que tem; a próxima rodada tenta de novo.
+    } finally {
+      emAndamento.current--;
     }
   }, [projetoId]);
 
   useEffect(() => {
     if (expirada) return;
     let timer: ReturnType<typeof setInterval> | undefined;
+    const tick = () => {
+      if (emAndamento.current === 0) void recarregar();
+    };
     const parar = () => {
       if (timer) clearInterval(timer);
       timer = undefined;
     };
     const iniciar = () => {
       parar();
-      timer = setInterval(() => void recarregar(), INTERVALO_COMENTARIOS_MS);
+      timer = setInterval(tick, INTERVALO_COMENTARIOS_MS);
     };
     const aoMudarVisibilidade = () => {
       if (document.hidden) return parar();
-      void recarregar();
+      tick();
       iniciar();
     };
     if (!document.hidden) iniciar();

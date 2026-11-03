@@ -156,16 +156,45 @@ describe("comentários ao vivo", () => {
     expect(fetchMock.mock.calls.length).toBe(n);
   });
 
-  it("respostas fora de ordem: a velha que chega depois é descartada", async () => {
+  it("respostas fora de ordem: a velha (polling) que chega depois da recarga pós-ação é descartada", async () => {
     montar([]);
     let soltarVelha: (r: Response) => void = () => undefined;
     fetchMock.mockImplementationOnce(() => new Promise<Response>((ok) => (soltarVelha = ok)));
     fetchMock.mockImplementationOnce(() => resposta({ versao: "3.3", comentarios: [thread({ texto: "Novo" })] }));
-    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS)); // 1ª (fica pendurada)
-    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS)); // 2ª chega
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS)); // polling (fica pendurado)
+    acoes.comentarAction.mockResolvedValueOnce({ ok: true });
+    fireEvent.change(screen.getByLabelText("Comentário geral"), { target: { value: "x" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Comentar" }))); // recarga chega
     expect(screen.getByText("Novo")).toBeTruthy();
     await act(async () => soltarVelha(new Response(JSON.stringify({ versao: "2.2", comentarios: [] }))));
     expect(screen.getByText("Novo")).toBeTruthy();
+  });
+
+  it("rede lenta (> 5 s): o tick não empilha requisição; a resposta lenta atualiza a tela", async () => {
+    montar([]);
+    let soltar: (r: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((ok) => (soltar = ok)));
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS));
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS * 3)); // ainda pendurada
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => soltar(new Response(JSON.stringify({ versao: "2.2", comentarios: [thread({ texto: "Chegou devagar" })] }))));
+    expect(screen.getByText("Chegou devagar")).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("depois do 401, uma recarga ok (após uma ação) limpa o aviso e retoma o polling", async () => {
+    montar([]);
+    fetchMock.mockImplementationOnce(() => resposta({ erro: "Sessão expirada." }, 401));
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS));
+    expect(screen.getByRole("alert").textContent).toBe(SESSAO_EXPIRADA);
+    acoes.comentarAction.mockResolvedValueOnce({ ok: true });
+    fireEvent.change(screen.getByLabelText("Comentário geral"), { target: { value: "x" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Comentar" })));
+    expect(screen.queryByText(SESSAO_EXPIRADA)).toBeNull();
+    const n = fetchMock.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS));
+    expect(fetchMock.mock.calls.length).toBe(n + 1);
   });
 
   it("texto do editor: 'trecho alterado' recalculado com pausa e no formato canônico (dois espaços acham o trecho)", async () => {
