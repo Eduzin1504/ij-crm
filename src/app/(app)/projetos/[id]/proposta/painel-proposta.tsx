@@ -11,8 +11,10 @@ import type { Documento } from "@/lib/propostas/documento";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
 import type { AcaoCaneta } from "@/lib/propostas/caneta";
 import { AcoesCaneta, type PessoaCaneta, type Preparo } from "./acoes-caneta";
+import { mesclarSugestao, type CamposSugeridos } from "@/lib/propostas/sugestao";
 import { salvarEstruturadoAction, salvarTextoAction, salvarVersaoAction, type ConflitoUI } from "./actions";
 import { FormEstruturado, type FormEstruturadoValor } from "./form-estruturado";
+import { PreencherDeArquivo, type AnexoBase } from "./preencher-de-arquivo";
 
 // Tiptap só no navegador e só nesta página (fora do bundle do resto do app).
 const EditorTexto = dynamic(() => import("@/components/propostas/editor-texto"), {
@@ -73,6 +75,7 @@ export function PainelProposta({
   estruturado,
   ultimaVersao,
   caneta,
+  anexos = [],
 }: {
   projetoId: string;
   revisao: number;
@@ -80,6 +83,8 @@ export function PainelProposta({
   estruturado: FormEstruturadoValor;
   ultimaVersao: number | null;
   caneta?: { acoes: AcaoCaneta[]; mesmoLado: PessoaCaneta[]; outroLado: PessoaCaneta[]; rotuloOutroLado: string };
+  /** Anexos do Projeto para "Usar arquivo como base" (GAB-90). */
+  anexos?: AnexoBase[];
 }) {
   const router = useRouter();
   const editor = useRef<ControleEditor>(null);
@@ -113,10 +118,10 @@ export function PainelProposta({
 
   const conflito = estado.tipo === "conflito" ? (estado.conflito as unknown as ConflitoUI) : null;
 
-  function salvarDados() {
+  function salvarDados(dados: FormEstruturadoValor = form) {
     setAviso(null);
     startTransition(async () => {
-      const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, form)));
+      const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, dados)));
       if (r?.ok) {
         setFormSujo(false);
         setAviso("Dados salvos no rascunho.");
@@ -161,6 +166,21 @@ export function PainelProposta({
     return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(formSujo ? { estruturado: form } : {}) };
   }
 
+  /**
+   * GAB-90: a sugestão revisada entra no editor e no formulário e é gravada
+   * pelos MESMOS caminhos da edição manual (autosave do texto + "Salvar dados",
+   * na mesma fila e com a revisão atual). Dados que a sugestão não preenche
+   * ficam como estão.
+   */
+  function aplicarSugestao(s: { documento: Documento; campos: CamposSugeridos }) {
+    editor.current?.substituir(s.documento);
+    autosave.alterou(s.documento);
+    const dados = mesclarSugestao(form, s.campos);
+    setForm(dados);
+    setFormSujo(true);
+    salvarDados(dados);
+  }
+
   function usarDoServidor(c: ConflitoUI) {
     editor.current?.substituir(c.documento);
     setForm(c.estruturado);
@@ -189,6 +209,7 @@ export function PainelProposta({
 
   return (
     <div className="space-y-6">
+      <PreencherDeArquivo projetoId={projetoId} anexos={anexos} aoAplicar={aplicarSugestao} desativado={ocupado || conflito !== null} />
       <section className="rounded-xl border border-border bg-surface p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-medium">Texto</h2>
@@ -232,7 +253,7 @@ export function PainelProposta({
         />
         <div className="mt-4 flex items-center justify-end gap-2">
           {formSujo ? <span className="text-xs text-fg-mute">Dados alterados, não salvos</span> : null}
-          <Button type="button" size="sm" variant="outline" disabled={ocupado || !formSujo || conflito !== null} onClick={salvarDados}>
+          <Button type="button" size="sm" variant="outline" disabled={ocupado || !formSujo || conflito !== null} onClick={() => salvarDados()}>
             Salvar dados
           </Button>
         </div>

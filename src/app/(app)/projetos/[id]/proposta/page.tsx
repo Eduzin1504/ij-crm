@@ -6,6 +6,7 @@ import { DocumentoView } from "@/components/propostas/documento-view";
 import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { ROTULO_AREA } from "@/lib/auth/areas";
+import { listarAnexos } from "@/lib/anexos/anexos";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { formatarDataHora } from "@/lib/projetos/formatar";
 import { acoesPossiveis, ladoDaCaneta, outroLado, podeEditarProposta } from "@/lib/propostas/caneta";
@@ -60,6 +61,8 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
   const ultima = proposta?.versoes[0];
   const minhaUltima = proposta?.versoes.find((v) => v.autorLado === lado);
   const voltou = proposta && proposta.canetaComId === eu.id && ultima && ultima.autorLado === outroLado(lado) ? { de: minhaUltima?.numero ?? null, para: ultima.numero } : null;
+  // GAB-90: anexos para "Usar arquivo como base" (só quem está com a caneta edita e usa).
+  const anexos = edita ? await listarAnexos(projeto.id) : [];
 
   return (
     <>
@@ -131,6 +134,7 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
               estruturado={estruturadoParaEntrada(proposta.estruturado)}
               ultimaVersao={proposta.versoes[0]?.numero ?? null}
               caneta={caneta}
+              anexos={anexos.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo, semTexto: a.semTexto }))}
             />
           ) : (
             <div className="space-y-6">

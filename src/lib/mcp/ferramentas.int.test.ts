@@ -520,7 +520,7 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "outra pessoa mexeu" }, vendedora);
     const velho = await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 0 }, vendedora);
     expect(velho.isError).toBe(true);
-    expect(texto(velho)).toMatch(/alterada em outro lugar.*Use ler_proposta/s);
+    expect(texto(velho)).toMatch(/alterada em outro lugar[\s\S]*Use ler_proposta/);
     expect((await db.proposta.findFirstOrThrow()).conteudoMd).toBe("outra pessoa mexeu");
 
     const ap = dados(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 1 }, vendedora));

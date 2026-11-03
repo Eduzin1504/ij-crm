@@ -20,6 +20,7 @@ const refresh = vi.hoisted(() => vi.fn());
 const substituido = vi.hoisted(() => ({ doc: null as unknown }));
 
 vi.mock("./actions", () => acoes);
+vi.mock("./preencher-actions", () => ({ sugerirDeAnexoAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 // Editor falso (o Tiptap de verdade é testado em editor-texto.test): textarea → documento de um parágrafo.
 vi.mock("next/dynamic", () => ({
@@ -221,5 +222,26 @@ describe("PainelProposta", () => {
       await act(() => vi.advanceTimersByTimeAsync(1500));
       expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 9, expect.anything());
     });
+  });
+
+  it("aplicar sugestão de arquivo (GAB-90): texto no editor e dados mesclados, gravados pelas actions de sempre", async () => {
+    acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+    acoes.salvarTextoAction.mockResolvedValue({ ok: true, revisao: 6 });
+    const { sugerirDeAnexoAction } = await import("./preencher-actions");
+    const doc: Documento = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "do arquivo" }] }] };
+    vi.mocked(sugerirDeAnexoAction).mockResolvedValue({
+      ok: true,
+      sugestao: { origem: "texto", anexo: { id: "a".repeat(32), nome: "p.pdf" }, documento: doc, campos: { valor: "9.000,00", prazoDias: null, escopoResumo: null, entregas: null }, revisar: [] },
+    });
+    render(
+      <PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={{ ...vazio, prazoDias: "30" }} ultimaVersao={null} anexos={[{ id: "a".repeat(32), nome: "p.pdf", tipo: "PDF", semTexto: false }]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Usar arquivo como base/ }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Ler arquivo" })));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Aplicar ao rascunho" })));
+    expect(substituido.doc).toEqual(doc);
+    expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, { ...vazio, valor: "9.000,00", prazoDias: "30" });
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    expect(acoes.salvarTextoAction).toHaveBeenCalledWith("p1", 5, doc);
   });
 });
