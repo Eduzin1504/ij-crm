@@ -79,7 +79,7 @@ describe("caneta → avisos (o serviço da proposta não muda: ouvinte de propos
       { para: "Pedro", tipo: "SUA_VEZ", titulo: 'Paula passou para você a caneta da proposta de "Site da Padaria"', whatsapp: "SEM_TELEFONE" },
     ]);
     expect(evolution.enviar).toHaveBeenCalledTimes(1);
-    expect(evolution.enviar.mock.calls[0][0]).toMatchObject({ para: "5511999990002@s.whatsapp.net", projetoId: projeto.id });
+    expect(evolution.enviar.mock.calls[0][0]).toMatchObject({ para: "5511999990002@s.whatsapp.net", projetoId: null });
   });
 
   it("GP pega a caneta: avisa só no app quem estava com ela", async () => {

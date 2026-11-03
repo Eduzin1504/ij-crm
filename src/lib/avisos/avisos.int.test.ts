@@ -99,10 +99,28 @@ describe("emitir aviso: sino sempre, WhatsApp só para os tipos certos", () => {
     evolution.enviar.mockImplementation(() => new Promise((ok) => (soltar = () => ok({ eventoId: "EV1", enviada: true }))));
     expect(await emitirAvisos([{ usuarioId: ana.id, tipo: "SUA_VEZ", titulo: "Sua vez", projetoId: projeto.id }])).toMatchObject({ ok: true });
     expect(await avisoDe(ana.id)).toMatchObject({ whatsapp: "PENDENTE" });
-    expect(evolution.enviar).toHaveBeenCalledWith({ para: "5511999998888@s.whatsapp.net", texto: `🖊️ CRM IJ: Sua vez\nhttps://crm.ij.test/projetos/${projeto.id}/proposta`, projetoId: projeto.id });
+    expect(evolution.enviar).toHaveBeenCalledWith({ para: "5511999998888@s.whatsapp.net", texto: `🖊️ CRM IJ: Sua vez\nhttps://crm.ij.test/projetos/${projeto.id}/proposta`, projetoId: null });
     soltar();
     await aguardarWhatsappPendente();
     expect(await avisoDe(ana.id)).toMatchObject({ whatsapp: "ENVIADO", whatsappRef: null });
+  });
+
+  it("vários avisos de uma vez: cada resultado do WhatsApp cai no aviso certo (não depende da ordem do RETURNING)", async () => {
+    const { ana, bia, projeto } = await semear();
+    process.env.NOTIFICATIONS_ENABLED = "true";
+    evolution.enviar.mockResolvedValue({ eventoId: "EV", enviada: true });
+    await db.usuario.update({ where: { id: bia.id }, data: { telefoneWhatsapp: "+5511977776666" } });
+    await db.usuario.update({ where: { id: bia.id }, data: { preferencias: { v: 1, kanban: {}, avisos: { whatsapp: false } } } });
+    await emitirAvisos([
+      { usuarioId: bia.id, tipo: "SUA_VEZ", titulo: "Bia", projetoId: projeto.id },
+      { usuarioId: ana.id, tipo: "STATUS_PROPOSTA", titulo: "Ana status", projetoId: projeto.id },
+      { usuarioId: ana.id, tipo: "SUA_VEZ", titulo: "Ana vez", projetoId: projeto.id },
+    ]);
+    await aguardarWhatsappPendente();
+    const por = async (titulo: string) => (await db.aviso.findFirstOrThrow({ where: { titulo } })).whatsapp;
+    expect([await por("Bia"), await por("Ana status"), await por("Ana vez")]).toEqual(["DESLIGADO", null, "ENVIADO"]);
+    expect(evolution.enviar).toHaveBeenCalledTimes(1);
+    expect(evolution.enviar.mock.calls[0][0]).toMatchObject({ para: "5511999998888@s.whatsapp.net", texto: expect.stringContaining("Ana vez") });
   });
 
   it("falha na Evolution: não lança, fica FALHOU com a ref que está no log", async () => {
@@ -169,6 +187,21 @@ describe("sino: contar, listar e marcar como lido (sempre do próprio usuário)"
     const { ana, projeto } = await semear();
     for (let i = 0; i < 5; i++) await emitirAvisos([{ usuarioId: ana.id, tipo: "STATUS_PROPOSTA", titulo: `A${i}`, projetoId: projeto.id }]);
     expect(await listarAvisos(ana.id, { limite: 3 })).toHaveLength(3);
+  });
+
+  it("PENDENTE há mais de 5 min (processo caiu no meio do envio) aparece como falha, com ref", async () => {
+    const { ana, projeto } = await semear();
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const velho = await db.aviso.create({ data: { usuarioId: ana.id, tipo: "SUA_VEZ", titulo: "Velho", projetoId: projeto.id, whatsapp: "PENDENTE", criadoEm: new Date(Date.now() - 6 * 60_000) } });
+    await db.aviso.create({ data: { usuarioId: ana.id, tipo: "SUA_VEZ", titulo: "Novo", projetoId: projeto.id, whatsapp: "PENDENTE" } });
+    const lista = await listarAvisos(ana.id);
+    expect(lista.find((a) => a.titulo === "Novo")?.whatsappFalhouRef).toBeNull();
+    const ref = lista.find((a) => a.titulo === "Velho")?.whatsappFalhouRef;
+    expect(ref).toMatch(/^[0-9a-f]{8}$/);
+    // Gravado na leitura: a ref é estável e o estado vira FALHOU.
+    expect(await db.aviso.findUniqueOrThrow({ where: { id: velho.id } })).toMatchObject({ whatsapp: "FALHOU", whatsappRef: ref });
+    expect(erro.mock.calls.some((c) => String(c[0]).startsWith(`[avisos.whatsapp] ref=${ref} `))).toBe(true);
+    expect((await listarAvisos(ana.id)).find((a) => a.titulo === "Velho")?.whatsappFalhouRef).toBe(ref);
   });
 
   it("falha do WhatsApp aparece no item com a ref", async () => {

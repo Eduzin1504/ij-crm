@@ -450,11 +450,13 @@ Camada única em `src/lib/avisos/avisos.ts` (`emitirAvisos`): toda origem de avi
   (`NOTIFICATIONS_ENABLED`≠`true`: o log `[avisos] ref=… SAFE MODE` diz o que seria enviado),
   `PENDENTE` → `ENVIADO`/`FALHOU`. O envio real roda em segundo plano (quem agiu não espera a
   Evolution); falha nunca desfaz a ação, vira `[avisos.whatsapp] ref=…` no log e a mesma ref aparece no
-  item do sino.
+  item do sino. `PENDENTE` com mais de 5 min (o processo caiu no meio do envio) vira `FALHOU` com ref
+  quando o sino lista. O envio privado não é vinculado ao card (`mensagem_enviada.projeto_id` nulo).
 - **Caneta** (`src/lib/avisos/caneta.ts`, ouvinte de `propostas/avisos.ts`): quem recebe a caneta
   (passar, devolver, concordar) → "é sua vez"; GP pegou a caneta → quem estava com ela, só no app;
   mudança de status → no app para quem já atuou na proposta (menos quem agiu).
 - **MCP**: `listar_avisos` e `marcar_avisos_lidos` (sempre os da própria pessoa, qualquer papel).
+  `marcar_avisos_lidos` não anuncia `readOnlyHint` (campo `muda` da ferramenta), mas não é escrita no CRM.
 
 ## Painel de mensagens e cron (GAB-41)
 

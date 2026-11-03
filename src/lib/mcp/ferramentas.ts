@@ -80,6 +80,11 @@ export type Ferramenta<F extends Forma = Forma> = {
   descricao: string;
   /** Escreve no CRM: VISUALIZADOR (somente leitura) é recusado, como na tela. */
   escrita: boolean;
+  /**
+   * Grava algo mesmo não sendo escrita no CRM (ex.: marcar o próprio aviso como
+   * lido): só tira o `readOnlyHint` do anúncio MCP; a permissão segue `escrita`.
+   */
+  muda?: boolean;
   entrada: F;
   executar: (args: z.infer<z.ZodObject<F>>, eu: UsuarioMcp) => Promise<Resposta>;
 };
@@ -820,6 +825,8 @@ const marcarAvisosLidosMcp = ferramenta({
   descricao: "Marca como lidos os avisos com os `ids` de listar_avisos; sem `ids`, marca todos os seus. Só mexe nos SEUS avisos (id de outra pessoa é ignorado).",
   // Mexe só no estado do próprio sino, não no CRM: qualquer papel marca, como na tela.
   escrita: false,
+  // ...mas grava `lido_em`: não anuncia readOnly.
+  muda: true,
   entrada: { ids: z.array(id).max(200).optional() },
   executar: async (a, eu) => {
     const marcados = await marcarLidos(eu.id, a.ids);

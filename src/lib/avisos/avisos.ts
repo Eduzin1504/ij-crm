@@ -11,7 +11,9 @@
  *   erro); safe mode (`NOTIFICATIONS_ENABLED`≠true) → SAFE_MODE e o log diz o
  *   que seria enviado, com a ref; senão PENDENTE e o envio roda em segundo
  *   plano (a Evolution pode levar até 60 s: quem agiu não espera), terminando
- *   em ENVIADO ou FALHOU (log com a ref, a mesma gravada no aviso).
+ *   em ENVIADO ou FALHOU (log com a ref, a mesma gravada no aviso). PENDENTE
+ *   com mais de 5 min (processo caiu no meio) vira FALHOU quando o sino lista.
+ *   O envio vai com `projetoId: null`: aviso privado não é mensagem do card.
  * - Nunca lança: erro inesperado vira log com ref e `{ ok: false, ref }`. A
  *   ação que gerou o aviso já foi gravada e não é desfeita.
  */
@@ -39,6 +41,8 @@ export type AvisoDoSino = {
 };
 
 export const LISTA_PADRAO = 20;
+/** PENDENTE mais velho que isto = o processo caiu no meio do envio (o timeout da Evolution é 60 s). */
+export const PENDENTE_MAX_MS = 5 * 60_000;
 export const LISTA_MAX = 50;
 
 const novaRef = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
@@ -59,10 +63,12 @@ function urlAbsoluta(href: string | null): string | null {
   }
 }
 
+const chave = (a: { usuarioId: string; tipo: TipoAviso; projetoId?: string | null }) => `${a.usuarioId}|${a.tipo}|${a.projetoId ?? ""}`;
+
 /** Emite avisos (um por pessoa/tipo/projeto). Nunca lança. */
 export async function emitirAvisos(novos: NovoAviso[]): Promise<{ ok: true } | { ok: false; ref: string }> {
   try {
-    const unicos = [...new Map(novos.map((n) => [`${n.usuarioId}|${n.tipo}|${n.projetoId ?? ""}`, n])).values()];
+    const unicos = [...new Map(novos.map((n) => [chave(n), n])).values()];
     if (unicos.length === 0) return { ok: true };
     const pessoas = await db.usuario.findMany({
       where: { id: { in: [...new Set(unicos.map((n) => n.usuarioId))] }, ativo: true },
@@ -98,15 +104,19 @@ export async function emitirAvisos(novos: NovoAviso[]): Promise<{ ok: true } | {
 
     const criados = await db.aviso.createManyAndReturn({
       data: planos.map((p) => ({ usuarioId: p.n.usuarioId, tipo: p.n.tipo, titulo: p.n.titulo, projetoId: p.n.projetoId ?? null, whatsapp: p.whatsapp, whatsappRef: p.whatsappRef })),
-      select: { id: true },
+      select: { id: true, usuarioId: true, tipo: true, projetoId: true },
     });
+    // Casa por chave (única no lote), não pela ordem do RETURNING.
+    const idPorChave = new Map(criados.map((c) => [chave(c), c.id]));
 
-    planos.forEach((p, i) => {
-      if (p.whatsapp !== "PENDENTE" || !p.jid) return;
-      const envio = enviarEmSegundoPlano(criados[i].id, p.jid, p.texto, p.n.projetoId ?? null);
+    for (const p of planos) {
+      const avisoId = idPorChave.get(chave(p.n));
+      if (p.whatsapp !== "PENDENTE" || !p.jid || !avisoId) continue;
+      // projetoId null: aviso privado não é mensagem do card (Lixeira/contagens de `mensagem_enviada`).
+      const envio = enviarEmSegundoPlano(avisoId, p.jid, p.texto);
       pendentes.add(envio);
       void envio.finally(() => pendentes.delete(envio));
-    });
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, ref: registrarErro("avisos.emitir", e) };
@@ -114,10 +124,10 @@ export async function emitirAvisos(novos: NovoAviso[]): Promise<{ ok: true } | {
 }
 
 /** Envia e grava o resultado no aviso. Nunca rejeita. */
-async function enviarEmSegundoPlano(avisoId: string, jid: string, texto: string, projetoId: string | null): Promise<void> {
+async function enviarEmSegundoPlano(avisoId: string, jid: string, texto: string): Promise<void> {
   let resultado: { whatsapp: EnvioAviso; whatsappRef: string | null };
   try {
-    const r = await enviarWhatsApp({ para: jid, texto, projetoId });
+    const r = await enviarWhatsApp({ para: jid, texto, projetoId: null });
     if (r.enviada) resultado = { whatsapp: "ENVIADO", whatsappRef: null };
     else {
       // Safe mode ligado entre a decisão e o envio: o sender só logou.
@@ -148,7 +158,24 @@ export function contarNaoLidos(usuarioId: string): Promise<number> {
   return db.aviso.count({ where: { usuarioId, lidoEm: null } });
 }
 
+/**
+ * PENDENTE preso (o container reiniciou no meio do envio, o segundo plano
+ * morreu junto) vira FALHOU com ref no log. Roda na leitura do sino: barato
+ * (índice usuario_id) e só acha linha quando houve queda.
+ */
+async function encerrarPendentesPresos(usuarioId: string): Promise<void> {
+  const presos = await db.aviso.findMany({
+    where: { usuarioId, whatsapp: "PENDENTE", criadoEm: { lt: new Date(Date.now() - PENDENTE_MAX_MS) } },
+    select: { id: true },
+  });
+  for (const a of presos) {
+    const ref = registrarErro("avisos.whatsapp", new Error(`envio do aviso ${a.id} interrompido: PENDENTE há mais de ${PENDENTE_MAX_MS / 60_000} min (processo reiniciou?)`));
+    await db.aviso.updateMany({ where: { id: a.id, whatsapp: "PENDENTE" }, data: { whatsapp: "FALHOU", whatsappRef: ref } });
+  }
+}
+
 export async function listarAvisos(usuarioId: string, opcoes: { soNaoLidos?: boolean; limite?: number } = {}): Promise<AvisoDoSino[]> {
+  await encerrarPendentesPresos(usuarioId);
   const limite = Math.min(Math.max(1, Math.trunc(opcoes.limite ?? LISTA_PADRAO)), LISTA_MAX);
   const avisos = await db.aviso.findMany({
     where: { usuarioId, ...(opcoes.soNaoLidos ? { lidoEm: null } : {}) },
