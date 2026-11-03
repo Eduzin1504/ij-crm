@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
-import { removerFase } from "@/lib/fases/fases";
+import { desarquivarFase, removerFase } from "@/lib/fases/fases";
 import { adicionarPonto, criarContato } from "@/lib/contatos/contatos";
 import { encontrarContatoPorIdentificador } from "@/lib/contatos/match";
 import { criarEmpresa } from "@/lib/empresas/empresas";
@@ -107,6 +107,41 @@ describe("soft-delete e restauração de card", () => {
     expect([card.deletadoEm, card.faseId]).toEqual([null, fase(vendas, "primeiro_contato").id]);
     expect(await tipos(cardId)).toEqual(["CRIACAO", "EXCLUSAO", "RESTAURACAO", "MOVIMENTACAO"]);
     expect(await db.transicaoFase.count({ where: { projetoId: cardId, deFaseId: fase(vendas, "proposta").id } })).toBe(1);
+  });
+
+  it("GAB-89: arquivar, desarquivar (fase vai para depois de Montando contrato) e restaurar não fura a trava", async () => {
+    const { vendas, vend, gestor, admin, cardId } = await semear();
+    await db.fase.update({ where: { id: fase(vendas, "contrato_assinado").id }, data: { ordem: 4 } });
+    await db.fase.update({ where: { id: fase(vendas, "perdido").id }, data: { ordem: 5 } });
+    await db.fase.update({ where: { id: fase(vendas, "proposta").id }, data: { marco: "PROPOSTA" } });
+    await db.fase.create({ data: { pipelineId: vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    // card novo (não isento) na subfase X, antes do marco
+    const x = fase(vendas, "primeiro_contato");
+    const novo = await criarCard({ pipelineId: vendas.id, faseId: x.id, titulo: "Loja nova" }, vend);
+    if (!novo.ok) throw new Error(novo.erro);
+    await db.projeto.update({ where: { id: cardId }, data: { deletadoEm: new Date() } }); // tira o outro card do caminho
+    invalidarCachePipelines();
+    expect(await excluirCard(novo.id, vend)).toEqual({ ok: true });
+    expect(await removerFase(x.id, {}, gestor)).toEqual({ ok: true, acao: "ARQUIVAR" });
+    expect(await desarquivarFase(x.id)).toEqual({ ok: true });
+    invalidarCachePipelines();
+    const ordem = (await db.fase.findMany({ where: { pipelineId: vendas.id, arquivadaEm: null }, orderBy: { ordem: "asc" } })).map((f) => f.chave);
+    expect(ordem.indexOf("primeiro_contato")).toBeGreaterThan(ordem.indexOf("montando_contrato"));
+
+    const r = await restaurarCard(novo.id, gestor);
+    expect(r).toEqual({ ok: false, erro: "PROPOSTA_NAO_ACEITA" });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: novo.id } })).deletadoEm).not.toBeNull();
+
+    // isento passa
+    await db.projeto.update({ where: { id: novo.id }, data: { isentoTravaContrato: true } });
+    expect(await restaurarCard(novo.id, admin)).toEqual({ ok: true, faseId: x.id });
+    await excluirCard(novo.id, vend);
+    await db.projeto.update({ where: { id: novo.id }, data: { isentoTravaContrato: false } });
+    // proposta não aceita continua barrada; aceita passa
+    await db.proposta.create({ data: { projetoId: novo.id, status: "ENVIADA", criadoPorId: vend.id } });
+    expect(await restaurarCard(novo.id, gestor)).toEqual({ ok: false, erro: "PROPOSTA_NAO_ACEITA" });
+    await db.proposta.update({ where: { projetoId: novo.id }, data: { status: "ACEITA" } });
+    expect(await restaurarCard(novo.id, gestor)).toEqual({ ok: true, faseId: x.id });
   });
 
   it("GAB-89: restaurar com a fase arquivada não fura a trava de Montando contrato (sem proposta aceita)", async () => {

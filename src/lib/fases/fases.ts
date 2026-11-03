@@ -379,10 +379,21 @@ export async function desarquivarFase(faseId: string): Promise<Resultado> {
   try {
     await db.$transaction(async (tx) => {
       const pipelineId = await faseParaLock(tx, faseId);
-      const fase = await tx.fase.findUniqueOrThrow({ where: { id: faseId }, select: { arquivadaEm: true } });
+      const fase = await tx.fase.findUniqueOrThrow({ where: { id: faseId }, select: { arquivadaEm: true, tipoTerminal: true } });
       if (!fase.arquivadaEm) return;
-      const max = await tx.fase.aggregate({ where: { pipelineId, arquivadaEm: null }, _max: { ordem: true } });
-      await tx.fase.update({ where: { id: faseId }, data: { arquivadaEm: null, ordem: (max._max.ordem ?? -1) + 1 } });
+      // Volta antes da primeira fase terminal (Ganho/Perdido, Finalizado), não
+      // depois de Perdido. Fase terminal desarquivada vai para o fim.
+      const ativas = await tx.fase.findMany({
+        where: { pipelineId, arquivadaEm: null },
+        select: { id: true, tipoTerminal: true },
+        orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+      });
+      const iTerminal = ativas.findIndex((f) => f.tipoTerminal);
+      const pos = fase.tipoTerminal || iTerminal < 0 ? ativas.length : iTerminal;
+      const ids = ativas.map((f) => f.id);
+      ids.splice(pos, 0, faseId);
+      await tx.fase.update({ where: { id: faseId }, data: { arquivadaEm: null } });
+      for (const [ordem, id] of ids.entries()) await tx.fase.update({ where: { id }, data: { ordem } });
     });
   } catch (e) {
     return traduzir(e);
