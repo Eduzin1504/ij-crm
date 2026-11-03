@@ -14,6 +14,11 @@
  *
  * Resumo da janela de 12 h (`pedido.nome === "resumo"`, GAB-49): resposta
  * fixa curta; testes trocam com `definirResumoMock` (recebe texto vazio).
+ *
+ * Proposta a partir de arquivo (`pedido.nome === "proposta_arquivo"`, GAB-90):
+ * padrão = nenhum campo identificado (confiança 0) e, quando vai arquivo, um
+ * texto fixo; testes trocam com `definirPropostaArquivoMock` (recebe o texto
+ * do documento — vazio quando vai só o arquivo — e o pedido, com `arquivo`).
  */
 import { FIXTURES_CLASSIFICACAO } from "../fixtures/classificacao";
 import { FIXTURES_EXTRACAO, saida } from "../fixtures/extracao";
@@ -24,7 +29,7 @@ export const MODELO_MOCK = "mock-extracao";
 /** Recebe o texto ORIGINAL da mensagem (não o prompt montado) e o pedido completo. */
 export type RespostaMock = (texto: string, pedido: PedidoExtracao) => unknown | Promise<unknown>;
 
-const g = globalThis as unknown as { __ijRespostaMock?: RespostaMock | null; __ijClassificacaoMock?: RespostaMock | null; __ijResumoMock?: RespostaMock | null };
+const g = globalThis as unknown as { __ijRespostaMock?: RespostaMock | null; __ijClassificacaoMock?: RespostaMock | null; __ijResumoMock?: RespostaMock | null; __ijPropostaArquivoMock?: RespostaMock | null };
 
 /** Troca a resposta do mock (null volta ao padrão). Lançar dentro dela simula falha do provedor. */
 export function definirRespostaMock(fn: RespostaMock | null) {
@@ -41,6 +46,20 @@ export function definirResumoMock(fn: RespostaMock | null) {
   g.__ijResumoMock = fn;
 }
 
+/** Idem, só para a leitura de proposta a partir de arquivo (GAB-90). */
+export function definirPropostaArquivoMock(fn: RespostaMock | null) {
+  g.__ijPropostaArquivoMock = fn;
+}
+
+const nada = { valor: null, confianca: 0, trecho: null };
+const propostaArquivoPadrao: RespostaMock = (_texto, pedido) => ({
+  ...(pedido.arquivo ? { markdown: "## Proposta\n\nmock: texto lido do arquivo" } : {}),
+  valor_total: nada,
+  prazo_dias: nada,
+  escopo_resumo: nada,
+  entregas: { itens: [], confianca: 0 },
+});
+
 const resumoPadrao: RespostaMock = () => ({ resumo: "mock: resumo da janela anterior" });
 
 function classificacaoPadrao(texto: string): unknown {
@@ -52,10 +71,10 @@ function respostaPadrao(texto: string): unknown {
   return f ? f.saida : saida({ confianca: 0, resumo: "mock: mensagem sem fixture" });
 }
 
-/** Extrai o texto entre <mensagem> e </mensagem> do prompt montado. */
+/** Extrai o texto entre <mensagem> e </mensagem> (ou <documento>, GAB-90) do prompt montado. */
 function textoDoPedido(pedido: PedidoExtracao): string {
-  const m = /<mensagem>\n([\s\S]*)\n<\/mensagem>/.exec(pedido.usuario);
-  return m ? m[1] : "";
+  const m = /<(mensagem|documento)>\n([\s\S]*)\n<\/\1>/.exec(pedido.usuario);
+  return m ? m[2] : "";
 }
 
 export function criarProvedorMock(): ProvedorLlm {
@@ -69,7 +88,9 @@ export function criarProvedorMock(): ProvedorLlm {
           ? (g.__ijClassificacaoMock ?? classificacaoPadrao)
           : pedido.nome === "resumo"
             ? (g.__ijResumoMock ?? resumoPadrao)
-            : (g.__ijRespostaMock ?? respostaPadrao);
+            : pedido.nome === "proposta_arquivo"
+              ? (g.__ijPropostaArquivoMock ?? propostaArquivoPadrao)
+              : (g.__ijRespostaMock ?? respostaPadrao);
       const bruto = await fn(texto, pedido);
       return {
         bruto: structuredClone(bruto),

@@ -84,6 +84,25 @@ describe("provedor OpenAI (SDK oficial, Responses API, fetch falso)", () => {
     expect(TIMEOUT_LLM_MS).toBe(30_000);
   });
 
+  it("com arquivo (GAB-90): uma mensagem com o texto e o PDF (input_file) ou a imagem (input_image), em data URL; store false", async () => {
+    const fetch = vi.fn().mockImplementation(async () => http(200, resposta([texto(JSON.stringify(SAIDA))])));
+    await provedor(fetch).extrair({ ...PEDIDO, arquivo: { nome: "p.pdf", mime: "application/pdf" as const, base64: "JVBERi0=" }, timeoutMs: 120_000 });
+    expect(corpoEnviado(fetch)).toMatchObject({
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "usuario" },
+            { type: "input_file", filename: "p.pdf", file_data: "data:application/pdf;base64,JVBERi0=" },
+          ],
+        },
+      ],
+      store: false,
+    });
+    await provedor(fetch).extrair({ ...PEDIDO, arquivo: { nome: "f.png", mime: "image/png" as const, base64: "iVBORw==" } });
+    expect(corpoEnviado(fetch, 1).input[0].content[1]).toEqual({ type: "input_image", image_url: "data:image/png;base64,iVBORw==", detail: "high" });
+  });
+
   it("não manda parâmetros de sampling que modelo de raciocínio recusa", async () => {
     const fetch = vi.fn().mockResolvedValue(http(200, resposta([texto(JSON.stringify(SAIDA))])));
     await provedor(fetch).extrair(PEDIDO);

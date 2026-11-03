@@ -53,19 +53,33 @@ function traduzirErro(e: unknown): TraducaoErro {
   return { erro: new ErroLlm("REDE", { detalhe: { codigo: e instanceof Error ? e.name : typeof e } }), retentavel: false };
 }
 
+/** Só texto → string. Com arquivo (GAB-90): bloco `document` (PDF) ou `image` em base64, depois o texto. */
+function conteudo(pedido: PedidoExtracao): string | Anthropic.ContentBlockParam[] {
+  const a = pedido.arquivo;
+  if (!a) return pedido.usuario;
+  const bloco: Anthropic.ContentBlockParam =
+    a.mime === "application/pdf"
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.base64 } }
+      : { type: "image", source: { type: "base64", media_type: a.mime, data: a.base64 } };
+  return [bloco, { type: "text", text: pedido.usuario }];
+}
+
 export function criarProvedorAnthropic({ apiKey, modelo, fetch }: Opcoes): ProvedorLlm {
   const cliente = new Anthropic({ apiKey, timeout: TIMEOUT_LLM_MS, maxRetries: 0, ...(fetch ? { fetch } : {}) });
 
   function chamar(pedido: PedidoExtracao): Promise<Anthropic.Message> {
     return comRetentativa(
       () =>
-        cliente.messages.create({
-          model: modelo,
-          max_tokens: pedido.maxTokens ?? MAX_TOKENS_EXTRACAO,
-          system: pedido.sistema,
-          messages: [{ role: "user", content: pedido.usuario }],
-          output_config: { effort: "low", format: { type: "json_schema", schema: pedido.schema } },
-        }),
+        cliente.messages.create(
+          {
+            model: modelo,
+            max_tokens: pedido.maxTokens ?? MAX_TOKENS_EXTRACAO,
+            system: pedido.sistema,
+            messages: [{ role: "user", content: conteudo(pedido) }],
+            output_config: { effort: "low", format: { type: "json_schema", schema: pedido.schema } },
+          },
+          pedido.timeoutMs ? { timeout: pedido.timeoutMs } : undefined,
+        ),
       traduzirErro,
     );
   }

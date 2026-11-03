@@ -65,6 +65,13 @@ describe("provedor Gemini (SDK @google/genai, fetch falso)", () => {
     expect(r.uso.ms).toBeGreaterThanOrEqual(0);
   });
 
+  it("com arquivo (GAB-90): inlineData (base64) e o texto na mesma mensagem", async () => {
+    const fetch = vi.fn().mockResolvedValue(http(200, resposta(JSON.stringify(SAIDA))));
+    await provedor(fetch).extrair({ ...PEDIDO, arquivo: { nome: "p.pdf", mime: "application/pdf" as const, base64: "JVBERi0=" }, timeoutMs: 120_000 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(corpoDe(fetch).contents).toEqual([{ role: "user", parts: [{ inlineData: { mimeType: "application/pdf", data: "JVBERi0=" } }, { text: "usuario" }] }]);
+  });
+
   it("não manda sampling (temperature/topP/topK) nem pede os pensamentos", async () => {
     const fetch = vi.fn().mockResolvedValue(http(200, resposta(JSON.stringify(SAIDA))));
     await provedor(fetch).extrair(PEDIDO);

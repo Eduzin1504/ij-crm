@@ -187,8 +187,11 @@ export function criarProvedorGemini({ apiKey, modelo, fetch, timeoutMs }: Opcoes
         () =>
           cliente.models.generateContent({
             model: modelo,
-            contents: pedido.usuario,
+            contents: pedido.arquivo
+              ? [{ role: "user", parts: [{ inlineData: { mimeType: pedido.arquivo.mime, data: pedido.arquivo.base64 } }, { text: pedido.usuario }] }]
+              : pedido.usuario,
             config: {
+              ...(pedido.timeoutMs ? { httpOptions: { timeout: pedido.timeoutMs, retryOptions: SEM_RETENTATIVA_SDK } } : {}),
               systemInstruction: pedido.sistema,
               maxOutputTokens: pedido.maxTokens ?? MAX_TOKENS_EXTRACAO,
               responseMimeType: "application/json",
