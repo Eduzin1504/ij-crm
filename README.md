@@ -578,11 +578,15 @@ formulário e grava pelos caminhos de sempre (autosave + "Salvar dados", com a r
 PDF digital/.docx/.md/.txt: o texto extraído no upload vira o texto; o LLM só preenche os dados.
 PDF escaneado e imagem: o arquivo vai ao modelo do app com visão (`LLM_PROVEDOR`; produção
 GPT-6.1 Sol, `store: false`), que transcreve e preenche numa chamada — sem OCR no servidor.
-Campo sem trecho do arquivo que o sustente, ou com confiança < 0,7, **não é preenchido**: fica
+Campo sem trecho do arquivo que o sustente, ou com confiança ≤ 0,7 (conversões como "3 meses" vêm
+com no máximo 0,5), **não é preenchido** — cada entrega do cronograma precisa do próprio trecho —: fica
 como estava e aparece em "Para revisar" (`src/lib/propostas/sugestao.ts`). Mesma permissão de
 editar a proposta, conferida antes de chamar o LLM. Nada do resultado do LLM é guardado; cada
 leitura vira uma linha em `log_llm` (`operacao=proposta_arquivo`, tokens = custo por arquivo,
-`ref=<ref>:<12 hex do anexo>`). Pelo MCP: `preencher_proposta_de_anexo` (só sugere; `aplicar=true`
+`ref=<ref>:<12 hex do anexo>`). Limites (VPS de 512 MB): 2 leituras ao mesmo tempo no
+processo e 1 por pessoa (acima disso, recusa com mensagem); PDF escaneado com mais de 30 páginas é
+recusado antes do LLM; a leitura com visão tem UMA tentativa (timeout de 120 s, sem retentativa).
+Pelo MCP: `preencher_proposta_de_anexo` (só sugere; `aplicar=true`
 + `revisao` grava pelo `salvarRascunho`).
 
 ## Lixeira e merge
