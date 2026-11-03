@@ -1140,7 +1140,8 @@ incrementa a revisão).
   **template** separado em `src/lib/pdf/templates/` — trocar pelo oficial da IJ =
   novo `TemplatePdf` + `templateAtual()`. As fontes vêm de `src/lib/pdf/fontes/`
   (no standalone por `outputFileTracingIncludes`; o CI confere). Fonte faltando →
-  500 com `[api.proposta.pdf] ref=<ref>`.
+  500 com `[api.proposta.pdf] ref=<ref>`. No máximo 2 gerações ao mesmo tempo no
+  processo; a 3ª recebe 503 com ref (`[api.proposta.pdf] ref=<ref> PDF_OCUPADO`).
 - **Enviada**: vendas (dono da caneta ou GP de vendas) marca; grava
   `versao_enviada`. O sistema não manda nada ao cliente.
 - **Resposta**: Aceita → Projeto para **Montando contrato** (`registrarMovimento`);
@@ -1153,6 +1154,8 @@ incrementa a revisão).
   WhatsApp (não move, `revisar`, o grupo recebe o que falta) e card novo. Nem
   gestor força. Card que já está em Montando contrato ou além (migrado) anda livre
   lá dentro; saindo de Perdido conta onde foi perdido. Import do Pipefy não passa
-  pela trava. **Card legado parado antes do marco** que já fechou: não há atalho —
+  pela trava. A lixeira (restaurar escolhendo fase) e a Gestão de fases também
+  respeitam: remover fase migrando para lá → `DESTINO_EXIGE_PROPOSTA`; reordenar
+  uma subfase com cards sem aceite para depois do marco → `FASE_CRUZA_CONTRATO`. **Card legado parado antes do marco** que já fechou: não há atalho —
   crie a proposta, leve-a a Pronta, marque enviada e registre o aceite.
 - **Erros:** `[proposta.enviada|resposta|concluirRevisao] ref=<ref>`, `[api.proposta.pdf] ref=<ref>`.

@@ -109,6 +109,27 @@ describe("soft-delete e restauração de card", () => {
     expect(await db.transicaoFase.count({ where: { projetoId: cardId, deFaseId: fase(vendas, "proposta").id } })).toBe(1);
   });
 
+  it("GAB-89: restaurar com a fase arquivada não fura a trava de Montando contrato (sem proposta aceita)", async () => {
+    const { vendas, vend, gestor, cardId } = await semear();
+    await db.fase.update({ where: { id: fase(vendas, "contrato_assinado").id }, data: { ordem: 4 } });
+    await db.fase.update({ where: { id: fase(vendas, "perdido").id }, data: { ordem: 5 } });
+    const mc = await db.fase.create({ data: { pipelineId: vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    const juridico = await db.fase.create({ data: { pipelineId: vendas.id, chave: "juridico", nome: "Jurídico", ordem: 3 } });
+    invalidarCachePipelines();
+    await excluirCard(cardId, vend);
+    expect(await removerFase(fase(vendas, "proposta").id, {}, gestor)).toEqual({ ok: true, acao: "ARQUIVAR" });
+    invalidarCachePipelines();
+    for (const f of [mc, juridico]) {
+      const r = await restaurarCard(cardId, gestor, { faseId: f.id });
+      expect(r).toEqual({ ok: false, erro: "PROPOSTA_NAO_ACEITA" });
+      if (!r.ok) expect(mensagemLixeira(r)).toMatch(/não tem proposta aceita/);
+    }
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: cardId } })).deletadoEm).not.toBeNull();
+    // com a proposta aceita, volta lá
+    await db.proposta.create({ data: { projetoId: cardId, status: "ACEITA", criadoPorId: vend.id } });
+    expect(await restaurarCard(cardId, gestor, { faseId: mc.id })).toEqual({ ok: true, faseId: mc.id });
+  });
+
   it("casca absorvida pelo ciclo único (GAB-81) não aparece na lixeira, não restaura nem é apagada sozinha; vai junto com o Projeto", async () => {
     const { projetos, vend, gestor, admin, cardId } = await semear();
     const casca = await projetoLegado(projetos, cardId, { absorvidoPorId: cardId, deletadoEm: new Date() });

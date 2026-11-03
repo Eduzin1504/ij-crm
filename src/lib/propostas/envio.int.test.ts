@@ -107,6 +107,23 @@ describe("PDF da proposta", () => {
     }
   });
 
+  it("no máximo 2 gerações ao mesmo tempo no processo; a vaga volta depois (mesmo com erro)", async () => {
+    const s = await semear();
+    await pronta(s);
+    const g = globalThis as unknown as { __ijGeracoesPdf?: number };
+    g.__ijGeracoesPdf = 2;
+    try {
+      expect(await pdfDaProposta(s.projeto.id)).toEqual({ ok: false, erro: "PDF_OCUPADO" });
+    } finally {
+      g.__ijGeracoesPdf = 0;
+    }
+    // 3 em paralelo: no máximo 2 geram, e depois o contador volta a zero
+    const rs = await Promise.all([1, 2, 3].map(() => pdfDaProposta(s.projeto.id)));
+    expect(rs.filter((r) => r.ok).length).toBeGreaterThanOrEqual(2);
+    expect(rs.filter((r) => !r.ok).every((r) => !r.ok && r.erro === "PDF_OCUPADO")).toBe(true);
+    expect(g.__ijGeracoesPdf).toBe(0);
+  });
+
   it("projeto ou proposta inexistente", async () => {
     const s = await semear();
     expect(await pdfDaProposta("nao-existe")).toEqual({ ok: false, erro: "PROJETO_NAO_ENCONTRADO" });

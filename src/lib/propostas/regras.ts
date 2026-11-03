@@ -75,6 +75,7 @@ export type ErroProposta =
   | "REVISAO_MUDOU_ESTRUTURADO"
   | "VERSAO_FINAL_MUDOU"
   | "PDF_INDISPONIVEL"
+  | "PDF_OCUPADO"
   | "FASE_MONTANDO_CONTRATO_INDISPONIVEL";
 
 export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
@@ -102,7 +103,8 @@ export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
   INVIAVEL_SEM_PERMISSAO: "Só o GP de projetos ou quem está com a caneta do lado de projetos marca a proposta como inviável.",
   MOTIVO_INVIAVEL_OBRIGATORIO: "Diga o motivo de a proposta ser inviável.",
   MOTIVO_INVIAVEL_LONGO: `O motivo pode ter até ${MOTIVO_INVIAVEL_MAX} caracteres.`,
-  PROJETO_FORA_DE_VENDAS: "O projeto não está no quadro de Vendas: a proposta não mexe mais nele (inviável, aceite ou recusa).",
+  PROJETO_FORA_DE_VENDAS:
+    "O projeto não está no quadro de Vendas: a proposta não mexe mais nele (inviável, aceite ou recusa). Se o cliente quer mudar a proposta, registre Revisão pedida; para aceitar ou recusar, traga o card de volta a Vendas pelo Kanban antes.",
   PROJETO_ENCERRADO: "O projeto já está em ganho ou perdido: reabra o card antes (marcar a proposta inviável ou registrar aceite/recusa move o card).",
   FASE_PERDIDO_INDISPONIVEL: "A fase Perdido do quadro de Vendas não está disponível (arquivada?). Fale com a gestão.",
   PROPOSTA_COM_O_CLIENTE: "A proposta foi enviada e está com o cliente: registre a resposta dele (aceita, recusada ou revisão pedida). Revisão pedida reabre a edição com vendas.",
@@ -116,6 +118,7 @@ export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
     "Escopo, prazo, valor ou entregas mudaram desde a versão enviada: a proposta tem de passar por projetos. Use Devolver (para projetos avaliar) em vez de concluir a revisão direto.",
   VERSAO_FINAL_MUDOU: "A versão final da proposta mudou desde que você baixou o PDF. Baixe o PDF de novo antes de marcar como enviada.",
   PDF_INDISPONIVEL: "O PDF sai da versão final: a proposta precisa estar pronta para envio (ou já enviada).",
+  PDF_OCUPADO: "O CRM já está gerando 2 PDFs agora (limite para não sobrecarregar o servidor). Tente de novo em alguns segundos.",
   FASE_MONTANDO_CONTRATO_INDISPONIVEL: "A fase Montando contrato do quadro de Vendas não está disponível (arquivada?). Fale com a gestão.",
 };
 

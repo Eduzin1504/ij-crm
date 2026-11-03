@@ -66,3 +66,13 @@ export async function travaDoContrato(
 export async function exigirTravaDoContrato(tx: Tx, a: { projetoId: string | null; origem: Fase | null; destino: Fase }): Promise<void> {
   if (await travaDoContrato(tx, a)) throw new ErroDeRegra("PROPOSTA_NAO_ACEITA");
 }
+
+/**
+ * Cards vivos da fase que a trava seguraria se fossem levados para além de
+ * Montando contrato: sem proposta, ou com proposta não aceita. Usado pela
+ * Gestão de fases (remover com migração, reordenar), que mexe em vários
+ * cards de uma vez sem passar por `registrarMovimento`.
+ */
+export async function contarCardsSemPropostaAceita(tx: Tx, faseId: string): Promise<number> {
+  return tx.projeto.count({ where: { faseId, deletadoEm: null, NOT: { proposta: { is: { status: "ACEITA" } } } } });
+}

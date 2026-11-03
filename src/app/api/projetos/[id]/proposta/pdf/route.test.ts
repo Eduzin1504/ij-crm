@@ -45,6 +45,21 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
     expect((await GET(req("?versao=abc"), ctx())).status).toBe(400);
   });
 
+  it("limite de gerações simultâneas → 503 com mensagem, ref (a mesma do log) e retry-after", async () => {
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "VENDEDOR" });
+    pdfDaProposta.mockResolvedValue({ ok: false, erro: "PDF_OCUPADO" });
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await GET(req(), ctx());
+    expect(r.status).toBe(503);
+    const ref = r.headers.get("x-erro-ref")!;
+    expect(ref).toMatch(/^[0-9a-f]{8}$/);
+    expect(r.headers.get("retry-after")).toBe("5");
+    const texto = await r.text();
+    expect(texto).toMatch(/já está gerando 2 PDFs/);
+    expect(texto).toContain(`(ref: ${ref})`);
+    expect(aviso).toHaveBeenCalledWith(expect.stringContaining(`[api.proposta.pdf] ref=${ref} PDF_OCUPADO`));
+  });
+
   it("erro inesperado → 500 com a ref no corpo e no header (a mesma do log)", async () => {
     usuarioAtual.mockResolvedValue({ id: "x", papel: "VENDEDOR" });
     pdfDaProposta.mockRejectedValue(new Error("fonte sumiu"));

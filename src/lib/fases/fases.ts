@@ -22,6 +22,7 @@ import {
   type ErroFase,
 } from "./regras";
 import { ordemDeMarcosValida } from "./marcos";
+import { alemDoContrato, contarCardsSemPropostaAceita, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
 import type { PipelineComFases } from "./tipos";
 
 export type { ErroFase, AcaoRemocao } from "./regras";
@@ -222,10 +223,26 @@ export async function editarFase(
 
 /** Pressupõe o lock do pipeline já tomado na transação. */
 async function aplicarOrdem(tx: Tx, pipelineId: string, faseIds: string[]) {
-  const ativas = await tx.fase.findMany({ where: { pipelineId, arquivadaEm: null }, select: { id: true, marco: true }, orderBy: { ordem: "asc" } });
+  const ativas = await tx.fase.findMany({
+    where: { pipelineId, arquivadaEm: null },
+    select: { id: true, marco: true, tipoTerminal: true },
+    orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+  });
   if (!validarReordenacao(ativas.map((f) => f.id), faseIds)) throw new ErroDeRegra("ORDEM_INVALIDA");
   const marcoDe = new Map(ativas.map((f) => [f.id, f.marco]));
   if (!ordemDeMarcosValida(faseIds.map((id) => ({ marco: marcoDe.get(id) ?? null })))) throw new ErroDeRegra("ORDEM_MARCOS");
+  // GAB-89: subfase que passa de antes para depois de Montando contrato levaria os
+  // cards dela para além da trava sem proposta aceita. Recusa se houver algum.
+  const mc = ativas.find((f) => f.marco === "MONTANDO_CONTRATO");
+  if (mc) {
+    const antes = ativas.map((f) => f.id);
+    for (const f of ativas) {
+      if (f.marco || f.tipoTerminal === "PERDIDO") continue;
+      const eraAntes = antes.indexOf(f.id) < antes.indexOf(mc.id);
+      const ficaDepois = faseIds.indexOf(f.id) > faseIds.indexOf(mc.id);
+      if (eraAntes && ficaDepois && (await contarCardsSemPropostaAceita(tx, f.id)) > 0) throw new ErroDeRegra("FASE_CRUZA_CONTRATO");
+    }
+  }
   for (const [ordem, id] of faseIds.entries()) {
     await tx.fase.update({ where: { id }, data: { ordem } });
   }
@@ -308,6 +325,15 @@ export async function removerFase(
       if (!decisao.ok) throw new ErroDeRegra(decisao.erro);
 
       if (qtdCards > 0 && destino) {
+        // GAB-89: migrar para Montando contrato (ou além) não fura a trava: card sem
+        // proposta aceita não vai, a não ser que já estivesse além dela.
+        const mc = await faseMontandoContrato(tx);
+        if (mc) {
+          const destinoFase = await tx.fase.findUniqueOrThrow({ where: { id: destino.id } });
+          if (alemDoContrato(destinoFase, mc) && !alemDoContrato(fase, mc) && (await contarCardsSemPropostaAceita(tx, faseId)) > 0) {
+            throw new ErroDeRegra("DESTINO_EXIGE_PROPOSTA");
+          }
+        }
         const agora = new Date();
         const cards = await tx.projeto.findMany({ where: { faseId, deletadoEm: null }, select: { id: true } });
         const motivo = decisao.acao === "EXCLUIR" ? "fase_removida" : "fase_arquivada";

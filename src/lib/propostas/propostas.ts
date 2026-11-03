@@ -851,6 +851,13 @@ export async function versaoFinalDaProposta(projetoId: string, versao?: number):
   return { ok: true, numero, nomeArquivo: nomeArquivoPdf(p.projeto.titulo, numero) };
 }
 
+/**
+ * Gerações de PDF simultâneas no processo. A maior proposta possível (100 mil
+ * caracteres) leva ~0,5 s e ~45 MB de heap; 2 de uma vez cabem folgadas no
+ * --max-old-space-size=256. A 3ª recebe PDF_OCUPADO (a rota responde 503).
+ */
+export const GERACOES_PDF_MAX = 2;
+
 /** PDF da proposta (versão final + parte estruturada) no template atual. Leitura: quem vê a proposta baixa. */
 export async function pdfDaProposta(projetoId: string, versao?: number): Promise<Resultado<{ bytes: Uint8Array; numero: number; nomeArquivo: string }>> {
   const f = await versaoFinalDaProposta(projetoId, versao);
@@ -869,8 +876,16 @@ export async function pdfDaProposta(projetoId: string, versao?: number): Promise
     markdown: v.conteudoMd,
     estruturado: lerEstruturadoGravado(v.estruturado),
   });
-  const bytes = await gerarPdf(doc, templateAtual(), { criadoEm: v.criadoEm });
-  return { ok: true, bytes, numero: f.numero, nomeArquivo: f.nomeArquivo };
+  // Vaga no processo: cada geração grande ocupa dezenas de MB de heap (container de 512 MB).
+  const g = globalThis as unknown as { __ijGeracoesPdf?: number };
+  if ((g.__ijGeracoesPdf ?? 0) >= GERACOES_PDF_MAX) return { ok: false, erro: "PDF_OCUPADO" };
+  g.__ijGeracoesPdf = (g.__ijGeracoesPdf ?? 0) + 1;
+  try {
+    const bytes = await gerarPdf(doc, templateAtual(), { criadoEm: v.criadoEm });
+    return { ok: true, bytes, numero: f.numero, nomeArquivo: f.nomeArquivo };
+  } finally {
+    g.__ijGeracoesPdf = Math.max(0, (g.__ijGeracoesPdf ?? 1) - 1);
+  }
 }
 
 // ---------------------------------------------------------------- leitura da caneta

@@ -24,6 +24,10 @@ const MENSAGEM: Record<ErroFase, string> = {
   FASE_EM_USO: "A fase passou a ter cards ou histórico enquanto você removia. Tente de novo.",
   MARCO_FIXO: "Essa fase é um marco do ciclo: não pode ser removida nem mudar de tipo (ganho/perdido). Nome, cor e alerta podem mudar.",
   ORDEM_MARCOS: "Marcos do ciclo têm ordem fixa (e Handoff é a primeira coluna de Projetos). Mova as subfases entre eles.",
+  DESTINO_EXIGE_PROPOSTA:
+    "Há cards nesta fase sem proposta aceita: eles não podem ir para Montando contrato nem para uma fase depois dela. Escolha um destino antes de Montando contrato (ou registre o aceite das propostas antes).",
+  FASE_CRUZA_CONTRATO:
+    "Essa fase tem cards sem proposta aceita: ela não pode passar para depois de Montando contrato (os cards pulariam a trava). Mova os cards antes, ou registre o aceite das propostas.",
 };
 
 export type EstadoFase = { erro?: string; ok?: true } | undefined;
