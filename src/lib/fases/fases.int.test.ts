@@ -372,14 +372,15 @@ describe("removerFase × fases terminais (GAB-32)", () => {
 });
 
 describe("desarquivarFase", () => {
-  it("volta a fase ao fim do quadro", async () => {
+  it("volta a fase antes da primeira fase terminal (nunca depois de Perdido)", async () => {
     const { vendas } = await semearPipelines();
     const f = faseDe(vendas, "primeiro_contato");
     await db.fase.update({ where: { id: f.id }, data: { arquivadaEm: new Date() } });
     invalidarCachePipelines();
     expect(await desarquivarFase(f.id)).toEqual({ ok: true });
-    const chaves = (await listarPipelines())[0].fases.map((x) => x.chave);
-    expect(chaves).toEqual(["em_negociacao", "contrato_assinado", "perdido", "primeiro_contato"]);
+    const fases = (await listarPipelines())[0].fases;
+    expect(fases.map((x) => x.chave)).toEqual(["em_negociacao", "primeiro_contato", "contrato_assinado", "perdido"]);
+    expect(fases.map((x) => x.ordem)).toEqual([0, 1, 2, 3]);
   });
 });
 
