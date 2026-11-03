@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { salvarPaginaInicialAction, trocarEmailAction, trocarSenhaAction, type EstadoPerfil } from "./actions";
+import { salvarPaginaInicialAction, salvarWhatsappAvisosAction, trocarEmailAction, trocarSenhaAction, type EstadoPerfil } from "./actions";
 
 function Retorno({ estado, ok }: { estado: EstadoPerfil; ok: string }) {
   if (estado?.erro)
@@ -84,6 +84,29 @@ export function PaginaInicialForm({ atual }: { atual: (typeof OPCOES)[number]["v
           </label>
         ))}
       </fieldset>
+      <Retorno estado={estado} ok="Salvo." />
+      <Button type="submit" disabled={pendente}>
+        {pendente ? "Salvando…" : "Salvar"}
+      </Button>
+    </form>
+  );
+}
+
+/** GAB-88: "é sua vez" e "proposta aceita / handoff" no WhatsApp privado. O sino no app não desliga. */
+export function AvisosWhatsappForm({ ligado, temTelefone }: { ligado: boolean; temTelefone: boolean }) {
+  const [estado, action, pendente] = useActionState(salvarWhatsappAvisosAction, undefined);
+  return (
+    <form action={action} className="space-y-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-medium">Avisos no WhatsApp</h2>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="whatsapp" defaultChecked={ligado} className="mt-0.5 accent-primary" />
+        <span>Receber no meu WhatsApp quando for a minha vez na proposta e quando uma proposta for aceita.</span>
+      </label>
+      <p className="text-xs text-fg-faint">
+        {temTelefone
+          ? "Os outros avisos ficam só no sino do CRM."
+          : "Você ainda não tem telefone cadastrado: os avisos aparecem só no sino do CRM até cadastrar um acima."}
+      </p>
       <Retorno estado={estado} ok="Salvo." />
       <Button type="submit" disabled={pendente}>
         {pendente ? "Salvando…" : "Salvar"}

@@ -91,3 +91,20 @@ describe("comVisualizacaoKanban", () => {
     expect(original.kanban.vendas).toBeUndefined();
   });
 });
+
+describe("avisos no WhatsApp (GAB-88)", () => {
+  it("ausente → ligado (padrão); gravado → o que a pessoa escolheu", async () => {
+    const { comWhatsappAvisos, whatsappAvisosLigado } = await import("./preferencias");
+    expect(whatsappAvisosLigado(lerPreferencias({ v: 1, kanban: {} }))).toBe(true);
+    const desligado = comWhatsappAvisos(PREFERENCIAS_PADRAO, false);
+    expect(whatsappAvisosLigado(lerPreferencias(desligado))).toBe(false);
+    expect(lerPreferencias(desligado)).toMatchObject({ v: 1, kanban: {} });
+  });
+
+  it("valor corrompido não apaga o resto: vira o padrão (ligado)", async () => {
+    const { whatsappAvisosLigado } = await import("./preferencias");
+    const p = lerPreferencias({ v: 1, kanban: {}, inicio: "vendas", avisos: { whatsapp: "talvez" } });
+    expect(p.inicio).toBe("vendas");
+    expect(whatsappAvisosLigado(p)).toBe(true);
+  });
+});

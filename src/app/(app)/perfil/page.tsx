@@ -9,9 +9,9 @@ import { db } from "@/lib/db";
 import { comTratamento, ehInesperado } from "@/lib/erros/registrar";
 import { listarConexoes } from "@/lib/mcp/oauth";
 import { recursoMcp } from "@/lib/mcp/url";
-import { paginaInicial } from "@/lib/preferencias/preferencias";
+import { paginaInicial, whatsappAvisosLigado } from "@/lib/preferencias/preferencias";
 import { obterPreferencias } from "@/lib/preferencias/servico";
-import { EmailForm, PaginaInicialForm, SenhaForm } from "./conta-forms";
+import { AvisosWhatsappForm, EmailForm, PaginaInicialForm, SenhaForm } from "./conta-forms";
 import { FotoPerfil } from "./foto-perfil";
 import { PerfilForm } from "./perfil-form";
 import { ConexoesMcp } from "./conexoes-mcp";
@@ -54,6 +54,7 @@ export default async function PerfilPage() {
           </dl>
           <PerfilForm nome={u.nome} telefone={u.telefoneWhatsapp ?? ""} />
           <PaginaInicialForm atual={paginaInicial(prefs)} />
+          <AvisosWhatsappForm ligado={whatsappAvisosLigado(prefs)} temTelefone={Boolean(u.telefoneWhatsapp)} />
         </div>
         <div className="space-y-6">
           <SenhaForm />

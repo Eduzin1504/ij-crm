@@ -595,7 +595,7 @@ export async function pegarCaneta(projetoId: string, ator: Ator): Promise<Result
     const agora = new Date();
     const revisao = await trocarCaneta(tx, proposta.id, pessoa!, lado, agora);
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "caneta_pega", deId: de?.id ?? null, deNome: de?.nome ?? null, lado });
-    const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "pegou", porId: ator.id, paraId: pessoa!.id, lado, status: proposta.status };
+    const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "pegou", porId: ator.id, paraId: pessoa!.id, lado, status: proposta.status, deId: de?.id ?? null };
     return { ok: true as const, status: proposta.status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, revisao, aviso };
   });
   return comAviso(r);

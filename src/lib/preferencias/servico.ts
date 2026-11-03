@@ -2,7 +2,7 @@
 import { cache } from "react";
 import { db } from "@/lib/db";
 import { listarPipelines } from "@/lib/fases/fases";
-import { comInicio, comVisualizacaoKanban, inicioSchema, lerPreferencias, visualizacaoKanbanSchema, type Preferencias } from "./preferencias";
+import { comInicio, comVisualizacaoKanban, comWhatsappAvisos, inicioSchema, lerPreferencias, visualizacaoKanbanSchema, type Preferencias } from "./preferencias";
 
 export type ErroPreferencias = "DADOS_INVALIDOS" | "QUADRO_INEXISTENTE";
 
@@ -38,6 +38,13 @@ export async function salvarPaginaInicial(usuarioId: string, entrada: unknown): 
   const v = inicioSchema.safeParse(entrada);
   if (!v.success) return { ok: false, erro: "DADOS_INVALIDOS" };
   await mesclar(usuarioId, (p) => comInicio(p, v.data));
+  return { ok: true };
+}
+
+/** Liga/desliga o WhatsApp privado dos avisos (GAB-88). Só booleano. */
+export async function salvarWhatsappAvisos(usuarioId: string, entrada: unknown): Promise<{ ok: true } | { ok: false; erro: ErroPreferencias }> {
+  if (typeof entrada !== "boolean") return { ok: false, erro: "DADOS_INVALIDOS" };
+  await mesclar(usuarioId, (p) => comWhatsappAvisos(p, entrada));
   return { ok: true };
 }
 

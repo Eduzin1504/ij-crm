@@ -2,9 +2,10 @@
  * Preferências de visualização de cada usuário (`usuario.preferencias`, JSONB).
  * Ficam no servidor para acompanhar o usuário entre dispositivos.
  *
- * Formato versionado: `{ v: 1, kanban: { [pipelineChave]: { mostrarVazias, abertas } }, inicio? }`,
+ * Formato versionado: `{ v: 1, kanban: { [pipelineChave]: { mostrarVazias, abertas } }, inicio?, avisos? }`,
  * em que `abertas` são CHAVES de fase (estáveis entre ambientes) abertas à mão e
- * `inicio` é a página que `/` abre (semana | vendas | projetos; GAB-43).
+ * `inicio` é a página que `/` abre (semana | vendas | projetos; GAB-43) e
+ * `avisos.whatsapp` liga/desliga o WhatsApp privado dos avisos (GAB-88; ausente = ligado).
  *
  * Leitura nunca lança: JSON inválido, de outra versão ou com chaves estranhas
  * vira o padrão (por quadro, quando dá: um quadro corrompido não apaga os outros).
@@ -31,6 +32,7 @@ const preferenciasSchema = z.object({
   v: z.literal(1),
   kanban: z.record(chave, visualizacaoKanbanSchema.catch(() => ({ ...VISUALIZACAO_PADRAO, abertas: [] }))).catch(() => ({})),
   inicio: inicioSchema.optional().catch(undefined),
+  avisos: z.object({ whatsapp: z.boolean() }).optional().catch(undefined),
 });
 
 export type Preferencias = z.infer<typeof preferenciasSchema>;
@@ -64,6 +66,15 @@ export function destinoInicio(p: Preferencias): DestinoInicio {
 
 export function comInicio(p: Preferencias, inicio: PaginaInicial): Preferencias {
   return { ...p, inicio };
+}
+
+/** WhatsApp privado dos avisos ("é sua vez", "aceita/handoff"). Padrão: ligado. O sino no app não desliga. */
+export function whatsappAvisosLigado(p: Preferencias): boolean {
+  return p.avisos?.whatsapp ?? true;
+}
+
+export function comWhatsappAvisos(p: Preferencias, whatsapp: boolean): Preferencias {
+  return { ...p, avisos: { whatsapp } };
 }
 
 export function comVisualizacaoKanban(p: Preferencias, pipelineChave: string, v: VisualizacaoKanban): Preferencias {

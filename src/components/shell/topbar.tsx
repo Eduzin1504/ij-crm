@@ -7,6 +7,7 @@ import { ROTULO_PAPEL } from "@/lib/auth/papeis";
 import type { UsuarioSessao } from "@/lib/auth/sessao";
 import { SimboloIJ } from "@/components/marca/marca";
 import type { DestinoInicio } from "@/lib/preferencias/preferencias";
+import { Sino } from "./sino";
 
 export function Topbar({ usuario, inicio }: { usuario: UsuarioSessao; inicio: DestinoInicio }) {
   return (
@@ -16,6 +17,7 @@ export function Topbar({ usuario, inicio }: { usuario: UsuarioSessao; inicio: De
       </Link>
       <span className="hidden md:block" />
       <div className="flex items-center gap-3">
+        <Sino />
         <Link href="/perfil" className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-surface-hover" title="Meu perfil">
           <div className="hidden text-right sm:block">
             <p className="text-sm leading-tight text-fg-soft">{usuario.nome}</p>
