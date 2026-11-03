@@ -15,6 +15,8 @@ export type ErroProjeto =
   /** GAB-85: nota do contato fora de 1..5. */
   | "NOTA_CONTATO_INVALIDA"
   | "FASE_HANDOFF_INDISPONIVEL"
+  /** GAB-89: Montando contrato (ou além) só com a proposta aceita (`trava-contrato.ts`). */
+  | "PROPOSTA_NAO_ACEITA"
   /** Ator VISUALIZADOR (somente leitura). */
   | "SEM_PERMISSAO"
   | ErroDadosTerminal;
@@ -46,5 +48,7 @@ export const MENSAGEM_ERRO_PROJETO: Record<ErroProjeto, string> = {
   MOTIVO_PERDA_INVALIDO: "Motivo da perda inválido.",
   MOTIVO_PERDA_DETALHE_OBRIGATORIO: "Em “Outro”, descreva o motivo da perda.",
   SEM_PERMISSAO: "Seu acesso é só de visualização.",
+  PROPOSTA_NAO_ACEITA:
+    "Montando contrato (e o que vem depois dele) só com a proposta aceita pelo cliente — nem a gestão força. Registre o aceite na proposta do projeto: ele já leva o card para Montando contrato.",
   MOTIVO_PERDA_DETALHE_LONGO: `O detalhe do motivo pode ter até ${DETALHE_PERDA_MAX} caracteres.`,
 };

@@ -34,8 +34,9 @@ import { travarPipelines } from "@/lib/fases/fases";
 import { ehDominioPublico, normalizarDominio } from "@/lib/normalizacao";
 import { ErroDeRegra } from "@/lib/projetos/erros";
 import { criarCardTravado } from "@/lib/projetos/projetos";
+import { travaDoContrato } from "@/lib/projetos/trava-contrato";
 import { PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
-import { FASES_DO_WHATSAPP } from "./ciclo-vendas";
+import { FASES_DO_WHATSAPP, MOTIVO_CARD_NOVO_SEM_PROPOSTA } from "./ciclo-vendas";
 import { aplicarAtualizacao, pipelinesParaTravar } from "./atualizar";
 import {
   FASE_PADRAO_CRIAR,
@@ -160,6 +161,13 @@ export async function aplicarExtracao(tx: Tx, e: EntradaAplicacao): Promise<Desf
     fase = undefined;
   } else if (ex.fase_chave && !fase) {
     motivos.push("fase indicada não reconhecida");
+  } else if (fase) {
+    // GAB-89: card novo não tem proposta — não nasce em Montando contrato (nem depois).
+    const trava = await travaDoContrato(tx, { projetoId: null, origem: null, destino: await tx.fase.findUniqueOrThrow({ where: { id: fase.id } }) });
+    if (trava) {
+      motivos.unshift(MOTIVO_CARD_NOVO_SEM_PROPOSTA);
+      fase = undefined;
+    }
   }
   fase ??= fases.find((f) => f.chave === FASE_PADRAO_CRIAR && !f.isTerminal) ?? fases.find((f) => !f.isTerminal);
   if (!fase) throw new ErroDeRegra("FASE_NAO_ENCONTRADA");

@@ -6,9 +6,12 @@
  *   "é sua vez" (app + WhatsApp privado).
  * - GP pegou a caneta: quem estava com ela fica sabendo, só no app
  *   [escolha do agente: não é "sua vez", então não vai ao WhatsApp].
- * - Mudança de status (devolver, concordar, reabrir, inviável): só no app,
- *   para quem já atuou na proposta (criou ou teve a caneta), menos quem agiu
- *   e quem já recebeu "é sua vez" no mesmo evento.
+ * - Mudança de status (devolver, concordar, reabrir, inviável; GAB-89: enviada,
+ *   recusada, revisão pedida/concluída): só no app, para quem já atuou na
+ *   proposta (criou ou teve a caneta), menos quem agiu e quem já recebeu "é
+ *   sua vez" no mesmo evento.
+ * - GAB-89: cliente aceitou → PROPOSTA_ACEITA (app + WhatsApp privado) para
+ *   quem atuou na proposta e o responsável pelo Projeto, menos quem registrou.
  */
 import type { TipoAviso } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -16,7 +19,17 @@ import type { EventoCaneta } from "@/lib/propostas/avisos";
 import { ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { emitirAvisos, type NovoAviso } from "./avisos";
 
-const MUDAM_STATUS: ReadonlySet<EventoCaneta["acao"]> = new Set(["devolveu", "concordou", "reabriu", "inviavel"]);
+const MUDAM_STATUS: ReadonlySet<EventoCaneta["acao"]> = new Set([
+  "devolveu",
+  "concordou",
+  "reabriu",
+  "inviavel",
+  "enviou",
+  "aceita",
+  "recusada",
+  "revisao_pedida",
+  "revisao_concluida",
+]);
 
 function tituloSuaVez(e: EventoCaneta, por: string, projeto: string): string {
   if (e.acao === "passou") return `${por} passou para você a caneta da proposta de "${projeto}"`;
@@ -27,7 +40,7 @@ function tituloSuaVez(e: EventoCaneta, por: string, projeto: string): string {
 
 export async function avisosDaCaneta(e: EventoCaneta): Promise<void> {
   const [projeto, por, proposta] = await Promise.all([
-    db.projeto.findUnique({ where: { id: e.projetoId }, select: { titulo: true } }),
+    db.projeto.findUnique({ where: { id: e.projetoId }, select: { titulo: true, responsavelId: true } }),
     db.usuario.findUnique({ where: { id: e.porId }, select: { nome: true } }),
     MUDAM_STATUS.has(e.acao)
       ? db.proposta.findUnique({ where: { id: e.propostaId }, select: { criadoPorId: true, periodosCaneta: { select: { usuarioId: true } } } })
@@ -44,8 +57,14 @@ export async function avisosDaCaneta(e: EventoCaneta): Promise<void> {
   if (proposta) {
     const ja = new Set([e.porId, ...lista.map((a) => a.usuarioId)]);
     const atuaram = new Set([proposta.criadoPorId, ...proposta.periodosCaneta.map((p) => p.usuarioId)]);
-    const titulo = `Proposta de "${projeto.titulo}" agora está ${ROTULO_STATUS_PROPOSTA[e.status]} (${por.nome})`;
-    for (const id of atuaram) if (!ja.has(id)) lista.push(novo(id, "STATUS_PROPOSTA", titulo));
+    if (e.acao === "aceita") {
+      atuaram.add(projeto.responsavelId);
+      const titulo = `O cliente aceitou a proposta de "${projeto.titulo}"${e.numero ? ` (v${e.numero})` : ""}: projeto em Montando contrato (${por.nome})`;
+      for (const id of atuaram) if (!ja.has(id)) lista.push(novo(id, "PROPOSTA_ACEITA", titulo));
+    } else {
+      const titulo = `Proposta de "${projeto.titulo}" agora está ${ROTULO_STATUS_PROPOSTA[e.status]} (${por.nome})`;
+      for (const id of atuaram) if (!ja.has(id)) lista.push(novo(id, "STATUS_PROPOSTA", titulo));
+    }
   }
   await emitirAvisos(lista);
 }

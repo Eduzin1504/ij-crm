@@ -6,16 +6,34 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MensagemErro } from "@/components/erros/mensagem-erro";
 import { executarAcao, type FalhaUI } from "@/lib/erros/cliente";
+import { MOTIVOS_PERDA } from "@/lib/projetos/terminal-regras";
 import { MOTIVO_INVIAVEL_MAX, type AcaoCaneta } from "@/lib/propostas/caneta";
+import { PEDIDO_REVISAO_MAX, ROTULO_RESPOSTA, RESPOSTAS_CLIENTE, type AcaoEnvio, type RespostaCliente } from "@/lib/propostas/envio";
 import { NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
-import { concordarAction, devolverAction, marcarInviavelAction, passarCanetaAction, pegarCanetaAction, reabrirAction } from "./actions";
+import {
+  concluirRevisaoAction,
+  concordarAction,
+  devolverAction,
+  marcarEnviadaAction,
+  marcarInviavelAction,
+  passarCanetaAction,
+  pegarCanetaAction,
+  reabrirAction,
+  registrarRespostaAction,
+} from "./actions";
 
 export type PessoaCaneta = { id: string; nome: string };
 
 /** O que o editor manda junto (revisão atual, texto, dados alterados) — ou por que não dá agora. */
 export type Preparo = { revisao: number; documento?: unknown; estruturado?: unknown } | { erro: string };
 
-const ROTULO: Record<AcaoCaneta, string> = {
+/** Ações da caneta (GAB-87) e do envio ao cliente (GAB-89) num painel só. */
+export type AcaoTela = AcaoCaneta | AcaoEnvio;
+
+const ROTULO: Record<AcaoTela, string> = {
+  enviar: "Marcar como enviada",
+  responder: "Registrar resposta do cliente",
+  concluirRevisao: "Concluir revisão",
   passar: "Passar a caneta",
   devolver: "Devolver",
   concordar: "Concordar",
@@ -24,7 +42,10 @@ const ROTULO: Record<AcaoCaneta, string> = {
   inviavel: "Marcar inviável",
 };
 
-const VERBO: Record<AcaoCaneta, string> = {
+const VERBO: Record<AcaoTela, string> = {
+  enviar: "marcar como enviada",
+  responder: "registrar a resposta do cliente",
+  concluirRevisao: "concluir a revisão",
   passar: "passar a caneta",
   devolver: "devolver a proposta",
   concordar: "concordar",
@@ -51,35 +72,46 @@ export function AcoesCaneta({
   revisao,
   preparar,
   aoConcluir,
+  envio = [],
+  versaoPdf = null,
 }: {
   projetoId: string;
   acoes: readonly AcaoCaneta[];
+  /** GAB-89: o que a pessoa pode fazer no envio (`acoesDeEnvio`). */
+  envio?: readonly AcaoEnvio[];
+  /** Versão final (a do PDF): marcar enviada confirma que é ela. */
+  versaoPdf?: number | null;
   mesmoLado: readonly PessoaCaneta[];
   outroLado: readonly PessoaCaneta[];
   rotuloOutroLado: string;
   revisao: number;
-  preparar?: (acao: AcaoCaneta) => Promise<Preparo>;
+  preparar?: (acao: AcaoTela) => Promise<Preparo>;
   /** Revisão nova devolvida pelo servidor (o editor adota antes do refresh). */
   aoConcluir?: (revisao: number) => void;
 }) {
   const router = useRouter();
   const base = useId();
-  const [aberta, setAberta] = useState<AcaoCaneta | null>(null);
+  const [aberta, setAberta] = useState<AcaoTela | null>(null);
+  const [resposta, setResposta] = useState<RespostaCliente | "">("");
+  const [motivoPerda, setMotivoPerda] = useState("");
+  const [detalhe, setDetalhe] = useState("");
+  const [pedido, setPedido] = useState("");
   const [paraId, setParaId] = useState("");
   const [nota, setNota] = useState("");
   const [motivo, setMotivo] = useState("");
   const [falha, setFalha] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
 
-  if (acoes.length === 0) return null;
+  const todas: AcaoTela[] = [...envio, ...acoes];
+  if (todas.length === 0) return null;
 
-  function abrir(a: AcaoCaneta) {
+  function abrir(a: AcaoTela) {
     setFalha(null);
     setParaId("");
     setAberta(aberta === a ? null : a);
   }
 
-  function confirmar(a: AcaoCaneta) {
+  function confirmar(a: AcaoTela) {
     setFalha(null);
     startTransition(async () => {
       const p: Preparo = preparar ? await preparar(a) : { revisao };
@@ -101,6 +133,12 @@ export function AcoesCaneta({
             return reabrirAction(projetoId);
           case "inviavel":
             return marcarInviavelAction(projetoId, motivo);
+          case "enviar":
+            return marcarEnviadaAction(projetoId, versaoPdf ?? 0);
+          case "responder":
+            return registrarRespostaAction(projetoId, { resposta, motivo: motivoPerda || undefined, detalhe: detalhe || undefined, pedido: pedido || undefined });
+          case "concluirRevisao":
+            return concluirRevisaoAction(projetoId, p.revisao, { documento: p.documento, estruturado: p.estruturado, nota });
         }
       };
       let revisaoNova: number | undefined;
@@ -115,6 +153,10 @@ export function AcoesCaneta({
         setAberta(null);
         setNota("");
         setMotivo("");
+        setResposta("");
+        setMotivoPerda("");
+        setDetalhe("");
+        setPedido("");
         router.refresh();
       }
     });
@@ -135,17 +177,23 @@ export function AcoesCaneta({
     <section className="rounded-xl border border-border bg-surface p-4" aria-label="Caneta">
       <h2 className="mb-1 text-sm font-medium">Caneta</h2>
       <p className="mb-3 text-xs text-fg-mute">
-        {acoes.includes("devolver")
-          ? `Terminou? Devolva para ${rotuloOutroLado.toLowerCase()} avaliar (salva uma versão) ou, se a última versão veio de lá e está boa, concorde.`
-          : "O que você pode fazer na proposta agora:"}
+        {envio.includes("concluirRevisao")
+          ? "O cliente pediu revisão. Mudou só o texto? Conclua a revisão e reenvie. Mudou valor, prazo, escopo ou entregas? Devolva para projetos avaliar."
+          : envio.includes("responder")
+            ? "A proposta está com o cliente. Registre a resposta quando ela vier."
+            : envio.includes("enviar")
+              ? "Pronta para envio: baixe o PDF, mande ao cliente pelo canal que quiser e marque como enviada."
+              : acoes.includes("devolver")
+                ? `Terminou? Devolva para ${rotuloOutroLado.toLowerCase()} avaliar (salva uma versão) ou, se a última versão veio de lá e está boa, concorde.`
+                : "O que você pode fazer na proposta agora:"}
       </p>
       <div className="flex flex-wrap gap-2">
-        {acoes.map((a) => (
+        {todas.map((a) => (
           <Button
             key={a}
             type="button"
             size="sm"
-            variant={a === "devolver" || a === "concordar" ? "default" : a === "inviavel" ? "destructive" : "outline"}
+            variant={a === "devolver" || a === "concordar" || a === "enviar" || a === "responder" || a === "concluirRevisao" ? "default" : a === "inviavel" ? "destructive" : "outline"}
             aria-expanded={aberta === a}
             disabled={pendente}
             onClick={() => abrir(a)}
@@ -208,6 +256,86 @@ export function AcoesCaneta({
           <div className="flex justify-end">
             <Button type="button" size="sm" variant="destructive" disabled={pendente || !motivo.trim()} onClick={() => confirmar("inviavel")}>
               Marcar inviável
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {aberta === "enviar" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="flex-1 text-xs text-fg-soft">
+            Confirma que a versão {versaoPdf ? `v${versaoPdf}` : "final"} (a do PDF) foi enviada ao cliente? O CRM não manda nada: só registra. Depois, registre a resposta.
+          </p>
+          <Button type="button" size="sm" disabled={pendente || !versaoPdf} onClick={() => confirmar("enviar")}>
+            Confirmar envio
+          </Button>
+        </div>
+      ) : null}
+
+      {aberta === "concluirRevisao" ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-fg-soft">
+            Salva uma versão com o que está no editor e a proposta volta a Pronta para envio, sem passar por projetos — só se valor, prazo, escopo e entregas são os mesmos da versão enviada.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} disabled={pendente} onChange={(e) => setNota(e.target.value)} className="min-w-48 flex-1" />
+            <Button type="button" size="sm" disabled={pendente} onClick={() => confirmar("concluirRevisao")}>
+              Concluir revisão
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {aberta === "responder" ? (
+        <div className="mt-3 space-y-2">
+          <fieldset className="flex flex-wrap gap-x-4 gap-y-1 text-sm" disabled={pendente}>
+            <legend className="mb-1 text-xs text-fg-soft">O que o cliente respondeu?</legend>
+            {RESPOSTAS_CLIENTE.map((r) => (
+              <label key={r} className="inline-flex items-center gap-1.5">
+                <input type="radio" name={`${base}-resposta`} value={r} checked={resposta === r} onChange={() => setResposta(r)} />
+                {ROTULO_RESPOSTA[r]}
+              </label>
+            ))}
+          </fieldset>
+          {resposta === "ACEITA" ? <p className="text-xs text-fg-soft">O projeto vai para Montando contrato.</p> : null}
+          {resposta === "RECUSADA" ? (
+            <div className="space-y-2">
+              <p className="text-xs text-fg-soft">O projeto vai para Perdido com este motivo.</p>
+              <select aria-label="Motivo da recusa" value={motivoPerda} disabled={pendente} onChange={(e) => setMotivoPerda(e.target.value)} className={CLASSE_SELECT}>
+                <option value="">Motivo…</option>
+                {MOTIVOS_PERDA.map((m) => (
+                  <option key={m.chave} value={m.chave}>
+                    {m.rotulo}
+                  </option>
+                ))}
+              </select>
+              <Input aria-label="Detalhe do motivo" placeholder={motivoPerda === "outro" ? "Detalhe (obrigatório)" : "Detalhe (opcional)"} maxLength={500} value={detalhe} disabled={pendente} onChange={(e) => setDetalhe(e.target.value)} />
+            </div>
+          ) : null}
+          {resposta === "REVISAO_PEDIDA" ? (
+            <div className="space-y-1">
+              <p className="text-xs text-fg-soft">A caneta volta para você. Mudou valor, prazo, escopo ou entregas? A proposta passa por projetos de novo.</p>
+              <textarea
+                aria-label="O que o cliente pediu (opcional)"
+                placeholder="O que o cliente pediu (opcional)"
+                value={pedido}
+                onChange={(e) => setPedido(e.target.value)}
+                rows={2}
+                maxLength={PEDIDO_REVISAO_MAX}
+                disabled={pendente}
+                className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+              />
+            </div>
+          ) : null}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant={resposta === "RECUSADA" ? "destructive" : "default"}
+              disabled={pendente || !resposta || (resposta === "RECUSADA" && (!motivoPerda || (motivoPerda === "outro" && !detalhe.trim())))}
+              onClick={() => confirmar("responder")}
+            >
+              Registrar resposta
             </Button>
           </div>
         </div>

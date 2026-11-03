@@ -448,7 +448,10 @@ describe("migration do ciclo único (GAB-81)", () => {
     expect((await listarCardsNaLixeira()).map((c) => c.id)).toEqual([]);
     expect(await restaurarCard(fx.pA, { id: fx.ana.id, papel: "GESTOR" })).toMatchObject({ ok: false, erro: "CARD_NAO_ENCONTRADO" });
 
-    // ---- depois da migration, ganhar não cria card: o mesmo vai para Handoff
+    // ---- depois da migration, ganhar não cria card: o mesmo vai para Handoff.
+    // GAB-89: card aberto ANTES de Montando contrato precisa da proposta aceita para fechar.
+    expect(await moverCard(fx.aberto, fx.V("contrato_assinado"), fx.ana, { dadosTerminal: { valorFechado: "5.000,00" } })).toEqual({ ok: false, erro: "PROPOSTA_NAO_ACEITA" });
+    await db.proposta.create({ data: { projetoId: fx.aberto, status: "ACEITA", criadoPorId: fx.ana.id } });
     const r = await moverCard(fx.aberto, fx.V("contrato_assinado"), fx.ana, { dadosTerminal: { valorFechado: "5.000,00" } });
     expect(r).toMatchObject({ ok: true });
     const ganhou = await db.projeto.findUniqueOrThrow({ where: { id: fx.aberto }, include: { fase: true } });

@@ -23,7 +23,10 @@ export type ErroFase =
   // GAB-81: marco do ciclo não é apagado/arquivado nem muda de tipo terminal…
   | "MARCO_FIXO"
   // …nem sai da ordem canônica (ver `fases/marcos.ts`).
-  | "ORDEM_MARCOS";
+  | "ORDEM_MARCOS"
+  // GAB-89: a Gestão de fases não leva para Montando contrato (ou além) card sem proposta aceita.
+  | "DESTINO_EXIGE_PROPOSTA"
+  | "FASE_CRUZA_CONTRATO";
 
 /** Pipeline cuja regra de negócio exige também uma fase PERDIDO (§4.2). */
 export const PIPELINE_VENDAS = "vendas";

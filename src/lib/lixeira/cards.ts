@@ -11,6 +11,8 @@
  *   da migração ao remover fase, `destinoCompativel`), gravando TransicaoFase +
  *   MOVIMENTACAO (`motivo: "restauracao"`). Não passa pelos ganchos de
  *   terminal: o tipo não muda, os dados de fechamento continuam válidos.
+ *   GAB-89: o destino escolhido respeita a trava de Montando contrato
+ *   (`trava-contrato.ts`): sem proposta aceita, não volta lá nem depois.
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -28,6 +30,7 @@ import type { Papel, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
 import { destinoCompativel } from "@/lib/fases/regras";
+import { travaDoContrato } from "@/lib/projetos/trava-contrato";
 import { removerArquivosDeAnexos } from "./anexos";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar, type FalhaLixeira } from "./regras";
 
@@ -87,6 +90,8 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
         const f = await tx.fase.findUnique({ where: { id: opts.faseId } });
         if (!f || f.pipelineId !== alvo.pipelineId || f.arquivadaEm) throw new Falha({ erro: "FASE_INVALIDA" });
         if (!destinoCompativel(card.fase, f)) throw new Falha({ erro: "FASE_INCOMPATIVEL" });
+        // GAB-89: restaurar não fura a trava de Montando contrato (proposta aceita).
+        if (await travaDoContrato(tx, { projetoId: id, origem: card.fase, destino: f })) throw new Falha({ erro: "PROPOSTA_NAO_ACEITA" });
         destino = f;
       }
 

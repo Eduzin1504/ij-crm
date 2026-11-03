@@ -143,4 +143,22 @@ describe("Timeline: PROPOSTA (GAB-86)", () => {
     expect(screen.getByText(/reabriu o card/)).toHaveTextContent("voltou para ajuste com vendas");
     expect(screen.getByText(/ficou sem dono/)).toHaveTextContent("Ana foi desativado(a)");
   });
+
+  it("envio e resposta do cliente (GAB-89)", () => {
+    const evs = [
+      proposta({ evento: "enviada", numero: 2 }),
+      proposta({ evento: "aceita", numero: 2 }),
+      proposta({ evento: "recusada", motivo: "Preço: achou caro" }),
+      proposta({ evento: "revisao_pedida", pedido: "<i>mudar</i> o tom" }),
+      proposta({ evento: "revisao_concluida", numero: 3 }),
+      proposta({ evento: "reaberta_do_perdido", de: "RECUSADA" }),
+    ].map((x, i) => ({ ...x, id: `e${i}` }));
+    render(<Timeline entradas={evs} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/marcou a proposta/)).toHaveTextContent("marcou a proposta (v2) como enviada ao cliente");
+    expect(screen.getByText(/aceitou/).parentElement).toHaveTextContent("o cliente aceitou a proposta (v2)");
+    expect(screen.getByText(/recusou/).parentElement).toHaveTextContent("“Preço: achou caro”");
+    expect(screen.getByText(/pediu revisão/).parentElement).toHaveTextContent("“<i>mudar</i> o tom”");
+    expect(screen.getByText(/concluiu a revisão/)).toHaveTextContent("pronta para envio de novo");
+    expect(screen.getByText(/reabriu o card/)).toHaveTextContent("recusada voltou como revisão pedida");
+  });
 });

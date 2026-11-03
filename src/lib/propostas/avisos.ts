@@ -12,7 +12,19 @@ import { registrarErro } from "@/lib/erros/registrar";
 export type EventoCaneta = {
   projetoId: string;
   propostaId: string;
-  acao: "passou" | "devolveu" | "concordou" | "pegou" | "reabriu" | "inviavel";
+  acao:
+    | "passou"
+    | "devolveu"
+    | "concordou"
+    | "pegou"
+    | "reabriu"
+    | "inviavel"
+    // GAB-89: envio e resposta do cliente. "aceita" = o aviso "proposta aceita" (§4.11).
+    | "enviou"
+    | "aceita"
+    | "recusada"
+    | "revisao_pedida"
+    | "revisao_concluida";
   porId: string;
   /** Quem está com a caneta agora (null = ninguém): o "é sua vez". */
   paraId: string | null;

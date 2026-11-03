@@ -497,3 +497,84 @@ describe("marcos do ciclo único (GAB-81)", () => {
     ]);
   });
 });
+
+describe("Gestão de fases × trava de Montando contrato (GAB-89)", () => {
+  /** Vendas: Primeiro contato, Negociação, [Proposta], [Montando contrato], Jurídico, [Ganho], [Perdido]. */
+  async function quadro() {
+    const vendas = await db.pipeline.create({
+      data: {
+        chave: "vendas",
+        nome: "Vendas",
+        ordem: 0,
+        fases: {
+          create: [
+            { chave: "primeiro_contato", nome: "Primeiro Contato", ordem: 0 },
+            { chave: "em_negociacao", nome: "Em negociação", ordem: 1 },
+            { chave: "proposta", nome: "Proposta", ordem: 2, marco: "PROPOSTA" },
+            { chave: "montando_contrato", nome: "Montando contrato", ordem: 3, marco: "MONTANDO_CONTRATO" },
+            { chave: "juridico", nome: "Jurídico", ordem: 4 },
+            { chave: "contrato_assinado", nome: "Contrato assinado", ordem: 5, isTerminal: true, tipoTerminal: "GANHO", marco: "GANHO" },
+            { chave: "perdido", nome: "Perdido", ordem: 6, isTerminal: true, tipoTerminal: "PERDIDO", marco: "PERDIDO" },
+          ],
+        },
+      },
+      include: { fases: { orderBy: { ordem: "asc" } } },
+    });
+    const g = await gestor();
+    return { vendas, g, ids: vendas.fases.map((f) => f.id) };
+  }
+  const aceitar = (projetoId: string, criadoPorId: string) => db.proposta.create({ data: { projetoId, status: "ACEITA", criadoPorId } });
+
+  it("remover fase migrando para Montando contrato (ou além) com card sem proposta aceita é recusado; com aceite, vai", async () => {
+    const { vendas, g } = await quadro();
+    const c = await card(vendas.id, faseDe(vendas, "em_negociacao").id, g.id);
+    for (const destino of ["montando_contrato", "juridico"]) {
+      expect(await removerFase(faseDe(vendas, "em_negociacao").id, { destinoFaseId: faseDe(vendas, destino).id }, g)).toEqual({ ok: false, erro: "DESTINO_EXIGE_PROPOSTA" });
+    }
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: c.id } })).faseId).toBe(faseDe(vendas, "em_negociacao").id);
+    // destino antes do marco: livre
+    expect(await removerFase(faseDe(vendas, "em_negociacao").id, { destinoFaseId: faseDe(vendas, "primeiro_contato").id }, g)).toMatchObject({ ok: true });
+
+    // card com proposta aceita migra para depois do marco
+    const d = await card(vendas.id, faseDe(vendas, "primeiro_contato").id, g.id);
+    await db.projeto.update({ where: { id: c.id }, data: { faseId: faseDe(vendas, "proposta").id } });
+    await aceitar(d.id, g.id);
+    await db.projeto.delete({ where: { id: c.id } });
+    expect(await removerFase(faseDe(vendas, "primeiro_contato").id, { destinoFaseId: faseDe(vendas, "juridico").id }, g)).toMatchObject({ ok: true });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: d.id } })).faseId).toBe(faseDe(vendas, "juridico").id);
+  });
+
+  it("card isento (existia no deploy) não segura a Gestão: migra e cruza o marco", async () => {
+    const { vendas, g, ids } = await quadro();
+    const [pc, neg, prop, mc, jur, ganho, perd] = ids;
+    const c = await card(vendas.id, neg, g.id);
+    await db.projeto.update({ where: { id: c.id }, data: { isentoTravaContrato: true } });
+    expect(await reordenarFases(vendas.id, [pc, prop, mc, neg, jur, ganho, perd])).toEqual({ ok: true });
+    expect(await removerFase(neg, { destinoFaseId: jur }, g)).toMatchObject({ ok: true });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: c.id } })).faseId).toBe(jur);
+  });
+
+  it("subfase que já está além do marco migra livre para outra além dele (cards migrados)", async () => {
+    const { vendas, g } = await quadro();
+    const extra = await db.fase.create({ data: { pipelineId: vendas.id, chave: "assinaturas", nome: "Assinaturas", ordem: 4 } });
+    await card(vendas.id, faseDe(vendas, "juridico").id, g.id);
+    invalidarCachePipelines();
+    expect(await removerFase(faseDe(vendas, "juridico").id, { destinoFaseId: extra.id }, g)).toMatchObject({ ok: true });
+  });
+
+  it("reordenar: subfase com card sem proposta aceita não passa para depois de Montando contrato; vazia ou com aceite, passa", async () => {
+    const { vendas, g, ids } = await quadro();
+    const [pc, neg, prop, mc, jur, ganho, perd] = ids;
+    const c = await card(vendas.id, neg, g.id);
+    expect(await reordenarFases(vendas.id, [pc, prop, mc, neg, jur, ganho, perd])).toEqual({ ok: false, erro: "FASE_CRUZA_CONTRATO" });
+    // botões subir/descer: Negociação desce passando Proposta (ok) e depois Montando contrato (recusado)
+    expect(await moverFase(neg, "DESCER")).toEqual({ ok: true });
+    expect(await moverFase(neg, "DESCER")).toEqual({ ok: false, erro: "FASE_CRUZA_CONTRATO" });
+    // voltar para antes do marco não liberta ninguém: Jurídico (vazio) sobe, e desce de novo
+    expect(await moverFase(jur, "SUBIR")).toEqual({ ok: true });
+    expect(await moverFase(jur, "DESCER")).toEqual({ ok: true });
+    // com a proposta aceita, a fase cruza
+    await aceitar(c.id, g.id);
+    expect(await reordenarFases(vendas.id, [pc, prop, mc, neg, jur, ganho, perd])).toEqual({ ok: true });
+  });
+});

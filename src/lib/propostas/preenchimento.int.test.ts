@@ -188,6 +188,8 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
     await db.proposta.update({ where: { projetoId: projeto.id }, data: { status: "PRONTA_PARA_ENVIO" } });
     expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "PROPOSTA_PRONTA" });
     await db.proposta.update({ where: { projetoId: projeto.id }, data: { status: "ENVIADA" } });
+    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "PROPOSTA_COM_O_CLIENTE" });
+    await db.proposta.update({ where: { projetoId: projeto.id }, data: { status: "ACEITA" } });
     expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "PROPOSTA_ENCERRADA" });
     expect(chamado).not.toHaveBeenCalled();
     expect(await db.logLlm.count()).toBe(0);

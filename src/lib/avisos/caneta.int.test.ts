@@ -9,7 +9,17 @@ vi.mock("@/lib/whatsapp/enviar", async (original) => ({
   enviarWhatsApp: evolution.enviar,
 }));
 
-import { concordarProposta, criarProposta, devolverProposta, marcarInviavel, passarCaneta, pegarCaneta, reabrirProposta } from "@/lib/propostas/propostas";
+import {
+  concordarProposta,
+  criarProposta,
+  devolverProposta,
+  marcarEnviada,
+  marcarInviavel,
+  passarCaneta,
+  pegarCaneta,
+  reabrirProposta,
+  registrarResposta,
+} from "@/lib/propostas/propostas";
 import { aguardarWhatsappPendente } from "./avisos";
 
 const db = dbTeste();
@@ -23,7 +33,8 @@ async function semear() {
       fases: {
         create: [
           { chave: "proposta", nome: "Proposta", ordem: 0, marco: "PROPOSTA" },
-          { chave: "perdido", nome: "Perdido", ordem: 1, isTerminal: true, tipoTerminal: "PERDIDO", marco: "PERDIDO" },
+          { chave: "montando_contrato", nome: "Montando contrato", ordem: 1, marco: "MONTANDO_CONTRATO" },
+          { chave: "perdido", nome: "Perdido", ordem: 2, isTerminal: true, tipoTerminal: "PERDIDO", marco: "PERDIDO" },
         ],
       },
     },
@@ -128,6 +139,28 @@ describe("caneta → avisos (o serviço da proposta não muda: ouvinte de propos
       { para: "Ana", tipo: "STATUS_PROPOSTA", titulo: 'Proposta de "Site da Padaria" agora está Inviável (Guto)', whatsapp: null },
       { para: "Paula", tipo: "STATUS_PROPOSTA", titulo: 'Proposta de "Site da Padaria" agora está Inviável (Guto)', whatsapp: null },
     ]);
+  });
+
+  it("GAB-89: enviada é status no app; aceita vira PROPOSTA_ACEITA (app + WhatsApp) para quem atuou, menos quem registrou", async () => {
+    const { ana, paula, projeto } = await semear();
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await criarProposta(projeto.id, ana);
+    await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "v1" }, paraId: paula.id }, ana);
+    expect((await concordarProposta(projeto.id, await revisaoAtual(projeto.id), paula)).ok).toBe(true);
+    await aguardarWhatsappPendente();
+    await db.aviso.deleteMany();
+    evolution.enviar.mockClear();
+
+    expect((await marcarEnviada(projeto.id, ana)).ok).toBe(true);
+    expect(await avisos()).toEqual([{ para: "Paula", tipo: "STATUS_PROPOSTA", titulo: 'Proposta de "Site da Padaria" agora está Enviada (Ana)', whatsapp: null }]);
+    await db.aviso.deleteMany();
+
+    expect((await registrarResposta(projeto.id, { resposta: "ACEITA" }, ana)).ok).toBe(true);
+    await aguardarWhatsappPendente();
+    expect(await avisos()).toEqual([
+      { para: "Paula", tipo: "PROPOSTA_ACEITA", titulo: 'O cliente aceitou a proposta de "Site da Padaria" (v1): projeto em Montando contrato (Ana)', whatsapp: "ENVIADO" },
+    ]);
+    expect(evolution.enviar).toHaveBeenCalledTimes(1);
   });
 
   it("WhatsApp fora: a passagem vale do mesmo jeito; falha fica registrada com ref", async () => {

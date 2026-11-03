@@ -32,6 +32,7 @@ const MENSAGEM_RESOLVER: Partial<Record<ErroResolver, string>> = {
   FASE_ARQUIVADA: "Essa fase foi arquivada. Escolha outra.",
   FASE_TERMINAL: "Não dá para criar card direto numa fase de ganho/perdido. Crie numa fase aberta e mova.",
   PIPELINE_NAO_ENCONTRADO: "Quadro não encontrado.",
+  PROPOSTA_NAO_ACEITA: "Card novo não tem proposta: crie numa fase antes de Montando contrato (essa fase e as seguintes exigem a proposta aceita).",
 };
 
 const MENSAGEM_VINCULAR: Record<ErroVincular, string> = {

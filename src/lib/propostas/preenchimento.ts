@@ -51,6 +51,8 @@ export type ErroPreenchimento =
   /** Caneta (GAB-87): só o dono, com o pingue-pongue em curso, edita — e só ele usa arquivo como base. */
   | "SEM_CANETA"
   | "PROPOSTA_PRONTA"
+  /** GAB-89: enviada, com o cliente (revisão pedida reabre a edição). */
+  | "PROPOSTA_COM_O_CLIENTE"
   | "PROPOSTA_ENCERRADA"
   | "ANEXO_NAO_ENCONTRADO"
   | "SEM_CONTEUDO"
@@ -76,6 +78,7 @@ const MENSAGEM: Record<ErroFixo, string> = {
   PROPOSTA_NAO_ENCONTRADA: "Crie a proposta antes de usar um arquivo como base.",
   SEM_CANETA: MENSAGEM_ERRO_PROPOSTA.SEM_CANETA,
   PROPOSTA_PRONTA: MENSAGEM_ERRO_PROPOSTA.PROPOSTA_PRONTA,
+  PROPOSTA_COM_O_CLIENTE: MENSAGEM_ERRO_PROPOSTA.PROPOSTA_COM_O_CLIENTE,
   PROPOSTA_ENCERRADA: MENSAGEM_ERRO_PROPOSTA.PROPOSTA_ENCERRADA,
   ANEXO_NAO_ENCONTRADO: "Anexo não encontrado neste projeto (pode ter sido excluído). Recarregue a página.",
   SEM_CONTEUDO: "Não há texto neste arquivo para usar como base.",
@@ -150,6 +153,7 @@ export async function sugerirDeAnexo(projetoId: string, anexoId: string, ator: A
   // Mesma regra do rascunho (`salvarRascunho`): o dono da caneta, pingue-pongue em curso.
   // Conferida ANTES da vaga e do LLM: quem não pode editar não gasta nem ocupa vaga.
   if (estado.status === "PRONTA_PARA_ENVIO") return falha("PROPOSTA_PRONTA");
+  if (estado.status === "ENVIADA") return falha("PROPOSTA_COM_O_CLIENTE");
   if (!STATUS_COM_CANETA.includes(estado.status)) return falha("PROPOSTA_ENCERRADA");
   const pessoa = await pessoaDaCaneta(ator.id);
   if (!pessoa || !podeEditarProposta(pessoa, estado)) return falha("SEM_CANETA");

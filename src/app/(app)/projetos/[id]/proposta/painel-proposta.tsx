@@ -10,7 +10,8 @@ import { Autosave, type EstadoAutosave, type RespostaGravacao } from "@/lib/prop
 import type { Documento } from "@/lib/propostas/documento";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
 import type { AcaoCaneta } from "@/lib/propostas/caneta";
-import { AcoesCaneta, type PessoaCaneta, type Preparo } from "./acoes-caneta";
+import type { AcaoEnvio } from "@/lib/propostas/envio";
+import { AcoesCaneta, type AcaoTela, type PessoaCaneta, type Preparo } from "./acoes-caneta";
 import { mesclarSugestao, type CamposSugeridos } from "@/lib/propostas/sugestao";
 import { salvarEstruturadoAction, salvarTextoAction, salvarVersaoAction, type ConflitoUI } from "./actions";
 import { FormEstruturado, type FormEstruturadoValor } from "./form-estruturado";
@@ -82,7 +83,7 @@ export function PainelProposta({
   documento: Documento;
   estruturado: FormEstruturadoValor;
   ultimaVersao: number | null;
-  caneta?: { acoes: AcaoCaneta[]; mesmoLado: PessoaCaneta[]; outroLado: PessoaCaneta[]; rotuloOutroLado: string };
+  caneta?: { acoes: AcaoCaneta[]; mesmoLado: PessoaCaneta[]; outroLado: PessoaCaneta[]; rotuloOutroLado: string; envio?: AcaoEnvio[]; versaoPdf?: number | null };
   /** Anexos do Projeto para "Usar arquivo como base" (GAB-90). */
   anexos?: AnexoBase[];
 }) {
@@ -156,13 +157,14 @@ export function PainelProposta({
    * da mão) e confere que o rascunho está são. Devolver leva o editor e os dados
    * alterados junto (a versão entregue é o que está na tela).
    */
-  async function preparar(acao: AcaoCaneta): Promise<Preparo> {
+  async function preparar(acao: AcaoTela): Promise<Preparo> {
     await autosave.agora();
     const e = autosave.situacao;
     if (e.tipo === "conflito") return { erro: "Resolva o conflito de edição do rascunho antes." };
     if (e.tipo === "erro") return { erro: "O rascunho não foi salvo (veja o aviso no texto). Tente de novo antes." };
     if (acao === "concordar" && formSujo) return { erro: "Há dados da proposta alterados e não salvos: concordar é aceitar sem editar. Descarte-os ou devolva." };
-    if (acao !== "devolver") return { revisao: autosave.revisaoAtual };
+    // Devolver e concluir a revisão (GAB-89) salvam a versão do que está na tela.
+    if (acao !== "devolver" && acao !== "concluirRevisao") return { revisao: autosave.revisaoAtual };
     return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(formSujo ? { estruturado: form } : {}) };
   }
 

@@ -15,7 +15,7 @@
  * nela pelo fluxo da proposta (spec §4.3/§4.4); a lista que vai no contexto da
  * LLM continua a mesma da v1.
  */
-import type { Prisma } from "@prisma/client";
+import type { Prisma, StatusProposta } from "@prisma/client";
 import { PIPELINE_PROJETOS, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 
 /** Card vivo na parte de vendas do ciclo: em Vendas, ou ganho e seguido para Projetos. */
@@ -47,3 +47,28 @@ export function faseVistaPeloWhatsapp(
   if (card.pipeline.chave === PIPELINE_VENDAS) return { nome: card.fase.nome, terminal: card.fase.isTerminal };
   return { nome: nomeGanho, terminal: true };
 }
+
+/**
+ * GAB-89: motivo do `revisar` (e linha da resposta no grupo, até 80
+ * caracteres) quando a mensagem leva o card a Montando contrato ou além sem a
+ * proposta aceita. Rótulos próprios: `propostas/regras` puxaria o resto da proposta.
+ */
+const STATUS_NO_GRUPO: Record<StatusProposta, string> = {
+  RASCUNHO: "em rascunho",
+  EM_ANALISE: "em análise",
+  EM_AJUSTE: "em ajuste",
+  PRONTA_PARA_ENVIO: "pronta, não enviada",
+  ENVIADA: "enviada, sem aceite",
+  ACEITA: "aceita",
+  RECUSADA: "recusada",
+  REVISAO_PEDIDA: "em revisão",
+  INVIAVEL: "inviável",
+};
+
+export function motivoDaTravaDoContrato(status: StatusProposta | null): string {
+  if (!status) return "falta a proposta aceita (o projeto não tem proposta): faça-a pelo CRM";
+  return `falta a proposta aceita (está ${STATUS_NO_GRUPO[status]}): registre o aceite no CRM`;
+}
+
+/** Card novo (CRIAR) pedido direto em Montando contrato ou além: nasce na fase padrão. */
+export const MOTIVO_CARD_NOVO_SEM_PROPOSTA = "card novo não nasce em Montando contrato (exige proposta aceita)";

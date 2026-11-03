@@ -63,7 +63,20 @@ export type ErroProposta =
   | "MOTIVO_INVIAVEL_LONGO"
   | "PROJETO_FORA_DE_VENDAS"
   | "PROJETO_ENCERRADO"
-  | "FASE_PERDIDO_INDISPONIVEL";
+  | "FASE_PERDIDO_INDISPONIVEL"
+  // GAB-89: envio e resposta do cliente
+  | "PROPOSTA_COM_O_CLIENTE"
+  | "ENVIAR_SO_PRONTA"
+  | "ENVIO_SO_VENDAS"
+  | "RESPONDER_SO_ENVIADA"
+  | "RESPOSTA_INVALIDA"
+  | "PEDIDO_REVISAO_LONGO"
+  | "CONCLUIR_REVISAO_SO_PEDIDA"
+  | "REVISAO_MUDOU_ESTRUTURADO"
+  | "VERSAO_FINAL_MUDOU"
+  | "PDF_INDISPONIVEL"
+  | "PDF_OCUPADO"
+  | "FASE_MONTANDO_CONTRATO_INDISPONIVEL";
 
 export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
   PROJETO_NAO_ENCONTRADO: "Projeto não encontrado (pode ter sido excluído). Recarregue a página.",
@@ -77,7 +90,7 @@ export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
   VERSAO_NAO_ENCONTRADA: "Versão não encontrada.",
   SEM_CANETA: "Você não está com a caneta: só quem está com ela edita, passa, devolve ou concorda. Você pode ler (e comentar).",
   PROPOSTA_PRONTA: "A proposta está pronta para envio: para mudar algo, reabra para ajuste antes.",
-  PROPOSTA_ENCERRADA: "A proposta já saiu do pingue-pongue (enviada, respondida ou inviável): não dá mais para editar nem mexer na caneta.",
+  PROPOSTA_ENCERRADA: "A proposta já foi respondida pelo cliente (aceita ou recusada) ou marcada inviável: não dá mais para editar nem mexer na caneta.",
   DESTINO_MESMO_LADO: "Passar a caneta é para outra pessoa do MESMO lado, ativa e que pode editar. Para mandar ao outro lado, use Devolver.",
   DESTINO_OUTRO_LADO: "Devolver é para alguém do OUTRO lado (vendas ↔ projetos), ativo e que pode editar.",
   CONCORDAR_SEM_VERSAO: "Ainda não há versão do outro lado para concordar.",
@@ -90,9 +103,23 @@ export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
   INVIAVEL_SEM_PERMISSAO: "Só o GP de projetos ou quem está com a caneta do lado de projetos marca a proposta como inviável.",
   MOTIVO_INVIAVEL_OBRIGATORIO: "Diga o motivo de a proposta ser inviável.",
   MOTIVO_INVIAVEL_LONGO: `O motivo pode ter até ${MOTIVO_INVIAVEL_MAX} caracteres.`,
-  PROJETO_FORA_DE_VENDAS: "O projeto não está no quadro de Vendas: a proposta não pode mais ser marcada como inviável por aqui.",
-  PROJETO_ENCERRADO: "O projeto já está em ganho ou perdido: reabra o card antes de marcar a proposta como inviável.",
+  PROJETO_FORA_DE_VENDAS:
+    "O projeto não está no quadro de Vendas: a proposta não mexe mais nele (inviável, aceite ou recusa). Se o cliente quer mudar a proposta, registre Revisão pedida; para aceitar ou recusar, traga o card de volta a Vendas pelo Kanban antes.",
+  PROJETO_ENCERRADO: "O projeto já está em ganho ou perdido: reabra o card antes (marcar a proposta inviável ou registrar aceite/recusa move o card).",
   FASE_PERDIDO_INDISPONIVEL: "A fase Perdido do quadro de Vendas não está disponível (arquivada?). Fale com a gestão.",
+  PROPOSTA_COM_O_CLIENTE: "A proposta foi enviada e está com o cliente: registre a resposta dele (aceita, recusada ou revisão pedida). Revisão pedida reabre a edição com vendas.",
+  ENVIAR_SO_PRONTA: "Só dá para marcar como enviada uma proposta pronta para envio (consenso entre vendas e projetos).",
+  ENVIO_SO_VENDAS: "Quem envia e registra a resposta do cliente é vendas: quem está com a caneta (de vendas) ou o GP de vendas.",
+  RESPONDER_SO_ENVIADA: "Só dá para registrar a resposta do cliente depois de marcar a proposta como enviada.",
+  RESPOSTA_INVALIDA: "Resposta inválida: use aceita, recusada ou revisão pedida.",
+  PEDIDO_REVISAO_LONGO: "O pedido de revisão pode ter até 1000 caracteres.",
+  CONCLUIR_REVISAO_SO_PEDIDA: "Só dá para concluir a revisão de uma proposta com revisão pedida pelo cliente.",
+  REVISAO_MUDOU_ESTRUTURADO:
+    "Escopo, prazo, valor ou entregas mudaram desde a versão enviada: a proposta tem de passar por projetos. Use Devolver (para projetos avaliar) em vez de concluir a revisão direto.",
+  VERSAO_FINAL_MUDOU: "A versão final da proposta mudou desde que você baixou o PDF. Baixe o PDF de novo antes de marcar como enviada.",
+  PDF_INDISPONIVEL: "O PDF sai da versão final: a proposta precisa estar pronta para envio (ou já enviada).",
+  PDF_OCUPADO: "O CRM já está gerando 2 PDFs agora (limite para não sobrecarregar o servidor). Tente de novo em alguns segundos.",
+  FASE_MONTANDO_CONTRATO_INDISPONIVEL: "A fase Montando contrato do quadro de Vendas não está disponível (arquivada?). Fale com a gestão.",
 };
 
 /** Texto do conflito de edição concorrente (tela e MCP). */

@@ -87,6 +87,11 @@ function ligarEnvio() {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ key: { id: `BOT${++eventosBot}` } }));
 }
 
+/** GAB-89: fechar (Montando contrato/Ganho) exige a proposta aceita. */
+async function aceitar(projetoId: string) {
+  await dbT.proposta.create({ data: { projetoId, status: "ACEITA", criadoPorId: joao.id } });
+}
+
 async function cardDe(id: string) {
   return dbT.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true, empresa: true, contato: { include: { pontos: true } } } });
 }
@@ -350,6 +355,7 @@ describe("mover para terminal pelo WhatsApp", () => {
 
   it("ganho COM valor → contrato assinado, valor fechado e o MESMO card segue para o Handoff (GAB-81)", async () => {
     const id = await cardRecente();
+    await aceitar(id);
     const r = await enviar("#crm fechamos o Gustavo, 18 mil", (p) =>
       saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "contrato_assinado", campos: { valor_fechado: "18 mil" } }),
     );
@@ -377,6 +383,7 @@ describe("mover para terminal pelo WhatsApp", () => {
 
   it("ganho SEM valor → NÃO move (nunca inventa), revisar com o motivo", async () => {
     const id = await cardRecente();
+    await aceitar(id);
     const r = await enviar("#crm fechamos o Gustavo!", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "contrato_assinado" }));
     expect(r.r).toMatchObject({
       tipo: "PROCESSADA",
@@ -386,6 +393,38 @@ describe("mover para terminal pelo WhatsApp", () => {
     expect(card).toMatchObject({ revisar: true, valorFechado: null });
     expect(card.fase.chave).toBe("primeiro_contato");
     expect(await dbT.projeto.count()).toBe(1);
+  });
+
+  it("GAB-89: 'fechou' sem proposta aceita → NÃO move, revisar e o grupo fica sabendo o que falta", async () => {
+    const id = await cardRecente();
+    const r = await enviar("#crm fechamos o Gustavo, 18 mil", (p) =>
+      saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "contrato_assinado", campos: { valor_fechado: "18 mil" } }),
+    );
+    expect(r.r).toMatchObject({
+      tipo: "PROCESSADA",
+      confirmacao:
+        "⚠️ Gustavo — Economia Sensata (Primeiro Contato): atualizado.\nMarquei para revisar: falta a proposta aceita (o projeto não tem proposta): faça-a pelo CRM.",
+    });
+    expect(await cardDe(id)).toMatchObject({ revisar: true, valorFechado: null, fase: expect.objectContaining({ chave: "primeiro_contato" }) });
+
+    // proposta enviada, ainda sem aceite: "montando contrato" também trava, e a resposta diz o status
+    await dbT.proposta.create({ data: { projetoId: id, status: "ENVIADA", criadoPorId: joao.id } });
+    const r2 = await enviar("#crm Gustavo fechou, vamos montar o contrato", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "montando_contrato" }));
+    expect((r2.r as { confirmacao: string }).confirmacao).toContain("Marquei para revisar: falta a proposta aceita (está enviada, sem aceite): registre o aceite no CRM.");
+    expect((await cardDe(id)).fase.chave).toBe("primeiro_contato");
+    expect(await dbT.transicaoFase.count({ where: { projetoId: id, NOT: { deFaseId: null } } })).toBe(0);
+
+    // aceita → o mesmo pedido move
+    await dbT.proposta.update({ where: { projetoId: id }, data: { status: "ACEITA" } });
+    await enviar("#crm Gustavo fechou, vamos montar o contrato", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "montando_contrato" }));
+    expect((await cardDe(id)).fase.chave).toBe("montando_contrato");
+  });
+
+  it("GAB-89: card novo pedido direto em Montando contrato nasce na fase inicial, com revisar", async () => {
+    const r = await enviar("#crm fechei com a Ana da Acme, vamos montar o contrato", () => saida({ contato: { nome: "Ana" }, empresa: { nome: "Acme" }, fase_chave: "montando_contrato" }));
+    const id = (r.r as { projetoId: string }).projetoId;
+    expect((r.r as { confirmacao: string }).confirmacao).toContain("card novo não nasce em Montando contrato");
+    expect(await cardDe(id)).toMatchObject({ revisar: true, fase: expect.objectContaining({ chave: "primeiro_contato" }) });
   });
 
   it("perdido com motivo → Perdido com o motivo; sem motivo → não move", async () => {
@@ -497,6 +536,7 @@ describe("review do PR #23", () => {
   it("ganho com valor INVENTADO pela LLM (não está no texto) → não move, revisar", async () => {
     const r1 = await enviar("#crm falei com o Gustavo", () => saida({ contato: { nome: "Gustavo" } }));
     const id = (r1.r as { projetoId: string }).projetoId;
+    await aceitar(id);
     const r = await enviar("#crm fechamos o Gustavo!", (p) =>
       saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "contrato_assinado", campos: { valor_fechado: "18 mil" } }),
     );
@@ -531,6 +571,7 @@ describe("review do PR #23", () => {
   it("ganho: campos da mensagem entram ANTES do gancho — o card chega ao Handoff com eles", async () => {
     const r1 = await enviar("#crm falei com o Gustavo", () => saida({ contato: { nome: "Gustavo" } }));
     const id = (r1.r as { projetoId: string }).projetoId;
+    await aceitar(id);
     await enviar("#crm fechamos o Gustavo, 18 mil, é da Economia Sensata de Campinas/SP", (p) =>
       saida({
         intencao: "ATUALIZAR",

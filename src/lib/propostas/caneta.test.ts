@@ -45,10 +45,11 @@ describe("caneta: quem edita", () => {
   });
 
   it("fora do pingue-pongue ninguém edita: pronta, enviada, inviável…", () => {
-    for (const status of ["PRONTA_PARA_ENVIO", "ENVIADA", "ACEITA", "RECUSADA", "REVISAO_PEDIDA", "INVIAVEL"] as StatusProposta[]) {
+    for (const status of ["PRONTA_PARA_ENVIO", "ENVIADA", "ACEITA", "RECUSADA", "INVIAVEL"] as StatusProposta[]) {
       expect(podeEditarProposta(ana, estado({ status })), status).toBe(false);
     }
-    for (const status of ["RASCUNHO", "EM_ANALISE", "EM_AJUSTE"] as StatusProposta[]) {
+    // GAB-89: revisão pedida pelo cliente reabre a edição com vendas.
+    for (const status of ["RASCUNHO", "EM_ANALISE", "EM_AJUSTE", "REVISAO_PEDIDA"] as StatusProposta[]) {
       expect(podeEditarProposta(ana, estado({ status })), status).toBe(true);
     }
   });
@@ -164,12 +165,29 @@ describe("caneta: transições", () => {
     });
   });
 
-  it("proposta encerrada (enviada, inviável…): nenhuma ação de caneta", () => {
-    for (const status of ["ENVIADA", "ACEITA", "RECUSADA", "REVISAO_PEDIDA", "INVIAVEL"] as StatusProposta[]) {
+  it("proposta encerrada (aceita, recusada, inviável): nenhuma ação de caneta", () => {
+    for (const status of ["ACEITA", "RECUSADA", "INVIAVEL"] as StatusProposta[]) {
       for (const acao of ACOES_CANETA) {
         expect(recusaDaAcao(acao, gpProjetos, estado({ status, canetaComId: "gp", canetaLado: "PROJETOS" as Area }), pedro), `${status}/${acao}`).toBe("PROPOSTA_ENCERRADA");
       }
     }
+  });
+
+  it("enviada (GAB-89): com o cliente — só passar (para outro vendedor) e o GP pegar", () => {
+    const enviada = estado({ status: "ENVIADA", ultimaVersaoLado: "PROJETOS" });
+    expect(acoesPossiveis(ana, enviada)).toEqual(["passar"]);
+    expect(acoesPossiveis(gpVendas, enviada)).toEqual(["pegar"]);
+    expect(acoesPossiveis(gpProjetos, enviada)).toEqual([]);
+    expect(recusaDaAcao("devolver", ana, enviada)).toBe("PROPOSTA_COM_O_CLIENTE");
+    expect(recusaDaAcao("concordar", ana, enviada)).toBe("PROPOSTA_COM_O_CLIENTE");
+    expect(recusaDaAcao("inviavel", gpProjetos, enviada)).toBe("PROPOSTA_COM_O_CLIENTE");
+    expect(recusaDaAcao("reabrir", ana, enviada)).toBe("REABRIR_SO_PRONTA");
+  });
+
+  it("revisão pedida (GAB-89): o pingue-pongue reabre com vendas", () => {
+    const rev = estado({ status: "REVISAO_PEDIDA", ultimaVersaoLado: "PROJETOS" });
+    expect(acoesPossiveis(ana, rev)).toEqual(["passar", "devolver", "concordar"]);
+    expect(acoesPossiveis(gpProjetos, rev)).toEqual(["inviavel"]);
   });
 
   it("acoesPossiveis: o que a tela e o MCP oferecem a cada um", () => {

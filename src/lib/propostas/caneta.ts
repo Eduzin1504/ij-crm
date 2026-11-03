@@ -14,6 +14,8 @@
  *   para envio. Ninguém chega lá sem os dois lados verem a última versão.
  * - `reabrir`: pronta → em ajuste (vendas quer mexer antes de enviar).
  * - `inviavel`: GP de projetos ou o dono da caneta do lado projetos.
+ * - Enviada (GAB-89): só passar/pegar; envio e resposta do cliente seguem
+ *   `./envio.ts`.
  *
  * Sem banco e sem import de valor do Prisma: roda no cliente também.
  */
@@ -32,10 +34,17 @@ export type EstadoCaneta = {
   ultimaVersaoLado?: Area | null;
 };
 
-/** Pingue-pongue em curso: o dono edita, devolve e concorda. */
-export const STATUS_EM_CURSO: readonly StatusProposta[] = ["RASCUNHO", "EM_ANALISE", "EM_AJUSTE"];
-/** A caneta ainda importa (pronta: vendas reabre/passa; o GP pega). Depois disso é o envio (GAB-89). */
-export const STATUS_COM_CANETA: readonly StatusProposta[] = [...STATUS_EM_CURSO, "PRONTA_PARA_ENVIO"];
+/**
+ * Pingue-pongue em curso: o dono edita, devolve e concorda. Revisão pedida
+ * pelo cliente (GAB-89) reabre o pingue-pongue com vendas.
+ */
+export const STATUS_EM_CURSO: readonly StatusProposta[] = ["RASCUNHO", "EM_ANALISE", "EM_AJUSTE", "REVISAO_PEDIDA"];
+/**
+ * A caneta ainda importa (pronta: vendas reabre/passa; o GP pega; enviada:
+ * vendas registra a resposta do cliente e pode passar para outro vendedor).
+ * Aceita, recusada e inviável: ninguém com a caneta.
+ */
+export const STATUS_COM_CANETA: readonly StatusProposta[] = [...STATUS_EM_CURSO, "PRONTA_PARA_ENVIO", "ENVIADA"];
 
 export const ACOES_CANETA = ["passar", "devolver", "concordar", "pegar", "reabrir", "inviavel"] as const;
 export type AcaoCaneta = (typeof ACOES_CANETA)[number];
@@ -80,6 +89,7 @@ export function recusaDaAcao(acao: AcaoCaneta, p: Pessoa, e: EstadoCaneta, alvo?
   if (!STATUS_COM_CANETA.includes(e.status)) return "PROPOSTA_ENCERRADA";
   const lado = ladoDaCaneta(e);
   const pronta = e.status === "PRONTA_PARA_ENVIO";
+  const enviada = e.status === "ENVIADA";
   const dono = estaComACaneta(p, e);
   switch (acao) {
     case "passar":
@@ -87,11 +97,13 @@ export function recusaDaAcao(acao: AcaoCaneta, p: Pessoa, e: EstadoCaneta, alvo?
       if (alvo !== undefined && (!alvo || alvo.id === p.id || !podeAtuarNaCaneta(alvo) || ladoDe(alvo) !== lado)) return "DESTINO_MESMO_LADO";
       return null;
     case "devolver":
+      if (enviada) return "PROPOSTA_COM_O_CLIENTE";
       if (pronta) return "PROPOSTA_PRONTA";
       if (!dono) return "SEM_CANETA";
       if (alvo !== undefined && (!alvo || !podeAtuarNaCaneta(alvo) || ladoDe(alvo) !== outroLado(lado))) return "DESTINO_OUTRO_LADO";
       return null;
     case "concordar":
+      if (enviada) return "PROPOSTA_COM_O_CLIENTE";
       if (pronta) return "PROPOSTA_PRONTA";
       if (!dono) return "SEM_CANETA";
       if (e.ultimaVersaoLado === undefined) return "CONCORDAR_SEM_VERSAO";
@@ -106,6 +118,8 @@ export function recusaDaAcao(acao: AcaoCaneta, p: Pessoa, e: EstadoCaneta, alvo?
       if (!dono) return "SEM_CANETA";
       return null;
     case "inviavel":
+      // Enviada: a palavra é do cliente (recusa → Perdido pelo registro da resposta).
+      if (enviada) return "PROPOSTA_COM_O_CLIENTE";
       if (podeAtuarNaCaneta(p) && ehGpDoLado(p, "PROJETOS")) return null;
       if (dono && lado === "PROJETOS") return null;
       return "INVIAVEL_SEM_PERMISSAO";

@@ -19,7 +19,9 @@
  *   numa CORREÇÃO (reply a confirmação), e mesmo assim com revisar.
  *   Contato que já tem empresa nunca é reescrito.
  * - Fase pela chave. Terminal só com o dado obrigatório ANCORADO no texto
- *   (`fechamento.ts`); sem ele não move e marca revisar.
+ *   (`fechamento.ts`); sem ele não move e marca revisar. Montando contrato
+ *   ou além sem proposta aceita (GAB-89, `trava-contrato.ts`): não move,
+ *   revisar, e a confirmação no grupo diz o que falta.
  * - Campos: só os que vieram (nunca apaga); origem só se o card não tinha.
  *   Dono do card existente nunca muda pelo WhatsApp ("responsável
  *   sugerido" + revisar). Identificador citado sem contato onde guardar →
@@ -39,6 +41,7 @@ import { ehDominioPublico, normalizarDominio } from "@/lib/normalizacao";
 import { ErroDeRegra } from "@/lib/projetos/erros";
 import { aplicarPatch, criarCardTravado, registrarMovimento, type PatchCard } from "@/lib/projetos/projetos";
 import { pipelinesExtrasDoTerminal } from "@/lib/projetos/terminal";
+import { travaDoContrato } from "@/lib/projetos/trava-contrato";
 import { PIPELINE_VENDAS, type DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { resolverAlvo, type Candidata } from "./alvo";
 import {
@@ -54,7 +57,7 @@ import {
   type Sugestao,
   type Tx,
 } from "./comum";
-import { CARD_VIVO_NO_CICLO_DE_VENDAS, FASES_DO_WHATSAPP } from "./ciclo-vendas";
+import { CARD_VIVO_NO_CICLO_DE_VENDAS, FASES_DO_WHATSAPP, MOTIVO_CARD_NOVO_SEM_PROPOSTA, motivoDaTravaDoContrato } from "./ciclo-vendas";
 import { dadosDoFechamento } from "./fechamento";
 import { extrairIdentificadores } from "./identificadores";
 
@@ -263,6 +266,14 @@ export async function aplicarAtualizacao(tx: Tx, e: EntradaAplicacao, locks: { v
   const faseAtual = await tx.fase.findUniqueOrThrow({ where: { id: base.faseId } });
   let destino: Fase | undefined = ex.fase_chave ? fases.find((f) => f.chave === ex.fase_chave) : undefined;
   if (ex.fase_chave && !destino) motivos.push("fase indicada não reconhecida");
+  // GAB-89: "fechou" sem proposta aceita não move (nem reabre direto lá): revisar + o grupo fica sabendo o que falta.
+  if (destino && destino.id !== faseAtual.id) {
+    const trava = await travaDoContrato(tx, { projetoId: reabrir ? null : base.id, origem: reabrir ? null : faseAtual, destino });
+    if (trava) {
+      motivos.unshift(reabrir ? MOTIVO_CARD_NOVO_SEM_PROPOSTA : motivoDaTravaDoContrato(trava.status));
+      destino = undefined;
+    }
+  }
   let dadosTerminal: DadosTerminal | undefined;
   if (destino?.isTerminal) {
     const d = dadosDoFechamento(destino, ex.campos, e.mensagem.texto);
