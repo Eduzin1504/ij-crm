@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { criarProvedorMock, definirPropostaArquivoMock } from "@/lib/llm/provedores/mock";
 import { ErroLlm, type PedidoExtracao } from "@/lib/llm/tipos";
 import { estruturadoParaEntrada } from "./estruturado";
-import { sugerirDeAnexo } from "./preenchimento";
+import { leiturasEmAndamento, PAGINAS_MAX, sugerirDeAnexo } from "./preenchimento";
 import { criarProposta, MODELO_INICIAL, obterPropostaDoProjeto, salvarRascunho } from "./propostas";
 import { mesclarSugestao } from "./sugestao";
 
@@ -45,7 +45,7 @@ const LEITURA_BOA = {
   valor_total: { valor: "12500.00", confianca: 0.95, trecho: "Investimento: R$ 12.500,00" },
   prazo_dias: { valor: 60, confianca: 0.9, trecho: "Prazo: 60 dias" },
   escopo_resumo: { valor: "Site institucional com blog", confianca: 0.85, trecho: null },
-  entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: "5000.00" }], confianca: 0.9 },
+  entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: "5000.00", trecho: "MVP — 15/12/2026 — R$ 5.000,00" }], confianca: 0.9 },
 };
 
 let dir: string;
@@ -111,6 +111,8 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
     if (!r.ok) throw new Error(r.mensagem);
     expect(recebido?.arquivo).toEqual({ nome: "escaneada.pdf", mime: "application/pdf", base64: Buffer.from(bytes).toString("base64") });
     expect(recebido?.timeoutMs).toBeGreaterThan(30_000);
+    // Visão: uma tentativa só (timeout/5xx não re-tentam: uma cobrança, uma espera).
+    expect(recebido?.tentativas).toBe(1);
     expect(r.sugestao.origem).toBe("arquivo");
     // Markdown canônico do editor (HTML vira texto escapado).
     expect(r.sugestao.markdown).toBe("# Proposta\n\nTexto **lido** \\<script>x\\</script>");
@@ -214,5 +216,79 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
     // prazo não veio do arquivo: ficou o que estava (30), nada inventado.
     expect(p.estruturado).toMatchObject({ valor: "12500.00", prazoDias: 30, escopoResumo: "Site institucional com blog" });
     expect(p.valor?.toFixed(2)).toBe("12500.00");
+  });
+
+  it("limite de leituras simultâneas: 1 por pessoa e 2 no total; a vaga volta no fim (também na falha)", async () => {
+    const { ana, gil, projeto } = await semear();
+    const gestora = await db.usuario.create({ data: { nome: "Gina", email: "gina@ij.test", papel: "GESTOR" } });
+    await criarProposta(projeto.id, ana);
+    const id = await anexo(projeto.id, "p.md", new TextEncoder().encode("texto"), ana);
+    let soltar!: () => void;
+    const portao = new Promise<void>((ok) => (soltar = ok));
+    let chamadas = 0;
+    definirPropostaArquivoMock(async () => {
+      chamadas++;
+      await portao;
+      return LEITURA_BOA;
+    });
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const a1 = sugerirDeAnexo(projeto.id, id, ana, { provedor });
+    const g1 = sugerirDeAnexo(projeto.id, id, gil, { provedor });
+    await vi.waitFor(() => expect(chamadas).toBe(2));
+    expect(leiturasEmAndamento()).toBe(2);
+    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toEqual({
+      ok: false,
+      erro: "OCUPADO",
+      mensagem: "Você já tem uma leitura de arquivo em andamento. Espere ela terminar antes de pedir outra.",
+    });
+    expect(await sugerirDeAnexo(projeto.id, id, gestora, { provedor })).toMatchObject({ ok: false, erro: "OCUPADO", mensagem: expect.stringMatching(/Já há 2 leituras/) });
+    expect(chamadas).toBe(2);
+    soltar();
+    expect((await a1).ok).toBe(true);
+    expect((await g1).ok).toBe(true);
+    expect(leiturasEmAndamento()).toBe(0);
+
+    definirPropostaArquivoMock(() => {
+      throw new ErroLlm("HTTP", { status: 500 });
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await sugerirDeAnexo(projeto.id, id, ana, { provedor })).ok).toBe(false);
+    expect(leiturasEmAndamento()).toBe(0);
+    expect((await sugerirDeAnexo(projeto.id, id, ana, { provedor })).ok).toBe(false); // ainda tem vaga
+  });
+
+  it(`PDF escaneado com mais de ${PAGINAS_MAX} páginas: recusado antes do LLM, com mensagem clara`, async () => {
+    const { ana, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    const id = await anexo(projeto.id, "grande.pdf", pdfDeTexto(Array(PAGINAS_MAX + 1).fill("")), ana);
+    const chamado = vi.fn(() => ({ markdown: "x", ...LEITURA_BOA }));
+    definirPropostaArquivoMock(chamado);
+    const r = await sugerirDeAnexo(projeto.id, id, ana, { provedor });
+    expect(r).toMatchObject({ ok: false, erro: "PAGINAS_DEMAIS", mensagem: expect.stringMatching(new RegExp(`${PAGINAS_MAX + 1} páginas.*até ${PAGINAS_MAX}`)) });
+    expect(chamado).not.toHaveBeenCalled();
+    expect(await db.logLlm.count()).toBe(0);
+    expect(leiturasEmAndamento()).toBe(0);
+    // no limite passa
+    const ok = await anexo(projeto.id, "ok.pdf", pdfDeTexto(Array(PAGINAS_MAX).fill("")), ana);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    expect((await sugerirDeAnexo(projeto.id, ok, ana, { provedor })).ok).toBe(true);
+  });
+
+  it("arquivo sumiu do disco (ENOENT): mensagem diz isso (não 'falha da IA'), com ref, sem LLM", async () => {
+    const { ana, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    const id = await anexo(projeto.id, "foto.png", PNG, ana);
+    await unlink(path.join(dir, id));
+    const chamado = vi.fn(() => ({ markdown: "x", ...LEITURA_BOA }));
+    definirPropostaArquivoMock(chamado);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await sugerirDeAnexo(projeto.id, id, ana, { provedor });
+    if (r.ok) throw new Error("devia falhar");
+    expect(r).toMatchObject({ erro: "ARQUIVO_INDISPONIVEL", ref: expect.stringMatching(/^[0-9a-f]{8}$/) });
+    expect(r.mensagem).toMatch(/não foi encontrado no servidor.*Envie-o de novo/);
+    expect(r.mensagem).not.toMatch(/IA/);
+    expect(erro.mock.calls.some((c) => String(c[0]).includes(`ref=${r.ref}`) && String(c[0]).includes("ENOENT"))).toBe(true);
+    expect(chamado).not.toHaveBeenCalled();
+    expect(leiturasEmAndamento()).toBe(0);
   });
 });
