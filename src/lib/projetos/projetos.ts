@@ -29,6 +29,7 @@ import { ErroDeRegra, type ErroProjeto } from "./erros";
 export { ErroDeRegra };
 import { aoEntrarEmTerminal, pipelinesExtrasDoTerminal } from "./terminal";
 import { reabrirPropostaInviavel } from "@/lib/propostas/caneta-banco";
+import { exigirTravaDoContrato } from "./trava-contrato";
 import type { DadosTerminal } from "./terminal-regras";
 
 export type { ErroProjeto } from "./erros";
@@ -231,6 +232,10 @@ export async function inserirCard(
  * Pressupõe os locks já tomados (`travarPipelines` com os extras do
  * terminal) e `origem`/`destino` relidos depois do lock. `transicao: false`
  * quando o chamador grava a TransicaoFase por outro caminho (histórico do import).
+ *
+ * GAB-89: a trava de Montando contrato (proposta aceita) vale para todo
+ * movimento que passa aqui — Kanban, MCP, WhatsApp, aceite da proposta — menos
+ * o import do Pipefy (`origemTransicao: "IMPORT"`, histórico de antes da trava).
  */
 export async function registrarMovimento(
   tx: Tx,
@@ -252,6 +257,7 @@ export async function registrarMovimento(
   // Entradas da Timeline depois da MOVIMENTACAO: `em` estritamente crescente.
   let passo = 0;
   const instante = () => new Date(em.getTime() + ++passo);
+  if (args.origemTransicao !== "IMPORT") await exigirTravaDoContrato(tx, { projetoId: id, origem, destino });
   await tx.projeto.update({ where: { id }, data: { faseId: destino.id, faseDesde: em } });
   if (args.transicao !== false) {
     await tx.transicaoFase.create({ data: { projetoId: id, deFaseId: origem.id, paraFaseId: destino.id, usuarioId: args.porId, origem: args.origemTransicao, em } });
@@ -320,6 +326,8 @@ export async function criarCardTravado(tx: Tx, dados: NovoCard, por: Ator): Prom
   const f = await faseDestino(tx, dados.faseId, dados.pipelineId);
   // Ganho/perdido só por movimento: é ele que passa por `aoEntrarEmTerminal`.
   if (f.isTerminal) throw new ErroDeRegra("FASE_TERMINAL");
+  // GAB-89: card novo não tem proposta — não nasce em Montando contrato nem depois.
+  await exigirTravaDoContrato(tx, { projetoId: null, origem: null, destino: f });
   const agora = dados.agora ?? new Date();
   return inserirCard(tx, {
     data: {
