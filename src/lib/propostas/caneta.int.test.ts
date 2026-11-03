@@ -329,7 +329,8 @@ describe("diff, leitura e avisos", () => {
   });
 });
 
-describe("corridas com o autosave (lock + revisão a cada mudança de caneta)", () => {
+// 5 iterações de limparBanco + semear cada: colado no timeout padrão de 5 s em máquina carregada.
+describe("corridas com o autosave (lock + revisão a cada mudança de caneta)", { timeout: 30_000 }, () => {
   const ultimaVersao = (propostaId: string) => db.propostaVersao.findFirstOrThrow({ where: { propostaId }, orderBy: { numero: "desc" } });
 
   it("autosave em voo + concordar (tela e MCP da mesma pessoa): se ficou pronta, o rascunho é a versão acordada", async () => {
