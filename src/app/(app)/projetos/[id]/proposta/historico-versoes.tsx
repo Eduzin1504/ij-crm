@@ -5,8 +5,16 @@ import type { PropostaDoProjeto } from "@/lib/propostas/propostas";
 
 type Versao = NonNullable<PropostaDoProjeto["proposta"]>["versoes"][number];
 
-/** Histórico v1, v2… (mais nova primeiro): autor, lado, data, nota e "via MCP"; cada uma abre a versão. */
-export function HistoricoVersoes({ projetoId, versoes, atual }: { projetoId: string; versoes: Versao[]; atual?: number }) {
+const CLASSE_SELECT = "h-7 rounded-md border border-input bg-input/30 px-1.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring";
+
+/**
+ * Histórico v1, v2… (mais nova primeiro): autor, lado, data, nota e "via MCP";
+ * cada uma abre a versão. Com 2+ versões, "comparar" abre o diff (GAB-87) — um
+ * formulário GET simples, sem JS.
+ */
+export function HistoricoVersoes({ projetoId, versoes, atual, comparar }: { projetoId: string; versoes: Versao[]; atual?: number; comparar?: { de: number | null; para: number } }) {
+  const para = comparar?.para ?? versoes[0]?.numero;
+  const de = comparar ? comparar.de : versoes[1]?.numero;
   return (
     <section className="rounded-xl border border-border bg-surface p-4">
       <h2 className="mb-3 text-sm font-medium">Versões</h2>
@@ -32,6 +40,29 @@ export function HistoricoVersoes({ projetoId, versoes, atual }: { projetoId: str
           ))}
         </ol>
       )}
+      {versoes.length >= 2 ? (
+        <form action={`/projetos/${projetoId}/proposta/diff`} className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs text-fg-mute">
+          <span>Comparar</span>
+          <select name="de" aria-label="Comparar de" defaultValue={de ?? ""} className={CLASSE_SELECT}>
+            {versoes.map((v) => (
+              <option key={v.numero} value={v.numero}>
+                v{v.numero}
+              </option>
+            ))}
+          </select>
+          <span>com</span>
+          <select name="para" aria-label="Comparar com" defaultValue={para} className={CLASSE_SELECT}>
+            {versoes.map((v) => (
+              <option key={v.numero} value={v.numero}>
+                v{v.numero}
+              </option>
+            ))}
+          </select>
+          <button type="submit" className="rounded-md border border-border px-2 py-0.5 text-foreground hover:bg-surface-hover">
+            Ver diff
+          </button>
+        </form>
+      ) : null}
     </section>
   );
 }

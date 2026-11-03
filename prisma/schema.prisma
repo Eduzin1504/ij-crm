@@ -118,8 +118,8 @@ enum Sentimento {
   NEGATIVO
 }
 
-/// GAB-86: status da proposta (spec fase 2 §4.3). Ciclo completo já no enum; nesta
-/// fatia só RASCUNHO é usado — a caneta/pingue-pongue (GAB-87) move entre os demais.
+/// GAB-86: status da proposta (spec fase 2 §4.3). A caneta/pingue-pongue (GAB-87) move
+/// entre RASCUNHO → EM_ANALISE ⇄ EM_AJUSTE → PRONTA_PARA_ENVIO (ou INVIAVEL); o resto é do envio (GAB-89).
 enum StatusProposta {
   RASCUNHO          // com vendas, antes de ir a projetos
   EM_ANALISE        // caneta com projetos
@@ -129,6 +129,7 @@ enum StatusProposta {
   ACEITA
   RECUSADA
   REVISAO_PEDIDA
+  INVIAVEL          // GAB-87: projetos marcou inviável (com motivo); o Projeto foi para Perdido
 }
 
 enum StatusMensagem {
@@ -183,6 +184,7 @@ model Usuario {
   propostasCriadas  Proposta[]       @relation("propostaCriadaPor")
   propostasRascunho Proposta[]       @relation("propostaRascunhoPor")
   propostasCaneta   Proposta[]       @relation("propostaCaneta")
+  periodosCaneta    PropostaCaneta[]
   versoesProposta   PropostaVersao[]
   prazos            Prazo[]          @relation("prazoResponsavel")
   prazosCriados     Prazo[]          @relation("prazoCriadoPor")
@@ -811,9 +813,12 @@ model Proposta {
   rascunhoPorId  String?        @map("rascunho_por_id")
   rascunhoEm     DateTime?      @map("rascunho_em")
   rascunhoViaMcp Boolean        @default(false) @map("rascunho_via_mcp")
-  /// Caneta (GAB-87): quem está com ela e de que lado. Null nesta fatia (regra: vendas responsável edita).
+  /// Caneta (GAB-87): quem está com ela (null = ninguém; o GP do lado pega) e de que lado.
+  /// Só o dono edita (src/lib/propostas/caneta.ts); passagens ficam em `PropostaCaneta`.
   canetaComId    String?        @map("caneta_com_id")
   canetaLado     Area?          @map("caneta_lado")
+  /// GAB-87: motivo de "inviável" (status INVIAVEL), dado por projetos.
+  motivoInviavel String?        @map("motivo_inviavel")
   criadoPorId    String         @map("criado_por_id")
   criadoEm       DateTime       @default(now()) @map("criado_em")
   atualizadoEm   DateTime       @updatedAt @map("atualizado_em")
@@ -824,6 +829,7 @@ model Proposta {
   rascunhoPor Usuario?         @relation("propostaRascunhoPor", fields: [rascunhoPorId], references: [id], onDelete: SetNull)
   canetaCom   Usuario?         @relation("propostaCaneta", fields: [canetaComId], references: [id], onDelete: SetNull)
   versoes     PropostaVersao[]
+  periodosCaneta PropostaCaneta[]
 
   @@index([status])
   @@index([canetaComId])
@@ -852,4 +858,23 @@ model PropostaVersao {
   @@unique([propostaId, numero])
   @@index([autorId])
   @@map("proposta_versao")
+}
+
+/// GAB-87: cada período em que alguém ficou com a caneta (tempo com a caneta por pessoa,
+/// para o painel). No máximo um aberto (`fim` null) por proposta: o serviço troca sob o
+/// lock da linha da proposta. Ninguém com a caneta = nenhum período aberto.
+model PropostaCaneta {
+  id         String    @id @default(cuid())
+  propostaId String    @map("proposta_id")
+  usuarioId  String    @map("usuario_id")
+  lado       Area
+  inicio     DateTime  @default(now())
+  fim        DateTime?
+
+  proposta Proposta @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
+
+  @@index([propostaId, fim])
+  @@index([usuarioId])
+  @@map("proposta_caneta")
 }

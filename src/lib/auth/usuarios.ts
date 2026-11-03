@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { normalizarEmail, normalizarTelefoneBr } from "@/lib/normalizacao";
 import { regraDeArea, resolverAreaCargos } from "./areas";
 import { conviteEstaValido, gerarConvite, hashToken } from "./convite";
+import { liberarCanetasDe } from "@/lib/propostas/caneta-banco";
 import { podeAtribuirPapel } from "./papeis";
 import { gerarHashSenha, senhaAtendeRegras, verificarSenha } from "./senha";
 
@@ -205,6 +206,8 @@ export async function atualizarUsuario(
         },
       });
       if (r.count === 0) throw new ErroConcorrencia();
+      // GAB-87: quem não pode mais segurar a caneta (desativado, mudou de lado, perdeu escrita) a solta.
+      if (dados.ativo === false || ladoMudou || (dados.papel !== undefined && dados.papel !== alvo.papel)) await liberarCanetasDe(tx, usuarioId, por.id);
       if (dados.ativo === false) {
         await tx.sessao.deleteMany({ where: { usuarioId } });
         await tx.mcpConexao.deleteMany({ where: { usuarioId } }); // conector MCP (GAB-83)

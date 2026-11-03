@@ -48,6 +48,11 @@ export class Autosave<Doc> {
     return this.revisao;
   }
 
+  /** Estado atual (conflito/erro/salvo…) — lido fora do render (antes de passar a caneta). */
+  get situacao(): EstadoAutosave {
+    return this.estado;
+  }
+
   /** Há texto que ainda não chegou ao servidor (aviso ao sair da página). */
   get temPendencia(): boolean {
     return this.pendenteDoc !== null || this.estado.tipo === "salvando";
@@ -145,6 +150,15 @@ export class Autosave<Doc> {
       }
       return r;
     });
+  }
+
+  /**
+   * Uma ação da caneta (GAB-87) incrementou a revisão no servidor sem mexer no
+   * texto: adota a nova, sem descartar o que estiver pendente (senão a próxima
+   * digitação de quem continua editando daria conflito falso).
+   */
+  adotarRevisao(revisao: number) {
+    this.revisao = revisao;
   }
 
   /** Conflito resolvido carregando o do servidor: o texto local é descartado. */

@@ -120,4 +120,27 @@ describe("Timeline: PROPOSTA (GAB-86)", () => {
     expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
     expect(document.querySelector("img")).toBeNull();
   });
+
+  it("caneta (GAB-87): devolver, concordar, passar, pegar, reabrir e inviável", () => {
+    const evs = [
+      proposta({ evento: "devolvida", numero: 2, paraNome: "Paula", lado: "PROJETOS" }),
+      proposta({ evento: "concordou", numero: 2 }),
+      proposta({ evento: "caneta_passada", paraNome: "Bia" }),
+      proposta({ evento: "caneta_pega", deNome: "Ana" }),
+      proposta({ evento: "reaberta" }),
+      proposta({ evento: "inviavel", motivo: "<b>prazo</b> impossível" }),
+      proposta({ evento: "reaberta_do_perdido" }),
+      proposta({ evento: "caneta_liberada", deNome: "Ana", motivo: "desativado" }),
+    ].map((x, i) => ({ ...x, id: `e${i}` }));
+    render(<Timeline entradas={evs} fases={new Map()} nomes={new Map()} />);
+    expect(screen.getByText(/devolveu a proposta/)).toHaveTextContent("devolveu a proposta (v2) para Paula · projetos");
+    expect(screen.getAllByRole("link", { name: "v2" })[0]).toHaveAttribute("href", "/projetos/c1/proposta/versoes/2");
+    expect(screen.getByText(/concordou com a/)).toHaveTextContent("pronta para envio");
+    expect(screen.getByText(/passou a caneta/)).toHaveTextContent("passou a caneta da proposta para Bia");
+    expect(screen.getByText(/pegou a caneta/)).toHaveTextContent("(estava com Ana)");
+    expect(screen.getByText(/reabriu a proposta/)).toBeInTheDocument();
+    expect(screen.getByText(/marcou a proposta como/)).toHaveTextContent("“<b>prazo</b> impossível”");
+    expect(screen.getByText(/reabriu o card/)).toHaveTextContent("voltou para ajuste com vendas");
+    expect(screen.getByText(/ficou sem dono/)).toHaveTextContent("Ana foi desativado(a)");
+  });
 });

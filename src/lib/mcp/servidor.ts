@@ -23,6 +23,7 @@ const INSTRUCOES =
   "CRM da Inteli Júnior. Você age em nome da pessoa conectada, com as mesmas permissões do papel dela no CRM. " +
   "Comece por listar_fases (ids de quadros e fases) e buscar_projetos. Tudo que você grava aparece na Timeline do projeto como \"via MCP\". " +
   "Proposta (uma por projeto): ler_proposta devolve o Markdown, a parte estruturada e a revisão; editar_proposta e salvar_versao_proposta pedem essa revisão (conflito = alguém mexeu depois: leia de novo). " +
+  "Caneta da proposta: só quem está com ela edita (ler_proposta diz quem está e acoesQueVocePode); devolver_proposta manda ao outro lado salvando versão, concordar_proposta fecha o consenso, ver_diff_proposta mostra o que mudou. " +
   "Excluir de vez, mesclar contatos e configurações ficam só na tela do CRM.";
 
 /**

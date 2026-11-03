@@ -28,6 +28,7 @@ import { ErroDeRegra, type ErroProjeto } from "./erros";
 // Reexport: `feita.ts` (Minha Semana) importa daqui.
 export { ErroDeRegra };
 import { aoEntrarEmTerminal, pipelinesExtrasDoTerminal } from "./terminal";
+import { reabrirPropostaInviavel } from "@/lib/propostas/caneta-banco";
 import type { DadosTerminal } from "./terminal-regras";
 
 export type { ErroProjeto } from "./erros";
@@ -257,6 +258,11 @@ export async function registrarMovimento(
   }
   const payload = { deFaseId: origem.id, paraFaseId: destino.id, ...(args.via ? { via: args.via } : {}) };
   await tx.timeline.create({ data: { projetoId: id, tipo: "MOVIMENTACAO", payload, usuarioId: args.porId, em } });
+  // GAB-87: card reaberto (saiu de Perdido) → a proposta Inviável volta para o pingue-pongue (Em ajuste, sem caneta).
+  // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco são do GAB-89/92; aqui nada muda.
+  if (origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
+    await reabrirPropostaInviavel(tx, id, args.porId, instante());
+  }
   if (destino.isTerminal) {
     await aoEntrarEmTerminal({
       tx,

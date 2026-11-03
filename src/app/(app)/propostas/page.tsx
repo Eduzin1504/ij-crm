@@ -106,6 +106,7 @@ export default async function PropostasPage({ searchParams }: { searchParams: Pr
                   </td>
                   <td className="px-4 py-2.5">
                     <StatusPropostaBadge status={x.status} />
+                    {x.canetaCom ? <span className="mt-0.5 block text-xs text-fg-mute">✎ {x.canetaCom.nome}</span> : null}
                   </td>
                   <td className="hidden px-4 py-2.5 text-fg-soft md:table-cell">{x.projeto.responsavel.nome}</td>
                   <td className="hidden px-4 py-2.5 text-right font-mono tabular text-fg-soft sm:table-cell">{x.valor ? formatarDinheiro(x.valor) : "—"}</td>
