@@ -23,7 +23,7 @@
 import { emViaMcp } from "@/lib/canal";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { db } from "@/lib/db";
-import { CONTEXTO_ANCORA, criarAncora, localizarAncora, textoPlano, TRECHO_MAX, type Ancora } from "./ancora";
+import { CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarContexto, normalizarTrecho, textoPlano, TRECHO_MAX, type Ancora } from "./ancora";
 import { COMENTARIO_MAX } from "./comentarios-limites";
 import { markdownParaDocumento } from "./markdown";
 
@@ -105,12 +105,16 @@ async function raizDe(comentarioId: string) {
   return { raizId: c.paiId ?? c.id, proposta: p };
 }
 
+/**
+ * Âncora vinda da tela, no formato CANÔNICO do texto plano (o editor já
+ * normaliza; aqui de novo, por defesa: cliente velho ou chamada direta). Sem
+ * isso, "a  b" digitado no editor nunca seria achado no rascunho salvo.
+ */
 function ancoraDaTela(a: Ancora): Ancora | null {
   if (typeof a?.trecho !== "string" || typeof a.antes !== "string" || typeof a.depois !== "string") return null;
-  const trecho = a.trecho.replace(/\u0000/g, "");
-  if (!trecho.trim() || trecho.length > TRECHO_MAX) return null;
-  const limpo = (s: string) => s.replace(/\u0000/g, "");
-  return { trecho, antes: limpo(a.antes).slice(-CONTEXTO_ANCORA), depois: limpo(a.depois).slice(0, CONTEXTO_ANCORA) };
+  const trecho = normalizarTrecho(a.trecho);
+  if (!trecho || trecho.length > TRECHO_MAX) return null;
+  return { trecho, antes: normalizarContexto(a.antes).slice(-CONTEXTO_ANCORA), depois: normalizarContexto(a.depois).slice(0, CONTEXTO_ANCORA) };
 }
 
 /** Avisa (só no app) o dono da caneta. Depois do commit; nunca lança (`emitirAvisos`). */
@@ -134,7 +138,8 @@ export async function comentar(projetoId: string, e: { texto: string; trecho?: A
 
   let ancora: Ancora | null = null;
   if (typeof e.trecho === "string") {
-    const citado = e.trecho.replace(/\u0000/g, "").trim();
+    // Mesmo formato do texto plano canônico ("a  b" citado acha "a b").
+    const citado = normalizarTrecho(e.trecho);
     if (!citado || citado.length > TRECHO_MAX) return { ok: false, erro: "TRECHO_INVALIDO" };
     const plano = textoPlano(markdownParaDocumento(p.conteudoMd)).texto;
     const i = plano.indexOf(citado);
@@ -206,16 +211,18 @@ export function reabrirComentario(comentarioId: string, ator: Ator) {
  */
 export async function versaoDosComentarios(projetoId: string): Promise<string> {
   const a = await db.propostaComentario.aggregate({ where: { proposta: { projetoId } }, _count: { _all: true }, _max: { atualizadoEm: true } });
-  return `${a._count._all}.${a._max.atualizadoEm?.getTime() ?? 0}`;
+  return carimbo(a._count._all, a._max.atualizadoEm);
+}
+
+function carimbo(n: number, max: Date | null | undefined): string {
+  return `${n}.${max?.getTime() ?? 0}`;
 }
 
 /** Threads da proposta (mais antigas primeiro), com "trecho alterado" contra o rascunho atual. null = sem projeto vivo/proposta. */
 export async function listarComentarios(projetoId: string): Promise<{ versao: string; threads: Thread[] } | null> {
   const p = await propostaViva(projetoId);
   if (ehFalha(p)) return null;
-  const [versao, linhas] = await Promise.all([
-    versaoDosComentarios(projetoId),
-    db.propostaComentario.findMany({
+  const linhas = await db.propostaComentario.findMany({
       where: { propostaId: p.id },
       orderBy: [{ criadoEm: "asc" }, { id: "asc" }],
       select: {
@@ -227,12 +234,17 @@ export async function listarComentarios(projetoId: string): Promise<{ versao: st
         trechoDepois: true,
         viaMcp: true,
         criadoEm: true,
+        atualizadoEm: true,
         resolvidoEm: true,
         autor: { select: { id: true, nome: true } },
         resolvidoPor: { select: { nome: true } },
       },
-    }),
-  ]);
+    });
+  // Versão das PRÓPRIAS linhas lidas (uma query só): nunca descreve um estado diferente do que vai junto.
+  const versao = carimbo(
+    linhas.length,
+    linhas.reduce<Date | null>((m, l) => (!m || l.atualizadoEm > m ? l.atualizadoEm : m), null),
+  );
   const plano = linhas.some((l) => l.trecho) ? textoPlano(markdownParaDocumento(p.conteudoMd)).texto : "";
   const threads: Thread[] = [];
   const porId = new Map<string, Thread>();

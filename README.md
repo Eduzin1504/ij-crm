@@ -469,7 +469,9 @@ Serviço em `src/lib/propostas/comentarios.ts` (tela e MCP chamam as mesmas fun�
 - **Âncora do trecho** (`src/lib/propostas/ancora.ts`): o trecho citado + até 40 caracteres de contexto
   de cada lado, no "texto plano" do documento (blocos de texto não vazios separados por `\n`, igual no
   editor, na leitura e no servidor). Para achar: todas as ocorrências do trecho; vence a de contexto mais
-  parecido. Não achou → "trecho alterado" (o comentário continua visível). Não é marca no documento: o
+  parecido. Não achou → "trecho alterado" (o comentário continua visível). O texto plano é sempre o
+  canônico: o editor ao vivo normaliza cada bloco como o Markdown (espaços repetidos, tab, pontas) com um
+  mapa para a posição crua, e o servidor normaliza o trecho recebido da tela e do MCP. Não é marca no documento: o
   destaque é decoração do ProseMirror no editor (`components/propostas/destaques-editor.ts`) e `<mark>`
   na leitura — o Markdown e a validação do subconjunto não mudam. Preso à proposta, não à versão.
 - **Ao vivo**: polling de `GET /api/projetos/[id]/comentarios?v=<versão>` a cada 5 s, pausado com a aba

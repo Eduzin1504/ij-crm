@@ -5,7 +5,7 @@ import type { Documento } from "@/lib/propostas/documento";
 const acoes = vi.hoisted(() => ({ comentarAction: vi.fn(), responderComentarioAction: vi.fn(), resolverComentarioAction: vi.fn() }));
 vi.mock("./comentarios-actions", () => acoes);
 
-const { BotaoComentarTrecho, ComentariosProvider, INTERVALO_COMENTARIOS_MS, TextoComentavel } = await import("./comentarios-contexto");
+const { ATRASO_TEXTO_MS, BotaoComentarTrecho, ComentariosProvider, INTERVALO_COMENTARIOS_MS, SESSAO_EXPIRADA, TextoComentavel, useComentarios } = await import("./comentarios-contexto");
 const { PainelComentarios } = await import("./painel-comentarios");
 
 const doc: Documento = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Prazo de 30 dias para o site." }] }] };
@@ -143,5 +143,49 @@ describe("comentários ao vivo", () => {
     fireEvent.change(screen.getByLabelText("Sua resposta"), { target: { value: "concordo" } });
     await act(async () => fireEvent.submit(screen.getByLabelText("Sua resposta").closest("form")!));
     expect(acoes.responderComentarioAction).toHaveBeenCalledWith("c1", "concordo");
+  });
+
+  it("401: para o polling e pede para recarregar", async () => {
+    montar([]);
+    fetchMock.mockImplementationOnce(() => resposta({ erro: "Sessão expirada." }, 401));
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS));
+    expect(screen.getByRole("alert").textContent).toBe(SESSAO_EXPIRADA);
+    const n = fetchMock.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS * 3));
+    await act(async () => ocultar(false));
+    expect(fetchMock.mock.calls.length).toBe(n);
+  });
+
+  it("respostas fora de ordem: a velha que chega depois é descartada", async () => {
+    montar([]);
+    let soltarVelha: (r: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((ok) => (soltarVelha = ok)));
+    fetchMock.mockImplementationOnce(() => resposta({ versao: "3.3", comentarios: [thread({ texto: "Novo" })] }));
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS)); // 1ª (fica pendurada)
+    await act(async () => vi.advanceTimersByTimeAsync(INTERVALO_COMENTARIOS_MS)); // 2ª chega
+    expect(screen.getByText("Novo")).toBeTruthy();
+    await act(async () => soltarVelha(new Response(JSON.stringify({ versao: "2.2", comentarios: [] }))));
+    expect(screen.getByText("Novo")).toBeTruthy();
+  });
+
+  it("texto do editor: 'trecho alterado' recalculado com pausa e no formato canônico (dois espaços acham o trecho)", async () => {
+    let informar: ((d: Documento) => void) | undefined;
+    function Fonte() {
+      informar = useComentarios()!.informarTexto;
+      return null;
+    }
+    const p = (t: string): Documento => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: t }] }] });
+    render(
+      <ComentariosProvider projetoId="p1" euId="u1" inicial={{ versao: "1.1", threads: [thread()] }}>
+        <Fonte />
+        <PainelComentarios />
+      </ComentariosProvider>,
+    );
+    act(() => informar!(p("Prazo de  30   dias para o site."))); // 1ª vez: na hora; espaços extras não importam
+    expect(screen.queryByText("trecho alterado")).toBeNull();
+    act(() => informar!(p("Prazo de 45 dias.")));
+    expect(screen.queryByText("trecho alterado")).toBeNull(); // ainda na pausa
+    await act(async () => vi.advanceTimersByTimeAsync(ATRASO_TEXTO_MS));
+    expect(screen.getByText("trecho alterado")).toBeTruthy();
   });
 });

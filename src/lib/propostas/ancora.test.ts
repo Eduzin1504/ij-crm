@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Documento } from "./documento";
-import { CONTEXTO_ANCORA, criarAncora, localizarAncora, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
+import { CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarBloco, normalizarContexto, normalizarTrecho, OCORRENCIAS_MAX, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
 
 const doc: Documento = {
   type: "doc",
@@ -87,5 +87,23 @@ describe("segmentosDeDestaque: um bloco de texto cortado nas bordas dos destaque
 
   it("sem destaques: um pedaço só", () => {
     expect(segmentosDeDestaque(0, 4, [])).toEqual([{ inicio: 0, fim: 4, ids: [] }]);
+  });
+});
+
+describe("normalização igual à do Markdown canônico", () => {
+  it("normalizarBloco: pontas, espaços repetidos, tab, quebra, CRLF e controle; mapa para o índice cru", () => {
+    expect(normalizarBloco("  a  b\tc\r\nd\u0001e  ")).toEqual({ texto: "a b c de", mapa: [2, 3, 5, 6, 7, 9, 10, 12] });
+    expect(normalizarBloco("   ").texto).toBe("");
+  });
+
+  it("normalizarTrecho mantém o \\n entre blocos; normalizarContexto não apara as bordas", () => {
+    expect(normalizarTrecho("  fim  do bloco \n  outro  ")).toBe("fim do bloco\noutro");
+    expect(normalizarContexto("Prazo:  ")).toBe("Prazo: ");
+  });
+
+  it("localizarAncora examina no máximo OCORRENCIAS_MAX ocorrências", () => {
+    const t = "ab ".repeat(OCORRENCIAS_MAX + 50) + "ab FIM";
+    // A ocorrência certa (antes de FIM) passa do teto: fica a melhor entre as examinadas, sem travar.
+    expect(localizarAncora(t, { trecho: "ab", antes: "", depois: " FIM" })).not.toBeNull();
   });
 });

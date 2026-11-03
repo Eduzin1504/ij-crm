@@ -13,11 +13,69 @@
  * mesmo no editor e na visualização). Para achar: todas as ocorrências do
  * trecho no texto atual; com mais de uma, vence a de contexto mais parecido.
  * Não achou → "trecho alterado" (o comentário continua visível).
+ *
+ * O texto plano é sempre o do documento CANÔNICO: o Markdown não guarda
+ * espaços repetidos, tab, quebra de linha dentro do bloco nem espaço nas
+ * pontas (`normalizarInline` em `./documento.ts`). O editor ao vivo pode ter
+ * "a  b"; por isso ele normaliza cada bloco com `normalizarBloco` (e um mapa
+ * para a posição crua) antes de criar ou procurar âncoras — senão o trecho
+ * digitado com dois espaços ficaria "alterado" para todo mundo.
  */
 import type { Bloco, Documento, ItemLista } from "./documento";
 
 export const CONTEXTO_ANCORA = 40;
 export const TRECHO_MAX = 500;
+/** Teto de ocorrências examinadas (trecho curto repetido num texto enorme não trava a tecla). */
+export const OCORRENCIAS_MAX = 200;
+
+const CONTROLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+
+/**
+ * Normaliza o texto de UM bloco como o Markdown canônico faz
+ * (`normalizarInline`): quebra de linha e tab → espaço, sem caracteres de
+ * controle, sem espaço nas pontas, espaços repetidos → um. `mapa[i]` = índice
+ * no texto cru do i-ésimo caractere do texto normalizado.
+ */
+export function normalizarBloco(cru: string): { texto: string; mapa: number[] } {
+  const cs: { c: string; i: number }[] = [];
+  for (let i = 0; i < cru.length; i++) {
+    let c = cru[i];
+    if (c === "\r" && cru[i + 1] === "\n") continue; // CRLF = uma quebra
+    if (c === "\r" || c === "\n" || c === "\t") c = " ";
+    else if (CONTROLE.test(c)) continue;
+    cs.push({ c, i });
+  }
+  let a = 0;
+  let b = cs.length;
+  while (a < b && /\s/u.test(cs[a].c)) a++;
+  while (b > a && /\s/u.test(cs[b - 1].c)) b--;
+  let texto = "";
+  const mapa: number[] = [];
+  for (let k = a; k < b; k++) {
+    if (cs[k].c === " " && texto.endsWith(" ")) continue;
+    texto += cs[k].c;
+    mapa.push(cs[k].i);
+  }
+  return { texto, mapa };
+}
+
+/** Trecho citado (pode atravessar blocos, separados por `\n`) no formato canônico. */
+export function normalizarTrecho(t: string): string {
+  return t
+    .split("\n")
+    .map((p) => normalizarBloco(p).texto)
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Contexto da âncora: só tira o que o canônico nunca tem (sem aparar: a borda com o trecho importa). */
+export function normalizarContexto(t: string): string {
+  return t
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, " ")
+    .replace(new RegExp(CONTROLE.source, "g"), "")
+    .replace(/ {2,}/g, " ");
+}
 
 export type Ancora = { trecho: string; antes: string; depois: string };
 export type Faixa = { inicio: number; fim: number };
@@ -69,7 +127,8 @@ export function localizarAncora(texto: string, a: Ancora): Faixa | null {
   if (!a.trecho) return null;
   let melhor: Faixa | null = null;
   let pontos = -1;
-  for (let i = texto.indexOf(a.trecho); i !== -1; i = texto.indexOf(a.trecho, i + 1)) {
+  let n = 0;
+  for (let i = texto.indexOf(a.trecho); i !== -1 && n < OCORRENCIAS_MAX; i = texto.indexOf(a.trecho, i + 1), n++) {
     const fim = i + a.trecho.length;
     const p = sufixoComum(a.antes, texto.slice(Math.max(0, i - a.antes.length), i)) + prefixoComum(a.depois, texto.slice(fim, fim + a.depois.length));
     if (p > pontos) {

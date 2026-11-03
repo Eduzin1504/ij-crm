@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Area, Papel } from "@prisma/client";
 import { dbTeste, limparBanco } from "@/test/db";
 import { comViaMcp } from "@/lib/canal";
+import { Editor } from "@tiptap/core";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
+import { EXTENSOES } from "@/components/propostas/editor-texto";
+import { ancoraDaSelecao, DestaquesComentarios } from "@/components/propostas/destaques-editor";
+import type { Documento } from "./documento";
 import { COMENTARIO_MAX, comentar, listarComentarios, reabrirComentario, resolverComentario, responderComentario, versaoDosComentarios } from "./comentarios";
 import { criarProposta, passarCaneta, salvarRascunho, salvarVersao } from "./propostas";
 
@@ -191,5 +195,31 @@ describe("versão para o polling", () => {
     const v2 = await versaoDosComentarios(projeto.id);
     expect(v2).not.toBe(v1);
     expect((await listarComentarios(projeto.id))!.versao).toBe(v2);
+  });
+});
+
+describe("espaços que o Markdown não guarda (B1 da revisão)", () => {
+  it("trecho com dois espaços digitado no editor: o servidor acha no rascunho salvo (não fica 'trecho alterado')", async () => {
+    const { projeto, ana, paula, revisao } = await semear();
+    // O editor ao vivo da dona da caneta tem "Prazo:  30 dias" (dois espaços); o autosave grava o canônico.
+    const cru: Documento = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Prazo:  30 dias, sem\tatraso." }] }] };
+    const s = await salvarRascunho(projeto.id, { revisao, conteudo: { documento: cru } }, ana);
+    if (!s.ok) throw new Error(JSON.stringify(s));
+    const e = new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: cru });
+    e.commands.setTextSelection({ from: 1, to: 16 }); // "Prazo:  30 dias"
+    const ancora = ancoraDaSelecao(e.state)!;
+    e.destroy();
+    expect(ancora.trecho).toBe("Prazo: 30 dias");
+    expect(await comentar(projeto.id, { texto: "curto", trecho: ancora }, ana)).toMatchObject({ ok: true });
+    // Cliente velho mandando o trecho cru: o servidor normaliza.
+    expect(await comentar(projeto.id, { texto: "cru", trecho: { trecho: "Prazo:  30 dias", antes: "", depois: ",  sem" } }, paula)).toMatchObject({ ok: true });
+    // MCP citando com dois espaços/tab também acha.
+    expect(await comentar(projeto.id, { texto: "mcp", trecho: "sem\tatraso" }, paula)).toMatchObject({ ok: true });
+    const l = (await listarComentarios(projeto.id))!;
+    expect(l.threads.map((t) => [t.ancora?.trecho, t.trechoAlterado])).toEqual([
+      ["Prazo: 30 dias", false],
+      ["Prazo: 30 dias", false],
+      ["sem atraso", false],
+    ]);
   });
 });

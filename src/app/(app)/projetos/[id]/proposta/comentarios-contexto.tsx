@@ -7,10 +7,13 @@ import { DocumentoView } from "@/components/propostas/documento-view";
 import type { EntradaDestaques } from "@/components/propostas/destaques-editor";
 import { ancoraDaSelecaoDom } from "@/components/propostas/selecao-dom";
 import { localizarAncora, textoPlano, type Ancora, type Destaque } from "@/lib/propostas/ancora";
-import type { Documento } from "@/lib/propostas/documento";
+import { normalizarDocumento, type Documento } from "@/lib/propostas/documento";
 
 /** Polling dos comentários: ≤ ~10 s para aparecer em outra tela. Pausa com a aba oculta. */
 export const INTERVALO_COMENTARIOS_MS = 5_000;
+/** O editor informa o texto a cada tecla: recalcula "trecho alterado" só depois de uma pausa. */
+export const ATRASO_TEXTO_MS = 300;
+export const SESSAO_EXPIRADA = "Sessão expirada: recarregue a página para ver comentários novos.";
 
 export type ComentarioJson = { id: string; autor: { id: string; nome: string }; texto: string; criadoEm: string; viaMcp: boolean };
 export type ThreadJson = ComentarioJson & {
@@ -19,6 +22,9 @@ export type ThreadJson = ComentarioJson & {
   resolvido: { por: string | null; em: string } | null;
   respostas: ComentarioJson[];
 };
+
+/** O editor manda o documento cru ("a  b"): compara no formato canônico, como o servidor. */
+const planoCanonico = (d: Documento) => textoPlano(normalizarDocumento(d)).texto;
 
 export function mensagemErro(ref?: string): string {
   return ref ? `Erro no servidor (ref: ${ref}). Tente de novo; se persistir, informe a ref.` : "Não deu para falar com o servidor. Tente de novo.";
@@ -68,13 +74,24 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   const [texto, setTexto] = useState<string | null>(null);
   const versao = useRef(inicial.versao);
   const fonte = useRef<(() => Ancora | null) | null>(null);
+  // Respostas fora de ordem (polling + recarga depois de comentar): só a da última requisição vale.
+  const requisicao = useRef(0);
+  const [expirada, setExpirada] = useState(false);
 
   const recarregar = useCallback(async () => {
+    const minha = ++requisicao.current;
     try {
       const r = await fetch(`/api/projetos/${encodeURIComponent(projetoId)}/comentarios?v=${encodeURIComponent(versao.current)}`, { cache: "no-store" });
       const corpo = (await r.json().catch(() => ({}))) as { versao?: string; comentarios?: ThreadJson[]; ref?: string };
+      if (minha !== requisicao.current) return;
+      if (r.status === 401) {
+        // Sessão expirou: para o polling (não adianta insistir) e diz o que fazer.
+        setExpirada(true);
+        setErroCarga(SESSAO_EXPIRADA);
+        return;
+      }
       if (!r.ok) {
-        // 401/404 não têm ref: sessão expirada ou proposta sumiu — a próxima navegação resolve.
+        // 404 não tem ref: a proposta sumiu — a próxima navegação resolve.
         if (corpo.ref) setErroCarga(mensagemErro(corpo.ref));
         return;
       }
@@ -87,6 +104,7 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   }, [projetoId]);
 
   useEffect(() => {
+    if (expirada) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     const parar = () => {
       if (timer) clearInterval(timer);
@@ -107,7 +125,7 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
       parar();
       document.removeEventListener("visibilitychange", aoMudarVisibilidade);
     };
-  }, [recarregar]);
+  }, [recarregar, expirada]);
 
   const ativar = useCallback((id: string | null, origem: "texto" | "painel") => {
     setAtivo(id);
@@ -140,7 +158,19 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
     };
   }, []);
   const lerSelecao = useCallback(() => fonte.current?.() ?? null, []);
-  const informarTexto = useCallback((d: Documento) => setTexto(textoPlano(d).texto), []);
+  // Primeira vez na hora (a tela abre já certa); depois, com pausa (o editor chama a cada tecla).
+  const atrasoTexto = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const jaInformou = useRef(false);
+  const informarTexto = useCallback((d: Documento) => {
+    clearTimeout(atrasoTexto.current);
+    if (!jaInformou.current) {
+      jaInformou.current = true;
+      setTexto(planoCanonico(d));
+      return;
+    }
+    atrasoTexto.current = setTimeout(() => setTexto(planoCanonico(d)), ATRASO_TEXTO_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(atrasoTexto.current), []);
   const alterado = useCallback((t: ThreadJson) => (t.ancora ? (texto === null ? t.trechoAlterado : localizarAncora(texto, t.ancora) === null) : false), [texto]);
 
   const ancoras = useMemo(() => threads.filter((t) => t.ancora && !t.resolvido).map((t) => ({ id: t.id, ancora: t.ancora! })), [threads]);
