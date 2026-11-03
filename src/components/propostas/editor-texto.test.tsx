@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 import { lerDocumento, type Documento } from "@/lib/propostas/documento";
 import { DocumentoView } from "./documento-view";
-import { EXTENSOES } from "./editor-texto";
+import { EXTENSOES, jsonDoEditor } from "./editor-texto";
 
 const doc: Documento = {
   type: "doc",
@@ -29,6 +29,24 @@ describe("Tiptap com só as extensões do subconjunto", () => {
   it("o documento canônico entra e sai do editor igual (getJSON → lerDocumento)", () => {
     const e = editorCom(doc);
     expect(lerDocumento(e.getJSON())).toEqual(doc);
+    e.destroy();
+  });
+
+  it("jsonDoEditor devolve só objetos simples (server action descarta attrs sem protótipo)", () => {
+    const e = editorCom(doc);
+    // causa do bug: o ProseMirror cria attrs com Object.create(null)
+    expect(Object.getPrototypeOf((e.getJSON().content as { attrs: object }[])[0].attrs)).toBeNull();
+    const json = jsonDoEditor(e);
+    const protos: unknown[] = [];
+    const visitar = (v: unknown) => {
+      if (v && typeof v === "object") {
+        if (!Array.isArray(v)) protos.push(Object.getPrototypeOf(v));
+        Object.values(v).forEach(visitar);
+      }
+    };
+    visitar(json);
+    expect(protos.every((p) => p === Object.prototype)).toBe(true);
+    expect(lerDocumento(json)).toEqual(doc);
     e.destroy();
   });
 

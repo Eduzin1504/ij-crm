@@ -37,6 +37,17 @@ export const EXTENSOES = [
   Placeholder.configure({ placeholder: "Escreva a proposta…" }),
 ];
 
+/**
+ * JSON do editor como objetos simples. O ProseMirror cria `attrs` com
+ * `Object.create(null)`, e a serialização das server actions do React descarta
+ * objetos sem protótipo: o título chegava sem `level` e o servidor recusava o
+ * documento ("Conteúdo inválido"). O round-trip por JSON recria tudo como
+ * objeto comum.
+ */
+export function jsonDoEditor(e: Pick<Editor, "getJSON">): Documento {
+  return JSON.parse(JSON.stringify(e.getJSON())) as Documento;
+}
+
 export type ControleEditor = {
   documento: () => Documento;
   substituir: (d: Documento) => void;
@@ -132,13 +143,13 @@ export default function EditorTexto({
     // Renderiza só no cliente (Next SSR): evita divergência de hidratação.
     immediatelyRender: false,
     editorProps: { attributes: { class: "proposta-texto px-4 py-3", "aria-label": "Texto da proposta", "aria-multiline": "true", role: "textbox" } },
-    onUpdate: ({ editor: e }) => aoMudar(e.getJSON() as Documento),
+    onUpdate: ({ editor: e }) => aoMudar(jsonDoEditor(e)),
   });
 
   useImperativeHandle(
     controle,
     () => ({
-      documento: () => (editor?.getJSON() as Documento | undefined) ?? inicial,
+      documento: () => (editor ? jsonDoEditor(editor) : inicial),
       // emitUpdate: false — carregar o do servidor não é edição (não dispara autosave).
       substituir: (d) => editor?.commands.setContent(d, { emitUpdate: false }),
     }),
