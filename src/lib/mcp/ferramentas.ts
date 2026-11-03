@@ -16,6 +16,7 @@
  * ler/criar/editar (Markdown + parte estruturada), salvar versão e ler versões.
  * Caneta (GAB-87): passar, devolver, concordar, pegar, reabrir, inviável e diff —
  * as mesmas funções de serviço da tela, com a máquina de estados de propostas/caneta.ts.
+ * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -64,6 +65,7 @@ import {
 } from "@/lib/propostas/propostas";
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
+import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -78,6 +80,11 @@ export type Ferramenta<F extends Forma = Forma> = {
   descricao: string;
   /** Escreve no CRM: VISUALIZADOR (somente leitura) é recusado, como na tela. */
   escrita: boolean;
+  /**
+   * Grava algo mesmo não sendo escrita no CRM (ex.: marcar o próprio aviso como
+   * lido): só tira o `readOnlyHint` do anúncio MCP; a permissão segue `escrita`.
+   */
+  muda?: boolean;
   entrada: F;
   executar: (args: z.infer<z.ZodObject<F>>, eu: UsuarioMcp) => Promise<Resposta>;
 };
@@ -786,6 +793,47 @@ const verDiffMcp = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- avisos (GAB-88)
+
+const listarAvisosMcp = ferramenta({
+  nome: "listar_avisos",
+  titulo: "Listar meus avisos",
+  descricao: `Avisos do sino do CRM para VOCÊ (é sua vez na proposta, GP pegou a caneta, mudança de status…), mais recentes primeiro. Por padrão só os não lidos; \`todos: true\` inclui os lidos. Até ${LISTA_MAX} (padrão ${LISTA_PADRAO}). Use os ids em marcar_avisos_lidos.`,
+  // Lê só os avisos da própria pessoa: vale para qualquer papel, como o sino.
+  escrita: false,
+  entrada: { todos: z.boolean().optional(), limite: z.number().int().min(1).max(LISTA_MAX).optional() },
+  executar: async (a, eu) => {
+    const [naoLidos, avisos] = await Promise.all([contarNaoLidos(eu.id), listarAvisos(eu.id, { soNaoLidos: !a.todos, limite: a.limite })]);
+    return ok({
+      naoLidos,
+      avisos: avisos.map((x) => ({
+        id: x.id,
+        tipo: x.tipo,
+        titulo: x.titulo,
+        lido: x.lido,
+        em: x.criadoEm.toISOString(),
+        url: x.href ? `${urlBase()}${x.href}` : null,
+        ...(x.whatsappFalhouRef ? { whatsappFalhou: `ref ${x.whatsappFalhouRef}` } : {}),
+      })),
+    });
+  },
+});
+
+const marcarAvisosLidosMcp = ferramenta({
+  nome: "marcar_avisos_lidos",
+  titulo: "Marcar meus avisos como lidos",
+  descricao: "Marca como lidos os avisos com os `ids` de listar_avisos; sem `ids`, marca todos os seus. Só mexe nos SEUS avisos (id de outra pessoa é ignorado).",
+  // Mexe só no estado do próprio sino, não no CRM: qualquer papel marca, como na tela.
+  escrita: false,
+  // ...mas grava `lido_em`: não anuncia readOnly.
+  muda: true,
+  entrada: { ids: z.array(id).max(200).optional() },
+  executar: async (a, eu) => {
+    const marcados = await marcarLidos(eu.id, a.ids);
+    return ok({ marcados, naoLidos: await contarNaoLidos(eu.id) });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -817,6 +865,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   inviavelMcp,
   verDiffMcp,
   preencherPropostaDeAnexo,
+  listarAvisosMcp,
+  marcarAvisosLidosMcp,
 ];
 
 function resultado(r: Resposta): CallToolResult {

@@ -1,8 +1,11 @@
 /**
  * Camada de envio para a Evolution API v2 (`POST /message/sendText/{instancia}`).
  * Padrões herdados do LocPay (design doc §7): safe mode por `NOTIFICATIONS_ENABLED`,
- * timeout de 60s cobrindo request E leitura do corpo, JID de grupo. O bot nunca
- * inicia conversa — só quem já tem uma mensagem para citar chama isto.
+ * timeout de 60s cobrindo request E leitura do corpo. Destinos: o grupo
+ * (confirmações do bot, citando a mensagem de quem escreveu; alerta de
+ * operações) e, desde o GAB-88, o privado de um usuário (`...@s.whatsapp.net`)
+ * para os avisos "é sua vez" e "aceita/handoff" (`src/lib/avisos`). Fora isso,
+ * o bot não inicia conversa.
  */
 import { db } from "@/lib/db";
 import { configEvolution, notificacoesAtivas, TIMEOUT_ENVIO_PADRAO_MS, timeoutEnvioMs } from "@/lib/config/env";
@@ -26,10 +29,11 @@ export type Citacao = {
 };
 
 export type EnvioWhatsApp = {
-  /** JID destino — no v1 sempre o grupo (`...@g.us`). */
+  /** JID destino: o grupo (`...@g.us`) ou o privado de um usuário (`...@s.whatsapp.net`, avisos do GAB-88). */
   para: string;
   texto: string;
   citar?: Citacao;
+  /** Card da mensagem (`mensagem_enviada.projeto_id`). Avisos privados mandam null: não são mensagem do card. */
   projetoId?: string | null;
 };
 

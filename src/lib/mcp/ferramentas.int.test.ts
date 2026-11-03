@@ -13,6 +13,7 @@ import { pdfDeTexto, PNG } from "@/test/fixtures/anexos";
 import { criarProposta, salvarVersao } from "@/lib/propostas/propostas";
 import { definirPropostaArquivoMock } from "@/lib/llm/provedores/mock";
 import { ErroLlm } from "@/lib/llm/tipos";
+import { emitirAvisos } from "@/lib/avisos/avisos";
 import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
@@ -131,6 +132,9 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       ["listar_versoes_proposta", { projeto_id: card.id }],
       ["ler_versao_proposta", { projeto_id: card.id, numero: 1 }],
       ["ver_diff_proposta", { projeto_id: card.id }],
+      ["listar_avisos", {}],
+      // Só o próprio sino (não escreve no CRM): qualquer papel marca, como na tela.
+      ["marcar_avisos_lidos", {}],
     ] as const;
     // Um caso por ferramenta de leitura: ferramenta nova sem caso aqui quebra o teste.
     expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());
@@ -562,5 +566,31 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     expect(texto(r)).toMatch(/demorou demais.*O rascunho não foi alterado/);
     expect(erro.mock.calls.some((c) => String(c[0]).includes(`ref=${ref}`))).toBe(true);
     expect(await db.proposta.findFirstOrThrow()).toMatchObject({ revisao: 0 });
+  });
+});
+
+describe("avisos via MCP (GAB-88): o sino da própria pessoa", () => {
+  it("lista os não lidos (ou todos), marca alguns e depois todos; aviso de outra pessoa não aparece nem muda", async () => {
+    const { vendas, vendedora, projetos } = await semear();
+    const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
+    if (!card.ok) throw new Error("seed");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await emitirAvisos([
+      { usuarioId: projetos.id, tipo: "SUA_VEZ", titulo: "É sua vez A", projetoId: card.id },
+      { usuarioId: projetos.id, tipo: "STATUS_PROPOSTA", titulo: "Mudou B", projetoId: card.id },
+      { usuarioId: vendedora.id, tipo: "STATUS_PROPOSTA", titulo: "Da Ana", projetoId: card.id },
+    ]);
+    const l = dados(await executarFerramenta("listar_avisos", {}, projetos));
+    expect(l.naoLidos).toBe(2);
+    expect(l.avisos.map((a: { titulo: string }) => a.titulo).sort()).toEqual(["Mudou B", "É sua vez A"]);
+    expect(l.avisos[0]).toMatchObject({ lido: false, url: expect.stringMatching(new RegExp(`/projetos/${card.id}/proposta$`)) });
+
+    const daAna = await db.aviso.findFirstOrThrow({ where: { usuarioId: vendedora.id } });
+    const umId = l.avisos[0].id;
+    expect(dados(await executarFerramenta("marcar_avisos_lidos", { ids: [umId, daAna.id] }, projetos))).toEqual({ marcados: 1, naoLidos: 1 });
+    expect((await db.aviso.findUniqueOrThrow({ where: { id: daAna.id } })).lidoEm).toBeNull();
+    expect(dados(await executarFerramenta("listar_avisos", { todos: true }, projetos)).avisos).toHaveLength(2);
+    expect(dados(await executarFerramenta("marcar_avisos_lidos", {}, projetos))).toEqual({ marcados: 1, naoLidos: 0 });
+    expect(dados(await executarFerramenta("listar_avisos", {}, projetos))).toEqual({ naoLidos: 0, avisos: [] });
   });
 });

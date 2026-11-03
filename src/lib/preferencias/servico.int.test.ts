@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
-import { obterPreferencias, salvarPaginaInicial, salvarVisualizacaoKanban } from "./servico";
+import { obterPreferencias, salvarPaginaInicial, salvarVisualizacaoKanban, salvarWhatsappAvisos } from "./servico";
 
 // A action pega o usuário da sessão; aqui a sessão é quem o teste disser.
 const sessao = vi.hoisted(() => ({ atual: { id: "", nome: "", email: "", papel: "VENDEDOR" as const } }));
@@ -69,6 +69,14 @@ describe("preferências de visualização (integração)", () => {
     expect(await salvarPaginaInicial(ana.id, "projetos")).toEqual({ ok: true });
     expect(await salvarPaginaInicial(ana.id, "https://evil.test")).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
     expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "projetos", kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
+  });
+
+  it("WhatsApp dos avisos (GAB-88): grava sem apagar o resto; valor que não é booleano é recusado", async () => {
+    const { ana } = await semear();
+    expect(await salvarPaginaInicial(ana.id, "vendas")).toEqual({ ok: true });
+    expect(await salvarWhatsappAvisos(ana.id, false)).toEqual({ ok: true });
+    expect(await salvarWhatsappAvisos(ana.id, "false")).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
+    expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "vendas", kanban: {}, avisos: { whatsapp: false } });
   });
 
   it("action grava só no usuário da sessão (não aceita id de outro)", async () => {

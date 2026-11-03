@@ -191,6 +191,7 @@ model Usuario {
   prazosFeitos      Prazo[]          @relation("prazoFeitoPor")
   anexos            Anexo[]          @relation("anexoAutor")
   anexosExcluidos   Anexo[]          @relation("anexoExcluidoPor")
+  avisos            Aviso[]
 
   @@map("usuario")
 }
@@ -458,6 +459,7 @@ model Projeto {
   timeline              Timeline[]
   mensagensEnviadas     MensagemEnviada[]
   prazos                Prazo[]
+  avisos                Aviso[]
   anexos                Anexo[]
   proposta              Proposta?
 
@@ -877,4 +879,50 @@ model PropostaCaneta {
   @@index([propostaId, fim])
   @@index([usuarioId])
   @@map("proposta_caneta")
+}
+
+// ---------------------------------------------------------------- avisos (GAB-88)
+// Sino no app + WhatsApp privado (spec fase 2 §4.11). Emitidos só por src/lib/avisos.
+
+/// Tipo do aviso. Só SUA_VEZ, PROPOSTA_ACEITA e HANDOFF vão também ao WhatsApp privado.
+enum TipoAviso {
+  SUA_VEZ         // a caneta da proposta chegou em você
+  CANETA_PEGA     // o GP pegou a caneta que estava com você
+  STATUS_PROPOSTA // proposta em que você atuou mudou de status
+  COMENTARIO      // comentário na proposta que está com você (ticket de comentários)
+  PROPOSTA_ACEITA // cliente aceitou (envio)
+  HANDOFF         // handoff do projeto
+}
+
+/// O que aconteceu com o WhatsApp privado de um aviso (null no aviso = tipo só do app).
+enum EnvioAviso {
+  PENDENTE     // envio real em andamento
+  ENVIADO
+  SAFE_MODE    // NOTIFICATIONS_ENABLED≠true: só logado (ref)
+  SEM_TELEFONE // usuário sem telefone: só no app
+  DESLIGADO    // usuário desligou nas preferências
+  FALHOU       // Evolution falhou: log com a ref
+}
+
+model Aviso {
+  id          String      @id @default(cuid())
+  usuarioId   String      @map("usuario_id")
+  tipo        TipoAviso
+  /// Texto pronto (nomes do momento do aviso): o sino e o WhatsApp mostram este.
+  titulo      String
+  projetoId   String?     @map("oportunidade_id")
+  whatsapp    EnvioAviso?
+  /// Ref do log quando o WhatsApp não saiu de verdade (safe mode ou falha).
+  whatsappRef String?     @map("whatsapp_ref")
+  lidoEm      DateTime?   @map("lido_em")
+  criadoEm    DateTime    @default(now()) @map("criado_em")
+
+  usuario Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  projeto Projeto? @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  // Contador do sino (polling): usuario_id + lido_em IS NULL. Lista: mais recentes do usuário.
+  @@index([usuarioId, lidoEm])
+  @@index([usuarioId, criadoEm])
+  @@index([projetoId])
+  @@map("aviso")
 }

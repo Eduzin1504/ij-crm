@@ -45,7 +45,7 @@ export function criarServidorMcp(eu: UsuarioMcp): McpServer {
   for (const f of FERRAMENTAS) {
     servidor.registerTool(
       f.nome,
-      { title: f.titulo, description: f.descricao, inputSchema: f.entrada, annotations: { readOnlyHint: !f.escrita, destructiveHint: false, openWorldHint: false } },
+      { title: f.titulo, description: f.descricao, inputSchema: f.entrada, annotations: { readOnlyHint: !f.escrita && !f.muda, destructiveHint: false, openWorldHint: false } },
       (args: unknown) => executarFerramenta(f.nome, args, eu),
     );
   }

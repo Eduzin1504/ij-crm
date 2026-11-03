@@ -437,6 +437,27 @@ A primeira chamada à LLM que der certo (`marcarCreditoOk`) fecha o incidente e 
 zera o cooldown: o limite de 1 aviso a cada 6 h vale mesmo com falhas e sucessos alternados. Depois da
 recarga, as mensagens em `FALHA` voltam pelo reprocessamento (GAB-41).
 
+## Avisos: sino no app + WhatsApp privado (GAB-88)
+
+Camada única em `src/lib/avisos/avisos.ts` (`emitirAvisos`): toda origem de aviso passa por ela
+(hoje a caneta da proposta; comentários, envio e handoff nos próximos tickets).
+
+- **Sino** (topo do app): contador + lista, marcar um ou todos como lidos. Atualiza por polling
+  (`GET /api/avisos`, só a contagem, a cada 30 s e pausado com a aba oculta); aberto, carrega a lista.
+- **WhatsApp privado** só para "é sua vez" e "proposta aceita / handoff" (`vaiPorWhatsapp` em
+  `src/lib/avisos/regras.ts`). O resultado fica em `aviso.whatsapp`: `DESLIGADO` (a pessoa desligou em
+  Meu perfil › Avisos no WhatsApp), `SEM_TELEFONE` (só no app, sem erro), `SAFE_MODE`
+  (`NOTIFICATIONS_ENABLED`≠`true`: o log `[avisos] ref=… SAFE MODE` diz o que seria enviado),
+  `PENDENTE` → `ENVIADO`/`FALHOU`. O envio real roda em segundo plano (quem agiu não espera a
+  Evolution); falha nunca desfaz a ação, vira `[avisos.whatsapp] ref=…` no log e a mesma ref aparece no
+  item do sino. `PENDENTE` com mais de 5 min (o processo caiu no meio do envio) vira `FALHOU` com ref
+  quando o sino lista. O envio privado não é vinculado ao card (`mensagem_enviada.projeto_id` nulo).
+- **Caneta** (`src/lib/avisos/caneta.ts`, ouvinte de `propostas/avisos.ts`): quem recebe a caneta
+  (passar, devolver, concordar) → "é sua vez"; GP pegou a caneta → quem estava com ela, só no app;
+  mudança de status → no app para quem já atuou na proposta (menos quem agiu).
+- **MCP**: `listar_avisos` e `marcar_avisos_lidos` (sempre os da própria pessoa, qualquer papel).
+  `marcar_avisos_lidos` não anuncia `readOnlyHint` (campo `muda` da ferramenta), mas não é escrita no CRM.
+
 ## Painel de mensagens e cron (GAB-41)
 
 **Gestão → WhatsApp** (`/gestao/whatsapp`, gestor/admin; vendedor → 403). Serviço em

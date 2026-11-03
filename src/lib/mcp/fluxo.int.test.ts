@@ -133,6 +133,9 @@ describe("fluxo completo: registro → autorizar → token → MCP → refresh �
     const nomes = lista.result.tools.map((t: { name: string }) => t.name);
     expect(nomes).toEqual(expect.arrayContaining(["buscar_projetos", "ler_projeto", "criar_projeto", "atualizar_projeto", "mover_projeto", "registrar_nota"]));
     expect(lista.result.tools.find((t: { name: string }) => t.name === "ler_projeto").annotations.readOnlyHint).toBe(true);
+    // GAB-88: marcar avisos grava `lido_em` (não é só leitura), embora qualquer papel possa usar.
+    expect(lista.result.tools.find((t: { name: string }) => t.name === "marcar_avisos_lidos").annotations.readOnlyHint).toBe(false);
+    expect(lista.result.tools.find((t: { name: string }) => t.name === "listar_avisos").annotations.readOnlyHint).toBe(true);
 
     const chamada = await (
       await mcp({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "criar_projeto", arguments: { titulo: "Padaria" } } }, s.acesso)

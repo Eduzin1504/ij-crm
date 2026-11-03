@@ -10,7 +10,7 @@ import { comTratamentoForm } from "@/lib/erros/registrar";
 import { revogarConexao } from "@/lib/mcp/oauth";
 import { removerFoto, salvarFoto } from "@/lib/perfil/foto";
 import { FOTO_MAX_BYTES, MENSAGEM_ERRO_FOTO } from "@/lib/perfil/imagem";
-import { salvarPaginaInicial } from "@/lib/preferencias/servico";
+import { salvarPaginaInicial, salvarWhatsappAvisos } from "@/lib/preferencias/servico";
 
 export type EstadoPerfil = { erro?: string; ok?: true } | undefined;
 
@@ -135,6 +135,17 @@ export async function salvarPaginaInicialAction(_prev: EstadoPerfil, form: FormD
     revalidatePath("/perfil");
     // O logo do rail/topbar aponta para a página inicial (resolvida no layout).
     revalidatePath("/", "layout");
+    return { ok: true };
+  });
+}
+
+/** Liga/desliga o WhatsApp privado dos avisos (GAB-88). O sino no app continua sempre. */
+export async function salvarWhatsappAvisosAction(_prev: EstadoPerfil, form: FormData): Promise<EstadoPerfil> {
+  return comTratamentoForm("perfil.salvarWhatsappAvisos", async (): Promise<EstadoPerfil> => {
+    const eu = await exigirUsuario();
+    const r = await salvarWhatsappAvisos(eu.id, form.get("whatsapp") === "on");
+    if (!r.ok) return { erro: "Não foi possível salvar." };
+    revalidatePath("/perfil");
     return { ok: true };
   });
 }
