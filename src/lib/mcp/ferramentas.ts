@@ -72,6 +72,7 @@ import {
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
+import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -949,6 +950,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   marcarEnviadaMcp,
   registrarRespostaMcp,
   concluirRevisaoMcp,
+  // GAB-91: comentários na proposta (src/lib/mcp/comentarios.ts).
+  ...FERRAMENTAS_COMENTARIOS,
 ];
 
 function resultado(r: Resposta): CallToolResult {

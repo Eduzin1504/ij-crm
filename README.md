@@ -458,6 +458,28 @@ Camada única em `src/lib/avisos/avisos.ts` (`emitirAvisos`): toda origem de avi
 - **MCP**: `listar_avisos` e `marcar_avisos_lidos` (sempre os da própria pessoa, qualquer papel).
   `marcar_avisos_lidos` não anuncia `readOnlyHint` (campo `muda` da ferramenta), mas não é escrita no CRM.
 
+## Comentários na proposta (GAB-91)
+
+Serviço em `src/lib/propostas/comentarios.ts` (tela e MCP chamam as mesmas funções), tabela
+`proposta_comentario`.
+
+- **Quem**: qualquer usuário **ativo**, em qualquer etapa, sem a caneta (VISUALIZADOR também, §4.6).
+  Comentar não edita o texto. Geral ou preso a um trecho; respostas em thread (um nível); resolver e
+  reabrir (estado na raiz + evento `comentario_resolvido`/`comentario_reaberto` na Timeline).
+- **Âncora do trecho** (`src/lib/propostas/ancora.ts`): o trecho citado + até 40 caracteres de contexto
+  de cada lado, no "texto plano" do documento (blocos de texto não vazios separados por `\n`, igual no
+  editor, na leitura e no servidor). Para achar: todas as ocorrências do trecho; vence a de contexto mais
+  parecido. Não achou → "trecho alterado" (o comentário continua visível). Não é marca no documento: o
+  destaque é decoração do ProseMirror no editor (`components/propostas/destaques-editor.ts`) e `<mark>`
+  na leitura — o Markdown e a validação do subconjunto não mudam. Preso à proposta, não à versão.
+- **Ao vivo**: polling de `GET /api/projetos/[id]/comentarios?v=<versão>` a cada 5 s, pausado com a aba
+  oculta; com a versão igual o servidor responde só `{ versao }` (contagem + último `atualizado_em`).
+- **Aviso**: `COMENTARIO`, só no app, para o dono da caneta (nunca para quem comentou).
+- **Limites**: 2000 caracteres por comentário e 500 no trecho (CHECK no banco também); texto puro.
+- **MCP**: `listar_comentarios_proposta`, `comentar_proposta` (geral ou `trecho` = texto exato do
+  rascunho atual), `responder_comentario_proposta`, `resolver_comentario_proposta`,
+  `reabrir_comentario_proposta`. Mesma permissão da tela (`escrita: false`, `muda: true` nas que gravam).
+
 ## Painel de mensagens e cron (GAB-41)
 
 **Gestão → WhatsApp** (`/gestao/whatsapp`, gestor/admin; vendedor → 403). Serviço em

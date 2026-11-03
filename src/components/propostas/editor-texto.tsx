@@ -1,6 +1,6 @@
 "use client";
 
-import { useImperativeHandle, type Ref } from "react";
+import { useEffect, useImperativeHandle, type Ref } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import Bold from "@tiptap/extension-bold";
 import Document from "@tiptap/extension-document";
@@ -13,7 +13,9 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { Bold as IconeNegrito, Heading1, Heading2, Heading3, Italic as IconeItalico, List, ListOrdered, Minus, Redo2, Undo2 } from "lucide-react";
 import { cn } from "cn";
+import type { Ancora } from "@/lib/propostas/ancora";
 import type { Documento } from "@/lib/propostas/documento";
+import { ancoraDaSelecao, chaveDestaques, DestaquesComentarios, type EntradaDestaques } from "./destaques-editor";
 
 /**
  * Editor rich text da proposta (Tiptap). Carrega SÓ as extensões do
@@ -51,6 +53,8 @@ export function jsonDoEditor(e: Pick<Editor, "getJSON">): Documento {
 export type ControleEditor = {
   documento: () => Documento;
   substituir: (d: Documento) => void;
+  /** GAB-91: âncora do trecho selecionado, para comentar (null = nada selecionado). */
+  selecao?: () => Ancora | null;
 };
 
 function Botao({ ativo, rotulo, onClick, children, desativado }: { ativo?: boolean; rotulo: string; onClick: () => void; children: React.ReactNode; desativado?: boolean }) {
@@ -132,13 +136,17 @@ export default function EditorTexto({
   inicial,
   aoMudar,
   controle,
+  destaques,
 }: {
   inicial: Documento;
   aoMudar: (d: Documento) => void;
   controle?: Ref<ControleEditor>;
+  /** GAB-91: trechos comentados, destacados só por decoração (não entram no documento). */
+  destaques?: EntradaDestaques;
 }) {
   const editor = useEditor({
-    extensions: EXTENSOES,
+    // A decoração dos comentários não é nó nem marca: o esquema continua o do subconjunto.
+    extensions: [...EXTENSOES, DestaquesComentarios],
     content: inicial,
     // Renderiza só no cliente (Next SSR): evita divergência de hidratação.
     immediatelyRender: false,
@@ -152,9 +160,14 @@ export default function EditorTexto({
       documento: () => (editor ? jsonDoEditor(editor) : inicial),
       // emitUpdate: false — carregar o do servidor não é edição (não dispara autosave).
       substituir: (d) => editor?.commands.setContent(d, { emitUpdate: false }),
+      selecao: () => (editor ? ancoraDaSelecao(editor.state) : null),
     }),
     [editor, inicial],
   );
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && destaques) editor.view.dispatch(editor.state.tr.setMeta(chaveDestaques, destaques).setMeta("addToHistory", false));
+  }, [editor, destaques]);
 
   if (!editor) return <div className="proposta-texto min-h-72 px-4 py-3 text-fg-faint">Carregando editor…</div>;
   return (

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { EstadoVazio } from "@/components/estado-vazio";
-import { DocumentoView } from "@/components/propostas/documento-view";
 import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { ROTULO_AREA } from "@/lib/auth/areas";
@@ -13,13 +12,16 @@ import { acoesPossiveis, ladoDaCaneta, outroLado, podeEditarProposta } from "@/l
 import { acoesDeEnvio, versaoDoPdf } from "@/lib/propostas/envio";
 import { estruturadoParaEntrada } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { listarComentarios } from "@/lib/propostas/comentarios";
 import { listarPessoasDaCaneta, obterPropostaDoProjeto, pessoaDaCaneta, tempoComCaneta } from "@/lib/propostas/propostas";
 import { podeCriarProposta } from "@/lib/propostas/regras";
 import { urlPdfDaProposta } from "@/lib/propostas/url";
 import { AcoesCaneta } from "./acoes-caneta";
+import { BotaoComentarTrecho, ComentariosProvider, TextoComentavel, type ThreadJson } from "./comentarios-contexto";
 import { CriarProposta } from "./criar-proposta";
 import { EstruturadoLeitura } from "./estruturado-leitura";
 import { HistoricoVersoes } from "./historico-versoes";
+import { PainelComentarios } from "./painel-comentarios";
 import { PainelProposta } from "./painel-proposta";
 
 export const metadata = { title: "Proposta" };
@@ -70,6 +72,9 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
   const voltou = proposta && proposta.canetaComId === eu.id && ultima && ultima.autorLado === outroLado(lado) ? { de: minhaUltima?.numero ?? null, para: ultima.numero } : null;
   // GAB-90: anexos para "Usar arquivo como base" (só quem está com a caneta edita e usa).
   const anexos = edita ? await listarAnexos(projeto.id) : [];
+  // GAB-91: comentários (carga inicial; depois o polling do provider). JSON: datas como texto, como na API.
+  const comentarios = proposta ? await listarComentarios(projeto.id) : null;
+  const comentariosIniciais = JSON.parse(JSON.stringify(comentarios ?? { versao: "", threads: [] })) as { versao: string; threads: ThreadJson[] };
 
   return (
     <>
@@ -131,6 +136,7 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
             </Link>
           ) : null}
         </section>
+        <ComentariosProvider projetoId={projeto.id} euId={eu.id} inicial={comentariosIniciais}>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {edita ? (
             <PainelProposta
@@ -154,9 +160,10 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <h2 className="text-sm font-medium">Texto (rascunho atual)</h2>
                   <span className="flex-1" />
+                  <BotaoComentarTrecho />
                   <span className="font-mono text-[11px] text-fg-faint">somente leitura</span>
                 </div>
-                <DocumentoView documento={markdownParaDocumento(proposta.conteudoMd)} />
+                <TextoComentavel documento={markdownParaDocumento(proposta.conteudoMd)} />
               </section>
               <section className="rounded-xl border border-border bg-surface p-4">
                 <h2 className="mb-4 text-sm font-medium">Dados da proposta</h2>
@@ -166,6 +173,7 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
             </div>
           )}
           <aside className="space-y-6">
+            <PainelComentarios />
             {versaoPdf ? (
               <section className="rounded-xl border border-border bg-surface p-4 text-sm" aria-label="Envio ao cliente">
                 <h2 className="mb-2 text-sm font-medium">Envio ao cliente</h2>
@@ -221,6 +229,7 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
             <HistoricoVersoes projetoId={projeto.id} versoes={proposta.versoes} />
           </aside>
         </div>
+        </ComentariosProvider>
         </>
       )}
     </>

@@ -208,4 +208,16 @@
     height: 0;
     pointer-events: none;
   }
+  /* GAB-91: trecho comentado — só visual (decoração no editor, <mark> na leitura); não é marca do documento. */
+  .proposta-texto .comentario-destaque {
+    background: var(--warn-soft);
+    color: inherit;
+    border-bottom: 2px solid color-mix(in oklab, var(--warn) 60%, transparent);
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .proposta-texto .comentario-destaque-ativo {
+    background: color-mix(in oklab, var(--warn) 35%, transparent);
+    border-bottom-color: var(--warn);
+  }
 }

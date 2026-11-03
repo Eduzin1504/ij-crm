@@ -192,6 +192,8 @@ model Usuario {
   anexos            Anexo[]          @relation("anexoAutor")
   anexosExcluidos   Anexo[]          @relation("anexoExcluidoPor")
   avisos            Aviso[]
+  comentariosProposta   PropostaComentario[] @relation("comentarioAutor")
+  comentariosResolvidos PropostaComentario[] @relation("comentarioResolvidoPor")
 
   @@map("usuario")
 }
@@ -842,6 +844,7 @@ model Proposta {
   canetaCom   Usuario?         @relation("propostaCaneta", fields: [canetaComId], references: [id], onDelete: SetNull)
   versoes     PropostaVersao[]
   periodosCaneta PropostaCaneta[]
+  comentarios PropostaComentario[]
 
   @@index([status])
   @@index([canetaComId])
@@ -889,6 +892,46 @@ model PropostaCaneta {
   @@index([propostaId, fim])
   @@index([usuarioId])
   @@map("proposta_caneta")
+}
+
+// ---------------------------------------------------------------- comentários (GAB-91)
+
+/// Comentário na proposta (spec fase 2 §4.6). Qualquer usuário ativo comenta, em qualquer
+/// etapa, sem a caneta. Raiz = geral ou presa a um TRECHO; respostas em thread (um nível:
+/// `pai_id` aponta sempre para a raiz). A âncora NÃO é marca no documento: é o trecho
+/// citado + contexto curto, reencontrado no rascunho atual (src/lib/propostas/ancora.ts);
+/// não achou = "trecho alterado". Preso à proposta, não à versão: sobrevive a versões
+/// novas. Resolver/reabrir: estado aqui + Timeline do Projeto (histórico).
+model PropostaComentario {
+  id             String    @id @default(cuid())
+  propostaId     String    @map("proposta_id")
+  /// Resposta: a raiz da thread. null = comentário raiz.
+  paiId          String?   @map("pai_id")
+  autorId        String    @map("autor_id")
+  /// Texto puro (o React escapa; nunca HTML). CHECK de tamanho na migration.
+  texto          String
+  /// Âncora (só na raiz; null = comentário geral).
+  trecho         String?
+  trechoAntes    String?   @map("trecho_antes")
+  trechoDepois   String?   @map("trecho_depois")
+  viaMcp         Boolean   @default(false) @map("via_mcp")
+  /// Só na raiz: resolvido (null = aberto). Reabrir zera; o histórico fica na Timeline.
+  resolvidoEm    DateTime? @map("resolvido_em")
+  resolvidoPorId String?   @map("resolvido_por_id")
+  criadoEm       DateTime  @default(now()) @map("criado_em")
+  /// Muda a cada alteração: o polling compara contagem + máximo disto.
+  atualizadoEm   DateTime  @updatedAt @map("atualizado_em")
+
+  proposta     Proposta             @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  pai          PropostaComentario?  @relation("respostas", fields: [paiId], references: [id], onDelete: Cascade)
+  respostas    PropostaComentario[] @relation("respostas")
+  autor        Usuario              @relation("comentarioAutor", fields: [autorId], references: [id])
+  resolvidoPor Usuario?             @relation("comentarioResolvidoPor", fields: [resolvidoPorId], references: [id], onDelete: SetNull)
+
+  @@index([propostaId, criadoEm])
+  @@index([paiId])
+  @@index([autorId])
+  @@map("proposta_comentario")
 }
 
 // ---------------------------------------------------------------- avisos (GAB-88)

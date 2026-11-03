@@ -15,6 +15,7 @@ import { definirPropostaArquivoMock } from "@/lib/llm/provedores/mock";
 import { ErroLlm } from "@/lib/llm/tipos";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { moverCard } from "@/lib/projetos/projetos";
+import { comentar } from "@/lib/propostas/comentarios";
 import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
@@ -125,6 +126,8 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     await salvarVersao(card.id, { revisao: 0 }, vendedora);
     // GAB-89: o PDF sai da versão final (pronta para envio).
     await db.proposta.update({ where: { projetoId: card.id }, data: { status: "PRONTA_PARA_ENVIO" } });
+    const coment = await comentar(card.id, { texto: "Revisar o escopo" }, vendedora);
+    if (!coment.ok) throw new Error("seed comentário");
     const leituras = [
       ["listar_fases", {}],
       ["listar_responsaveis", {}],
@@ -142,6 +145,12 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       // Só o próprio sino (não escreve no CRM): qualquer papel marca, como na tela.
       ["marcar_avisos_lidos", {}],
       ["gerar_pdf_proposta", { projeto_id: card.id }],
+      // GAB-91: qualquer usuário logado comenta (§4.6) — VISUALIZADOR também, como na tela.
+      ["listar_comentarios_proposta", { projeto_id: card.id }],
+      ["comentar_proposta", { projeto_id: card.id, texto: "Vi aqui" }],
+      ["responder_comentario_proposta", { comentario_id: coment.comentario.id, texto: "De acordo" }],
+      ["resolver_comentario_proposta", { comentario_id: coment.comentario.id }],
+      ["reabrir_comentario_proposta", { comentario_id: coment.comentario.id }],
     ] as const;
     // Um caso por ferramenta de leitura: ferramenta nova sem caso aqui quebra o teste.
     expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());
@@ -682,5 +691,61 @@ describe("envio e resposta via MCP (GAB-89): mesmas regras e permissões da tela
     // card reaberto pelo Kanban: a proposta volta como revisão pedida
     expect(await moverCard(id, fase(vendas, "primeiro_contato").id, vendedora)).toMatchObject({ ok: true });
     expect(await db.proposta.findUniqueOrThrow({ where: { projetoId: id } })).toMatchObject({ status: "REVISAO_PEDIDA", canetaComId: null, motivoRecusa: null });
+  });
+});
+
+describe("comentários via MCP (GAB-91): mesma camada e permissões da tela", () => {
+  it("comenta (geral e citando trecho), responde, lista, resolve e reabre; anuncia que grava", async () => {
+    const { vendas, vendedora, projetos } = await semear();
+    const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
+    if (!card.ok) throw new Error("seed");
+    await criarProposta(card.id, vendedora);
+    await executarFerramenta("editar_proposta", { projeto_id: card.id, revisao: 0, markdown: "## Prazo\n\nEntrega em 30 dias." }, vendedora);
+
+    const geral = dados(await executarFerramenta("comentar_proposta", { projeto_id: card.id, texto: "Faltou o valor" }, projetos));
+    expect(geral.url).toMatch(new RegExp(`/projetos/${card.id}/proposta$`));
+    const t = await executarFerramenta("comentar_proposta", { projeto_id: card.id, texto: "Pouco tempo", trecho: "30 dias" }, projetos);
+    expect(t.isError).toBeFalsy();
+    const naoAchou = await executarFerramenta("comentar_proposta", { projeto_id: card.id, texto: "x", trecho: "**30 dias**" }, projetos);
+    expect(naoAchou.isError).toBe(true);
+    expect(texto(naoAchou)).toMatch(/não está no texto atual/);
+
+    expect((await executarFerramenta("responder_comentario_proposta", { comentario_id: geral.id, texto: "Vou incluir" }, vendedora)).isError).toBeFalsy();
+    expect((await executarFerramenta("resolver_comentario_proposta", { comentario_id: geral.id }, vendedora)).isError).toBeFalsy();
+    const jaResolvido = await executarFerramenta("resolver_comentario_proposta", { comentario_id: geral.id }, vendedora);
+    expect(texto(jaResolvido)).toMatch(/já está resolvido/);
+
+    const abertos = dados(await executarFerramenta("listar_comentarios_proposta", { projeto_id: card.id }, vendedora));
+    expect(abertos).toMatchObject({ total: 2, abertos: 1 });
+    expect(abertos.comentarios).toEqual([expect.objectContaining({ autor: "Paula", texto: "Pouco tempo", trecho: "30 dias", trecho_alterado: false, resolvido: null, viaMcp: true })]);
+    const todos = dados(await executarFerramenta("listar_comentarios_proposta", { projeto_id: card.id, incluir_resolvidos: true }, vendedora));
+    expect(todos.comentarios[0]).toMatchObject({ trecho: null, resolvido: { por: "Ana" }, respostas: [expect.objectContaining({ autor: "Ana", texto: "Vou incluir" })] });
+
+    expect((await executarFerramenta("reabrir_comentario_proposta", { comentario_id: geral.id }, projetos)).isError).toBeFalsy();
+    const ev = await db.timeline.findMany({ where: { projetoId: card.id, tipo: "PROPOSTA" }, orderBy: { em: "asc" } });
+    const doComentario = ev.filter((e) => String((e.payload as { evento: string }).evento).startsWith("comentario_"));
+    expect(doComentario.map((e) => [(e.payload as { evento: string }).evento, e.viaMcp])).toEqual([
+      ["comentario_resolvido", true],
+      ["comentario_reaberto", true],
+    ]);
+    // Aviso só no app para a dona da caneta (Ana), pelos comentários da Paula; a resposta da própria Ana não avisa.
+    const av = await db.aviso.findMany({ where: { tipo: "COMENTARIO" } });
+    expect(av.map((a) => a.usuarioId)).toEqual([vendedora.id, vendedora.id]);
+    expect(av.every((a) => a.whatsapp === null)).toBe(true);
+  });
+
+  it("usuário inativo não comenta; o anúncio MCP das que gravam não é readOnly", async () => {
+    const { vendas, vendedora, projetos } = await semear();
+    const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
+    if (!card.ok) throw new Error("seed");
+    await criarProposta(card.id, vendedora);
+    await db.usuario.update({ where: { id: projetos.id }, data: { ativo: false } });
+    const r = await executarFerramenta("comentar_proposta", { projeto_id: card.id, texto: "oi" }, projetos);
+    expect(r.isError).toBe(true);
+    expect(texto(r)).toMatch(/usuários ativos/);
+    const gravam = FERRAMENTAS.filter((f) => /^(comentar|responder|resolver|reabrir)_comentario|^comentar_proposta/.test(f.nome));
+    expect(gravam).toHaveLength(4);
+    for (const f of gravam) expect(f.muda, f.nome).toBe(true);
+    expect(FERRAMENTAS.find((f) => f.nome === "listar_comentarios_proposta")?.muda).toBeFalsy();
   });
 });
