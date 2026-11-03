@@ -1113,3 +1113,13 @@ Máquina de estados pura em `src/lib/propostas/caneta.ts`, aplicada no serviço
   lado na Gestão e peça para pegar — não edite `caneta_com_id` direto (o período
   em `proposta_caneta` ficaria aberto para a pessoa errada).
 - **Erros:** `[proposta.passarCaneta|devolver|concordar|pegarCaneta|reabrir|inviavel] ref=<ref>`.
+
+### 13.2 Proposta a partir de arquivo (GAB-90)
+
+- **Arquivo como base (GAB-90):** falha da IA ao ler um anexo não mexe no
+  rascunho; a tela/MCP mostram `ref` e o log tem
+  `[proposta.preencher anexo=<12 hex> modo=texto|arquivo] ref=<ref> LLM <CÓDIGO>`
+  e a linha `[llm] proposta_arquivo ref=<ref>:<anexo> … tokens_in=… tokens_out=…`
+  (também em Admin → Logs, `operacao=proposta_arquivo`). `SEM_CREDITO` dispara o
+  mesmo alerta/banner de crédito do WhatsApp. Escaneado grande demora (timeout de
+  120 s por tentativa); `TRUNCADA` = documento longo demais para uma leitura.

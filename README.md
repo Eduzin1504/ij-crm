@@ -556,7 +556,7 @@ a extensão só precisa conferir com eles. No upload o texto é extraído sem LL
 filho** (`pdf-processo.ts` → `pdf-filho.mjs`, uma extração por vez, morto acima de 20 s ou
 150 MB de RSS: o anexo entra "sem texto" e o log tem `[anexos.extrairTexto] ref=…`), .docx
 pelo `word/document.xml` (zlib nativo com `maxOutputLength`, contra zip bomb), .md/.txt direto. PDF escaneado e
-imagens ficam marcados **sem texto** até o OCR (GAB-90). O texto fica em `anexo.texto` (para a
+imagens ficam marcados **sem texto** (o texto deles só é lido pela IA quando o anexo é usado como base da proposta, GAB-90). O texto fica em `anexo.texto` (para a
 proposta e o MCP) e abre em `/api/anexos/[id]/texto`. Download em `/api/anexos/[id]`: só com
 sessão, `attachment` com o nome sanitizado, `nosniff` e CSP `sandbox` (posta pelo
 `next.config`, que sobrescreve a da rota: `src/lib/rotas/seguranca.ts`). Pelo MCP:
@@ -568,6 +568,22 @@ Os bytes ficam em disco, em `ANEXOS_DIR` (um arquivo por anexo, nome = id; dev n
 backup/restore à mão, runbook, "Anexos dos Projetos". Excluir manda para a **Lixeira** (aba
 Anexos: gestor+ restaura, admin apaga de vez e o arquivo sai do disco); apagar o card de vez leva
 os anexos e os arquivos.
+
+## Proposta a partir de arquivo (GAB-90)
+
+Na proposta, **Usar arquivo como base** escolhe um anexo do Projeto (ou envia um, que vira
+anexo) e mostra uma **sugestão** para revisar: texto e parte estruturada (valor, prazo, escopo,
+entregas). Nada é gravado até **Aplicar ao rascunho**, que põe o texto no editor e os dados no
+formulário e grava pelos caminhos de sempre (autosave + "Salvar dados", com a revisão atual).
+PDF digital/.docx/.md/.txt: o texto extraído no upload vira o texto; o LLM só preenche os dados.
+PDF escaneado e imagem: o arquivo vai ao modelo do app com visão (`LLM_PROVEDOR`; produção
+GPT-6.1 Sol, `store: false`), que transcreve e preenche numa chamada — sem OCR no servidor.
+Campo sem trecho do arquivo que o sustente, ou com confiança < 0,7, **não é preenchido**: fica
+como estava e aparece em "Para revisar" (`src/lib/propostas/sugestao.ts`). Mesma permissão de
+editar a proposta, conferida antes de chamar o LLM. Nada do resultado do LLM é guardado; cada
+leitura vira uma linha em `log_llm` (`operacao=proposta_arquivo`, tokens = custo por arquivo,
+`ref=<ref>:<12 hex do anexo>`). Pelo MCP: `preencher_proposta_de_anexo` (só sugere; `aplicar=true`
++ `revisao` grava pelo `salvarRascunho`).
 
 ## Lixeira e merge
 
