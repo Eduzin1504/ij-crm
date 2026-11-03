@@ -11,8 +11,9 @@
  *   da migração ao remover fase, `destinoCompativel`), gravando TransicaoFase +
  *   MOVIMENTACAO (`motivo: "restauracao"`). Não passa pelos ganchos de
  *   terminal: o tipo não muda, os dados de fechamento continuam válidos.
- *   GAB-89: o destino escolhido respeita a trava de Montando contrato
- *   (`trava-contrato.ts`): sem proposta aceita, não volta lá nem depois.
+ *   GAB-89: o destino (escolhido ou a própria fase) respeita a trava de
+ *   Montando contrato (`trava-contrato.ts`): sem proposta aceita (ou isenção),
+ *   não volta lá nem depois.
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -90,10 +91,13 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
         const f = await tx.fase.findUnique({ where: { id: opts.faseId } });
         if (!f || f.pipelineId !== alvo.pipelineId || f.arquivadaEm) throw new Falha({ erro: "FASE_INVALIDA" });
         if (!destinoCompativel(card.fase, f)) throw new Falha({ erro: "FASE_INCOMPATIVEL" });
-        // GAB-89: restaurar não fura a trava de Montando contrato (proposta aceita).
-        if (await travaDoContrato(tx, { projetoId: id, origem: card.fase, destino: f })) throw new Falha({ erro: "PROPOSTA_NAO_ACEITA" });
         destino = f;
       }
+      // GAB-89: restaurar não fura a trava de Montando contrato (proposta aceita),
+      // nem quando a fase original continua ativa: ela pode ter sido arquivada,
+      // desarquivada ou reordenada para depois do marco com o card na lixeira.
+      // Origem null: só passa card isento ou com proposta ACEITA.
+      if (await travaDoContrato(tx, { projetoId: id, origem: null, destino })) throw new Falha({ erro: "PROPOSTA_NAO_ACEITA" });
 
       const agora = new Date();
       const depois = new Date(agora.getTime() + 1); // MOVIMENTACAO depois da RESTAURACAO na Timeline
