@@ -16,6 +16,20 @@ import { criarCard } from "@/lib/projetos/projetos";
 import { anexarArquivo, lerTextoDoAnexo, listarAnexos, obterAnexoParaDownload } from "./anexos";
 import { lerArquivo } from "./armazenamento";
 
+// `idFixo` (quando definido) substitui o próximo id aleatório de anexo.
+let idFixo: string | undefined;
+vi.mock("./armazenamento", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./armazenamento")>();
+  return {
+    ...orig,
+    novoIdAnexo: () => {
+      const id = idFixo ?? orig.novoIdAnexo();
+      idFixo = undefined;
+      return id;
+    },
+  };
+});
+
 const db = dbTeste();
 const enc = new TextEncoder();
 
@@ -160,7 +174,18 @@ describe("anexarArquivo: corridas e extração abortada (review do PR #53)", () 
     expect(r).toMatchObject({ ok: true, anexo: { semTexto: true } });
     if (!r.ok) return;
     expect((await db.anexo.findUniqueOrThrow({ where: { id: r.anexo.id } })).texto).toBeNull();
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^\\[anexos\\.extrairTexto\\] ref=[0-9a-f]{8} Error: anexo ${r.anexo.id.slice(0, 12)} \\(PDF\\) ficou sem texto: memória acima do teto`)));
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^\\[anexos\\.extrairTexto anexo=${r.anexo.id}\\] ref=[0-9a-f]{8} Error: PDF ficou sem texto: memória acima do teto`)));
+    log.mockRestore();
+  }, 30_000);
+
+  it("id de anexo só com dígitos chega intacto ao log (não vira [num])", async () => {
+    const { vend, cardId } = await semear();
+    const soDigitos = "12345678901234567890123456789012";
+    idFixo = soDigitos;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await anexarArquivo(cardId, { nome: "bomba.pdf", bytes: pdfBomba(512) }, vend);
+    expect(r).toMatchObject({ ok: true, anexo: { id: soDigitos, semTexto: true } });
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^\[anexos\.extrairTexto anexo=12345678901234567890123456789012\] ref=[0-9a-f]{8} /));
     log.mockRestore();
   }, 30_000);
 });

@@ -49,9 +49,10 @@ export async function anexarArquivo(projetoId: string, arquivo: { nome: string; 
   const extracao = await extrairTexto(id.tipo, arquivo.bytes);
   if (!extracao.ok) return extracao;
   // Extração abortada (PDF que estourou tempo/memória no processo filho): o anexo
-  // entra "sem texto" e a causa fica no log, com ref. Só o começo do id: o id
-  // inteiro (32 hex) seria redigido como token; `WHERE id LIKE '<prefixo>%'` acha.
-  if (extracao.falha) registrarErro("anexos.extrairTexto", new Error(`anexo ${anexoId.slice(0, 12)} (${id.tipo}) ficou sem texto: ${extracao.falha}`));
+  // entra "sem texto" e a causa fica no log, com ref. O id vai no contexto, que
+  // não passa por `redigirPii`: na mensagem, o id inteiro seria redigido como
+  // token, e qualquer trecho com 8+ dígitos seguidos, como `[num]`.
+  if (extracao.falha) registrarErro(`anexos.extrairTexto anexo=${anexoId}`, new Error(`${id.tipo} ficou sem texto: ${extracao.falha}`));
   const sha256 = createHash("sha256").update(arquivo.bytes).digest("hex");
 
   const card = await db.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true } });
