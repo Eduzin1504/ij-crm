@@ -580,8 +580,8 @@ PDF escaneado e imagem: o arquivo vai ao modelo do app com visão (`LLM_PROVEDOR
 GPT-6.1 Sol, `store: false`), que transcreve e preenche numa chamada — sem OCR no servidor.
 Campo sem trecho do arquivo que o sustente, ou com confiança ≤ 0,7 (conversões como "3 meses" vêm
 com no máximo 0,5), **não é preenchido** — cada entrega do cronograma precisa do próprio trecho —: fica
-como estava e aparece em "Para revisar" (`src/lib/propostas/sugestao.ts`). Mesma permissão de
-editar a proposta, conferida antes de chamar o LLM. Nada do resultado do LLM é guardado; cada
+como estava e aparece em "Para revisar" (`src/lib/propostas/sugestao.ts`). Só quem está com a caneta
+(pingue-pongue em curso) usa, conferido antes de chamar o LLM. Nada do resultado do LLM é guardado; cada
 leitura vira uma linha em `log_llm` (`operacao=proposta_arquivo`, tokens = custo por arquivo,
 `ref=<ref>:<12 hex do anexo>`). Limites (VPS de 512 MB): 2 leituras ao mesmo tempo no
 processo e 1 por pessoa (acima disso, recusa com mensagem); PDF escaneado com mais de 30 páginas é

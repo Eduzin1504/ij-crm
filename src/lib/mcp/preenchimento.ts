@@ -4,8 +4,8 @@
  * fatias da proposta; entra em `FERRAMENTAS` como as demais e passa pela
  * mesma porta (`executarFerramenta`: VISUALIZADOR recusado, "via MCP").
  *
- * Chama a MESMA camada da tela: `sugerirDeAnexo` (permissão de editar a
- * proposta, conferida antes do LLM) e, para gravar, `salvarRascunho`
+ * Chama a MESMA camada da tela: `sugerirDeAnexo` (caneta: só o dono, com o pingue-pongue em
+ * curso, conferida antes do LLM) e, para gravar, `salvarRascunho`
  * (permissão + revisão otimista). Sem `aplicar`, só devolve a sugestão —
  * gravar depois com `editar_proposta` não chama o LLM de novo.
  */
@@ -41,7 +41,7 @@ export const preencherPropostaDeAnexo: Ferramenta = {
   nome: "preencher_proposta_de_anexo",
   titulo: "Preencher proposta a partir de anexo",
   descricao:
-    "Usa um anexo do projeto (PDF, Word, Markdown, texto ou imagem; escaneado é lido pela IA) como base da proposta: devolve o texto em Markdown e a parte estruturada (valor, prazo_dias, escopo_resumo, entregas) que o arquivo sustenta. Campo incerto ou ausente NÃO é preenchido: vem null e listado em `revisar` (com o que foi lido) — confira com o usuário. Custa uma chamada de IA por uso. Padrão: só sugere, nada é gravado; para gravar, use editar_proposta com o markdown e os campos (sem nova chamada de IA), ou chame com aplicar=true e a revisao de ler_proposta (substitui o texto do rascunho; dados não preenchidos ficam como estão). Mesma permissão de editar a proposta.",
+    "Usa um anexo do projeto (PDF, Word, Markdown, texto ou imagem; escaneado é lido pela IA) como base da proposta: devolve o texto em Markdown e a parte estruturada (valor, prazo_dias, escopo_resumo, entregas) que o arquivo sustenta. Campo incerto ou ausente NÃO é preenchido: vem null e listado em `revisar` (com o que foi lido) — confira com o usuário. Custa uma chamada de IA por uso. Padrão: só sugere, nada é gravado; para gravar, use editar_proposta com o markdown e os campos (sem nova chamada de IA), ou chame com aplicar=true e a revisao de ler_proposta (substitui o texto do rascunho; dados não preenchidos ficam como estão). Só quem está com a caneta (pingue-pongue em curso), como editar_proposta.",
   escrita: true,
   entrada,
   executar: async (bruto, eu): Promise<Resposta> => {

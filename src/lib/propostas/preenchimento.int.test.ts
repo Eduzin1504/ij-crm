@@ -121,7 +121,7 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
   });
 
   it("imagem: vai como image/png", async () => {
-    const { gil, projeto, ana } = await semear();
+    const { projeto, ana } = await semear();
     await criarProposta(projeto.id, ana);
     const id = await anexo(projeto.id, "foto.png", PNG, ana);
     let mime: string | undefined;
@@ -129,7 +129,7 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
       mime = pedido.arquivo?.mime;
       return { markdown: "Foto da proposta", ...LEITURA_BOA };
     });
-    const r = await sugerirDeAnexo(projeto.id, id, gil, { provedor });
+    const r = await sugerirDeAnexo(projeto.id, id, ana, { provedor });
     expect(r.ok).toBe(true);
     expect(mime).toBe("image/png");
   });
@@ -170,17 +170,51 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
     expect((await db.logLlm.findFirstOrThrow()).status).toBe("SAIDA_INVALIDA");
   });
 
-  it("permissão = a de editar a proposta, conferida ANTES de chamar o LLM (não gasta)", async () => {
-    const { ana, bia, paula, vera, projeto } = await semear();
-    await criarProposta(projeto.id, ana);
+  it("caneta (GAB-87): só o dono, com o pingue-pongue em curso — conferido ANTES da vaga e do LLM (não gasta)", async () => {
+    const { ana, bia, paula, gil, vera, projeto } = await semear();
+    await criarProposta(projeto.id, ana); // a caneta começa com a vendedora responsável
+    expect(await db.proposta.findFirstOrThrow({ where: { projetoId: projeto.id } })).toMatchObject({ canetaComId: ana.id });
     const id = await anexo(projeto.id, "p.md", new TextEncoder().encode("texto"), ana);
     const chamado = vi.fn(() => LEITURA_BOA);
     definirPropostaArquivoMock(chamado);
-    for (const quem of [bia, paula, vera]) expect(await sugerirDeAnexo(projeto.id, id, quem, { provedor })).toMatchObject({ ok: false, erro: "SEM_PERMISSAO" });
+    // outro vendedor, projetos, GESTOR sem caneta e visualizador: SEM_CANETA
+    for (const quem of [bia, paula, gil, vera]) {
+      expect(await sugerirDeAnexo(projeto.id, id, quem, { provedor })).toEqual({ ok: false, erro: "SEM_CANETA", mensagem: expect.stringMatching(/não está com a caneta/) });
+    }
     await db.usuario.update({ where: { id: ana.id }, data: { ativo: false } });
-    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "SEM_PERMISSAO" });
+    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "SEM_CANETA" });
+    await db.usuario.update({ where: { id: ana.id }, data: { ativo: true } });
+    // pronta para envio e encerrada: nem o dono da caneta usa
+    await db.proposta.update({ where: { projetoId: projeto.id }, data: { status: "PRONTA_PARA_ENVIO" } });
+    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "PROPOSTA_PRONTA" });
+    await db.proposta.update({ where: { projetoId: projeto.id }, data: { status: "ENVIADA" } });
+    expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toMatchObject({ ok: false, erro: "PROPOSTA_ENCERRADA" });
     expect(chamado).not.toHaveBeenCalled();
     expect(await db.logLlm.count()).toBe(0);
+    expect(leiturasEmAndamento()).toBe(0);
+  });
+
+  it("sem caneta → recusado sem LLM e SEM ocupar vaga (mesmo com o semáforo cheio, a resposta é SEM_CANETA)", async () => {
+    const { ana, bia, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    const id = await anexo(projeto.id, "p.md", new TextEncoder().encode("texto"), ana);
+    let soltar!: () => void;
+    const portao = new Promise<void>((ok) => (soltar = ok));
+    let chamadas = 0;
+    definirPropostaArquivoMock(async () => {
+      chamadas++;
+      await portao;
+      return LEITURA_BOA;
+    });
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const a1 = sugerirDeAnexo(projeto.id, id, ana, { provedor });
+    await vi.waitFor(() => expect(chamadas).toBe(1));
+    expect(await sugerirDeAnexo(projeto.id, id, bia, { provedor })).toMatchObject({ ok: false, erro: "SEM_CANETA" });
+    expect(leiturasEmAndamento()).toBe(1);
+    expect(chamadas).toBe(1);
+    soltar();
+    expect((await a1).ok).toBe(true);
+    expect(leiturasEmAndamento()).toBe(0);
   });
 
   it("sem proposta, anexo de outro projeto ou excluído, projeto inexistente: recusa sem chamar o LLM", async () => {
@@ -219,10 +253,18 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
   });
 
   it("limite de leituras simultâneas: 1 por pessoa e 2 no total; a vaga volta no fim (também na falha)", async () => {
-    const { ana, gil, projeto } = await semear();
-    const gestora = await db.usuario.create({ data: { nome: "Gina", email: "gina@ij.test", papel: "GESTOR" } });
+    const { ana, bia, projeto } = await semear();
+    const carla = await db.usuario.create({ data: { nome: "Carla", email: "carla@ij.test", papel: "VENDEDOR" } });
     await criarProposta(projeto.id, ana);
     const id = await anexo(projeto.id, "p.md", new TextEncoder().encode("texto"), ana);
+    // Cada pessoa com a caneta da PRÓPRIA proposta (responsável de vendas → caneta).
+    const deOutra = async (resp: { id: string; papel: Papel }) => {
+      const p = await db.projeto.create({ data: { pipelineId: projeto.pipelineId, faseId: projeto.faseId, titulo: `Projeto de ${resp.id}`, responsavelId: resp.id, criadoVia: "UI" } });
+      await criarProposta(p.id, resp);
+      return { pid: p.id, aid: await anexo(p.id, "p.md", new TextEncoder().encode(`texto ${resp.id}`), resp) };
+    };
+    const daBia = await deOutra(bia);
+    const daCarla = await deOutra(carla);
     let soltar!: () => void;
     const portao = new Promise<void>((ok) => (soltar = ok));
     let chamadas = 0;
@@ -233,7 +275,7 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
     });
     vi.spyOn(console, "info").mockImplementation(() => {});
     const a1 = sugerirDeAnexo(projeto.id, id, ana, { provedor });
-    const g1 = sugerirDeAnexo(projeto.id, id, gil, { provedor });
+    const g1 = sugerirDeAnexo(daBia.pid, daBia.aid, bia, { provedor });
     await vi.waitFor(() => expect(chamadas).toBe(2));
     expect(leiturasEmAndamento()).toBe(2);
     expect(await sugerirDeAnexo(projeto.id, id, ana, { provedor })).toEqual({
@@ -241,7 +283,7 @@ describe("sugerir a partir de anexo (GAB-90)", () => {
       erro: "OCUPADO",
       mensagem: "Você já tem uma leitura de arquivo em andamento. Espere ela terminar antes de pedir outra.",
     });
-    expect(await sugerirDeAnexo(projeto.id, id, gestora, { provedor })).toMatchObject({ ok: false, erro: "OCUPADO", mensagem: expect.stringMatching(/Já há 2 leituras/) });
+    expect(await sugerirDeAnexo(daCarla.pid, daCarla.aid, carla, { provedor })).toMatchObject({ ok: false, erro: "OCUPADO", mensagem: expect.stringMatching(/Já há 2 leituras/) });
     expect(chamadas).toBe(2);
     soltar();
     expect((await a1).ok).toBe(true);

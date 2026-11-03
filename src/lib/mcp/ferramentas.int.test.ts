@@ -475,6 +475,9 @@ describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
     const p = await db.projeto.findUniqueOrThrow({ where: { id } });
     expect(p).toMatchObject({ faseId: fase(vendas, "perdido").id, motivoPerda: "Outro: Proposta inviável: Escopo fora do que entregamos" });
     expect(await db.timeline.count({ where: { projetoId: id, tipo: "MOVIMENTACAO", viaMcp: true } })).toBe(1);
+  });
+});
+
 describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tela", () => {
   const LEITURA = {
     valor_total: { valor: "20000.00", confianca: 0.95, trecho: "Total: R$ 20.000,00" },
@@ -532,15 +535,19 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     expect(await db.logLlm.count()).toBe(2);
   });
 
-  it("quem não edita a proposta (projetos, outro vendedor) é recusado antes de gastar com a IA", async () => {
-    const { id, anexoId, projetos } = await comAnexo();
+  it("sem caneta (projetos, outro vendedor, gestor) é recusado antes de gastar com a IA, nos dois caminhos; nada gravado", async () => {
+    const { id, anexoId, projetos, gestor } = await comAnexo();
     const outro = await db.usuario.create({ data: { nome: "Beto", email: "beto@ij.test", papel: "VENDEDOR" } });
     const chamado = vi.fn(() => LEITURA);
     definirPropostaArquivoMock(chamado);
-    for (const quem of [projetos, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
-      expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId }, quem))).toMatch(/Só quem é de vendas e responsável/);
+    for (const quem of [projetos, gestor, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
+      expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId }, quem))).toMatch(/não está com a caneta/);
+      // aplicar sem caneta (revisão certa): SEM_CANETA, nada gravado
+      expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 0 }, quem))).toMatch(/não está com a caneta/);
     }
     expect(chamado).not.toHaveBeenCalled();
+    expect(await db.logLlm.count()).toBe(0);
+    expect(await db.proposta.findFirstOrThrow()).toMatchObject({ revisao: 0, rascunhoViaMcp: false });
   });
 
   it("falha da IA: erro com ref (a mesma do log do servidor) e o rascunho intacto", async () => {

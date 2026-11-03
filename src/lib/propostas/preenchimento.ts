@@ -7,7 +7,8 @@
  * sempre (`salvarRascunho`: permissão + revisão otimista) — então falha do LLM
  * nunca toca o rascunho, e aplicar sobre uma revisão velha é CONFLITO.
  *
- * - Permissão: a mesma de editar a proposta (`podeEditarProposta`, usuário
+ * - Permissão: a mesma de editar o rascunho — estar com a caneta, com o
+ *   pingue-pongue em curso (`podeEditarProposta` de `caneta.ts`, usuário
  *   relido do banco), conferida ANTES de gastar com o LLM.
  * - PDF digital/.docx/.md/.txt: o texto extraído no upload (GAB-84) vira o
  *   texto do rascunho; o LLM só preenche a parte estruturada.
@@ -37,7 +38,9 @@ import { lerPropostaDeArquivo, type EntradaLeitura } from "@/lib/llm/proposta-ar
 import { ErroLlm, type ArquivoLlm, type ProvedorLlm } from "@/lib/llm/tipos";
 import { MARKDOWN_MAX } from "./documento";
 import { documentoParaMarkdown, markdownParaDocumento } from "./markdown";
-import { MENSAGEM_ERRO_PROPOSTA, podeEditarProposta } from "./regras";
+import { podeEditarProposta, STATUS_COM_CANETA } from "./caneta";
+import { pessoaDaCaneta } from "./propostas";
+import { MENSAGEM_ERRO_PROPOSTA } from "./regras";
 import { interpretarLeitura, type Sugestao } from "./sugestao";
 
 type Ator = { id: string };
@@ -45,7 +48,10 @@ type Ator = { id: string };
 export type ErroPreenchimento =
   | "PROJETO_NAO_ENCONTRADO"
   | "PROPOSTA_NAO_ENCONTRADA"
-  | "SEM_PERMISSAO"
+  /** Caneta (GAB-87): só o dono, com o pingue-pongue em curso, edita — e só ele usa arquivo como base. */
+  | "SEM_CANETA"
+  | "PROPOSTA_PRONTA"
+  | "PROPOSTA_ENCERRADA"
   | "ANEXO_NAO_ENCONTRADO"
   | "SEM_CONTEUDO"
   | "LONGO_DEMAIS"
@@ -68,7 +74,9 @@ type ErroFixo = Exclude<ErroPreenchimento, "FALHA_LEITURA" | "PAGINAS_DEMAIS" | 
 const MENSAGEM: Record<ErroFixo, string> = {
   PROJETO_NAO_ENCONTRADO: MENSAGEM_ERRO_PROPOSTA.PROJETO_NAO_ENCONTRADO,
   PROPOSTA_NAO_ENCONTRADA: "Crie a proposta antes de usar um arquivo como base.",
-  SEM_PERMISSAO: MENSAGEM_ERRO_PROPOSTA.SEM_PERMISSAO,
+  SEM_CANETA: MENSAGEM_ERRO_PROPOSTA.SEM_CANETA,
+  PROPOSTA_PRONTA: MENSAGEM_ERRO_PROPOSTA.PROPOSTA_PRONTA,
+  PROPOSTA_ENCERRADA: MENSAGEM_ERRO_PROPOSTA.PROPOSTA_ENCERRADA,
   ANEXO_NAO_ENCONTRADO: "Anexo não encontrado neste projeto (pode ter sido excluído). Recarregue a página.",
   SEM_CONTEUDO: "Não há texto neste arquivo para usar como base.",
   LONGO_DEMAIS: "O texto deste arquivo passa do tamanho máximo da proposta (100 mil caracteres).",
@@ -132,11 +140,19 @@ const falha = (erro: ErroFixo): ResultadoSugestao => ({ ok: false, erro, mensage
 const canonico = (md: string) => documentoParaMarkdown(markdownParaDocumento(md));
 
 export async function sugerirDeAnexo(projetoId: string, anexoId: string, ator: Ator, opts: { provedor?: ProvedorLlm } = {}): Promise<ResultadoSugestao> {
-  const projeto = await db.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true, responsavelId: true, proposta: { select: { id: true } } } });
+  const projeto = await db.projeto.findFirst({
+    where: { id: projetoId, deletadoEm: null },
+    select: { id: true, proposta: { select: { status: true, canetaComId: true, canetaLado: true } } },
+  });
   if (!projeto) return falha("PROJETO_NAO_ENCONTRADO");
-  const pessoa = await db.usuario.findUnique({ where: { id: ator.id }, select: { id: true, papel: true, area: true, cargos: true, ativo: true } });
-  if (!pessoa || !pessoa.ativo || !podeEditarProposta(pessoa, projeto)) return falha("SEM_PERMISSAO");
-  if (!projeto.proposta) return falha("PROPOSTA_NAO_ENCONTRADA");
+  const estado = projeto.proposta;
+  if (!estado) return falha("PROPOSTA_NAO_ENCONTRADA");
+  // Mesma regra do rascunho (`salvarRascunho`): o dono da caneta, pingue-pongue em curso.
+  // Conferida ANTES da vaga e do LLM: quem não pode editar não gasta nem ocupa vaga.
+  if (estado.status === "PRONTA_PARA_ENVIO") return falha("PROPOSTA_PRONTA");
+  if (!STATUS_COM_CANETA.includes(estado.status)) return falha("PROPOSTA_ENCERRADA");
+  const pessoa = await pessoaDaCaneta(ator.id);
+  if (!pessoa || !podeEditarProposta(pessoa, estado)) return falha("SEM_CANETA");
   const anexo = await db.anexo.findFirst({
     where: { id: anexoId, projetoId, deletadoEm: null },
     select: { id: true, nome: true, tipo: true, semTexto: true, texto: true },
