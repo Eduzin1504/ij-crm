@@ -208,5 +208,18 @@ describe("PainelProposta", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível passar a caneta. Erro no servidor. (ref: beef0001)");
       expect(refresh).not.toHaveBeenCalled();
     });
+
+    it("ação de caneta devolve a revisão nova e o editor a adota (sem conflito falso na próxima digitação)", async () => {
+      acoes.passarCanetaAction.mockResolvedValue({ ok: true, revisao: 9 });
+      acoes.salvarTextoAction.mockResolvedValue({ ok: true, revisao: 10 });
+      montarComCaneta();
+      fireEvent.click(screen.getByRole("button", { name: "Passar a caneta" }));
+      fireEvent.change(screen.getByLabelText("Passar para"), { target: { value: "bia" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      fireEvent.change(screen.getByLabelText("texto"), { target: { value: "depois" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 9, expect.anything());
+    });
   });
 });

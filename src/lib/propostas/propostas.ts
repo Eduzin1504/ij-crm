@@ -155,15 +155,19 @@ function exigirAcao(acao: AcaoCaneta, pessoa: Pessoa | null, estado: EstadoCanet
 
 /**
  * Troca quem está com a caneta: fecha o período aberto e abre o de `para`
- * (null = ninguém). Pressupõe o lock da proposta.
+ * (null = ninguém). Pressupõe o lock da proposta. INCREMENTA a revisão: toda
+ * mudança de caneta/status invalida bases antigas (um autosave em voo da aba
+ * de quem passou a caneta vira CONFLITO, nunca escrita sem caneta). Devolve a revisão nova.
  */
-async function trocarCaneta(tx: Tx, propostaId: string, para: { id: string } | null, lado: Area, agora: Date, extra: Prisma.PropostaUpdateInput = {}) {
+async function trocarCaneta(tx: Tx, propostaId: string, para: { id: string } | null, lado: Area, agora: Date, extra: Prisma.PropostaUpdateInput = {}): Promise<number> {
   await tx.propostaCaneta.updateMany({ where: { propostaId, fim: null }, data: { fim: agora } });
   if (para) await tx.propostaCaneta.create({ data: { propostaId, usuarioId: para.id, lado, inicio: agora } });
-  await tx.proposta.update({
+  const p = await tx.proposta.update({
     where: { id: propostaId },
-    data: { canetaCom: para ? { connect: { id: para.id } } : { disconnect: true }, canetaLado: lado, atualizadoEm: agora, ...extra },
+    data: { canetaCom: para ? { connect: { id: para.id } } : { disconnect: true }, canetaLado: lado, atualizadoEm: agora, revisao: { increment: 1 }, ...extra },
+    select: { revisao: true },
   });
+  return p.revisao;
 }
 
 function conteudoParaMarkdown(c: ConteudoEntrada): string {
@@ -407,6 +411,8 @@ export async function salvarRascunho(
   ator: Ator,
 ): Promise<Resultado<{ revisao: number; mudou: boolean; markdown: string; estruturado: Estruturado }>> {
   return emTransacao(async (tx) => {
+    // Mesmo lock das passagens de caneta: o autosave nunca corre junto com devolver/concordar/pegar.
+    await travarProposta(tx, projetoId);
     const r = await aplicarRascunho(tx, projetoId, m, ator);
     return { ok: true as const, revisao: r.revisao, mudou: r.mudou, markdown: r.markdown, estruturado: r.estruturado };
   });
@@ -468,7 +474,8 @@ async function gravarVersao(
 
 // ---------------------------------------------------------------- caneta e pingue-pongue (GAB-87)
 
-type ResultadoCaneta = Resultado<{ status: StatusProposta; canetaComId: string | null; canetaComNome: string | null; numero?: number; revisao?: number }>;
+/** `revisao` = a nova (toda ação de caneta a incrementa): quem continua editando adota esta. */
+type ResultadoCaneta = Resultado<{ status: StatusProposta; canetaComId: string | null; canetaComNome: string | null; numero?: number; revisao: number }>;
 
 /** Destino escolhido (relido): `null` = não existe. */
 async function lerAlvo(tx: Tx, paraId: string): Promise<PessoaLida | null> {
@@ -497,10 +504,10 @@ export async function passarCaneta(projetoId: string, paraId: string, ator: Ator
     exigirAcao("passar", pessoa, estado, alvo);
     const lado = ladoDaCaneta(estado);
     const agora = new Date();
-    await trocarCaneta(tx, proposta.id, alvo!, lado, agora);
+    const revisao = await trocarCaneta(tx, proposta.id, alvo!, lado, agora);
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "caneta_passada", paraId: alvo!.id, paraNome: alvo!.nome, lado });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "passou", porId: ator.id, paraId: alvo!.id, lado, status: proposta.status };
-    return { ok: true as const, status: proposta.status, canetaComId: alvo!.id, canetaComNome: alvo!.nome, aviso };
+    return { ok: true as const, status: proposta.status, canetaComId: alvo!.id, canetaComNome: alvo!.nome, revisao, aviso };
   });
   return comAviso(r);
 }
@@ -526,17 +533,19 @@ export async function devolverProposta(projetoId: string, m: MudancaRascunho & {
     const ultima = await ultimaVersao(tx, proposta.id);
     const agora = new Date();
     let numero: number;
-    if (ultima && mesmoConteudo(ultima, rasc)) {
-      if (ultima.autorLado === outro) falhar("DEVOLVER_SEM_MUDANCAS");
-      numero = ultima.numero;
+    if (ultima && mesmoConteudo(ultima, rasc) && ultima.autorLado === outro) falhar("DEVOLVER_SEM_MUDANCAS");
+    if (ultima && mesmoConteudo(ultima, rasc) && ultima.autorLado === meu) {
+      numero = ultima.numero; // já entregue por este lado: só passa a caneta
     } else {
+      // Mudou, ou a última versão não tem lado (gestão, antes da caneta): versão nova com o lado de quem devolve —
+      // senão nenhum dos dois lados conseguiria concordar com ela.
       numero = await gravarVersao(tx, projetoId, rasc, ultima, nota, ator, agora);
     }
     const status = statusAoReceber(outro);
-    await trocarCaneta(tx, proposta.id, alvo!, outro, agora, { status });
+    const revisao = await trocarCaneta(tx, proposta.id, alvo!, outro, agora, { status });
     await registrarCaneta(tx, projetoId, ator, new Date(agora.getTime() + 1), { evento: "devolvida", numero, paraId: alvo!.id, paraNome: alvo!.nome, lado: outro });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "devolveu", porId: ator.id, paraId: alvo!.id, lado: outro, status, numero };
-    return { ok: true as const, status, canetaComId: alvo!.id, canetaComNome: alvo!.nome, numero, revisao: rasc.revisao, aviso };
+    return { ok: true as const, status, canetaComId: alvo!.id, canetaComNome: alvo!.nome, numero, revisao, aviso };
   });
   return comAviso(r);
 }
@@ -566,10 +575,10 @@ export async function concordarProposta(projetoId: string, revisao: number, ator
     }
     const agora = new Date();
     const status: StatusProposta = "PRONTA_PARA_ENVIO";
-    await trocarCaneta(tx, proposta.id, dono, "VENDAS", agora, { status });
+    const nova = await trocarCaneta(tx, proposta.id, dono, "VENDAS", agora, { status });
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "concordou", numero: ultima.numero, lado: ladoDaCaneta(estado), paraId: dono?.id ?? null, paraNome: dono?.nome ?? null });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "concordou", porId: ator.id, paraId: dono?.id ?? null, lado: "VENDAS", status, numero: ultima.numero };
-    return { ok: true as const, status, canetaComId: dono?.id ?? null, canetaComNome: dono?.nome ?? null, numero: ultima.numero, aviso };
+    return { ok: true as const, status, canetaComId: dono?.id ?? null, canetaComNome: dono?.nome ?? null, numero: ultima.numero, revisao: nova, aviso };
   });
   return comAviso(r);
 }
@@ -584,10 +593,10 @@ export async function pegarCaneta(projetoId: string, ator: Ator): Promise<Result
     const lado = ladoDaCaneta(estado);
     const de = estado.canetaComId ? await lerPessoa(tx, estado.canetaComId) : null;
     const agora = new Date();
-    await trocarCaneta(tx, proposta.id, pessoa!, lado, agora);
+    const revisao = await trocarCaneta(tx, proposta.id, pessoa!, lado, agora);
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "caneta_pega", deId: de?.id ?? null, deNome: de?.nome ?? null, lado });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "pegou", porId: ator.id, paraId: pessoa!.id, lado, status: proposta.status };
-    return { ok: true as const, status: proposta.status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, aviso };
+    return { ok: true as const, status: proposta.status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, revisao, aviso };
   });
   return comAviso(r);
 }
@@ -601,10 +610,10 @@ export async function reabrirProposta(projetoId: string, ator: Ator): Promise<Re
     exigirAcao("reabrir", pessoa, estado);
     const status = statusAoReceber(ladoDaCaneta(estado));
     const agora = new Date();
-    await tx.proposta.update({ where: { id: proposta.id }, data: { status, atualizadoEm: agora } });
+    const { revisao } = await tx.proposta.update({ where: { id: proposta.id }, data: { status, atualizadoEm: agora, revisao: { increment: 1 } }, select: { revisao: true } });
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "reaberta" });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "reabriu", porId: ator.id, paraId: pessoa!.id, lado: ladoDaCaneta(estado), status };
-    return { ok: true as const, status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, aviso };
+    return { ok: true as const, status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, revisao, aviso };
   });
   return comAviso(r);
 }
@@ -635,7 +644,7 @@ export async function marcarInviavel(projetoId: string, motivoBruto: string, ato
     if (!perdido || perdido.arquivadaEm || perdido.pipelineId !== op.pipelineId || perdido.tipoTerminal !== "PERDIDO") falhar("FASE_PERDIDO_INDISPONIVEL");
     const agora = new Date();
     const status: StatusProposta = "INVIAVEL";
-    await trocarCaneta(tx, proposta.id, null, ladoDaCaneta(estado), agora, { status, motivoInviavel: motivo });
+    const revisao = await trocarCaneta(tx, proposta.id, null, ladoDaCaneta(estado), agora, { status, motivoInviavel: motivo });
     await registrarCaneta(tx, projetoId, ator, agora, { evento: "inviavel", motivo });
     await registrarMovimento(tx, {
       projetoId,
@@ -648,7 +657,7 @@ export async function marcarInviavel(projetoId: string, motivoBruto: string, ato
       dadosTerminal: { motivo: "outro", detalhe: `Proposta inviável: ${motivo}` },
     });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "inviavel", porId: ator.id, paraId: null, lado: null, status };
-    return { ok: true as const, status, canetaComId: null, canetaComNome: null, aviso };
+    return { ok: true as const, status, canetaComId: null, canetaComNome: null, revisao, aviso };
   });
   return comAviso(r);
 }

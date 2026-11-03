@@ -122,6 +122,9 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
               // Sem `key` por revisão: o `router.refresh()` depois de salvar versão não pode
               // remontar o editor (perderia o que a pessoa digitou entretanto). O painel
               // guarda a própria revisão; conflito com quem gravou depois aparece nele.
+              // `key` pela caneta/status (GAB-87): quando a caneta muda de mão ou o status
+              // muda, o editor remonta com a revisão nova (a mudança incrementou a revisão).
+              key={`${proposta.canetaComId}:${proposta.status}`}
               projetoId={projeto.id}
               revisao={proposta.revisao}
               documento={markdownParaDocumento(proposta.conteudoMd)}

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Area, Cargo, Papel } from "@prisma/client";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
+import { atualizarUsuario } from "@/lib/auth/usuarios";
+import { moverCard } from "@/lib/projetos/projetos";
 import { aoMudarCaneta, type EventoCaneta } from "./avisos";
 import {
   concordarProposta,
@@ -52,6 +54,8 @@ async function semear() {
 }
 
 const proposta = (projetoId: string) => db.proposta.findUniqueOrThrow({ where: { projetoId } });
+/** Revisão atual (toda ação de caneta a incrementa). */
+const rev = async (projetoId: string) => (await proposta(projetoId)).revisao;
 const eventos = async (projetoId: string) =>
   (await db.timeline.findMany({ where: { projetoId, tipo: "PROPOSTA" }, orderBy: { em: "asc" } })).map((t) => (t.payload as { evento: string }).evento);
 
@@ -75,7 +79,8 @@ describe("caneta ao criar: o pingue-pongue começa em vendas", () => {
     expect(await criarProposta(p.id, gil)).toMatchObject({ ok: true, canetaComId: null });
     expect(await salvarRascunho(p.id, { revisao: 0, conteudo: { markdown: "x" } }, gil)).toEqual({ ok: false, erro: "SEM_CANETA" });
     expect(await pegarCaneta(p.id, gv)).toMatchObject({ ok: true, canetaComId: gv.id });
-    expect((await salvarRascunho(p.id, { revisao: 0, conteudo: { markdown: "x" } }, gv)).ok).toBe(true);
+    expect((await salvarRascunho(p.id, { revisao: 0, conteudo: { markdown: "x" } }, gv))).toMatchObject({ ok: false, erro: "CONFLITO" }); // pegar mudou a revisão
+    expect((await salvarRascunho(p.id, { revisao: await rev(p.id), conteudo: { markdown: "x" } }, gv)).ok).toBe(true);
   });
 });
 
@@ -86,14 +91,14 @@ describe("pingue-pongue: devolver ⇄ devolver → concordar = pronta para envio
 
     // vendas devolve (salva v1 com o que está no editor) para Paula
     const d1 = await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "Site com 5 páginas." }, paraId: paula.id, nota: "primeira" }, ana);
-    expect(d1).toMatchObject({ ok: true, status: "EM_ANALISE", canetaComId: paula.id, canetaComNome: "Paula", numero: 1, revisao: 1 });
+    expect(d1).toMatchObject({ ok: true, status: "EM_ANALISE", canetaComId: paula.id, canetaComNome: "Paula", numero: 1, revisao: 2 }); // v1 (rascunho) + caneta
     expect(await proposta(projeto.id)).toMatchObject({ status: "EM_ANALISE", canetaComId: paula.id, canetaLado: "PROJETOS" });
     // Ana não edita mais; Paula edita
-    expect(await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "de Ana" } }, ana)).toEqual({ ok: false, erro: "SEM_CANETA" });
-    expect((await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "Site com 8 páginas." } }, paula)).ok).toBe(true);
+    expect(await salvarRascunho(projeto.id, { revisao: 2, conteudo: { markdown: "de Ana" } }, ana)).toEqual({ ok: false, erro: "SEM_CANETA" });
+    expect((await salvarRascunho(projeto.id, { revisao: 2, conteudo: { markdown: "Site com 8 páginas." } }, paula)).ok).toBe(true);
 
     // projetos devolve (v2, lado projetos) para Ana → em ajuste
-    const d2 = await devolverProposta(projeto.id, { revisao: 2, paraId: ana.id }, paula);
+    const d2 = await devolverProposta(projeto.id, { revisao: 3, paraId: ana.id }, paula);
     expect(d2).toMatchObject({ ok: true, status: "EM_AJUSTE", canetaComId: ana.id, numero: 2 });
     const versoes = await db.propostaVersao.findMany({ orderBy: { numero: "asc" } });
     expect(versoes.map((v) => [v.numero, v.autorLado, v.conteudoMd])).toEqual([
@@ -107,10 +112,10 @@ describe("pingue-pongue: devolver ⇄ devolver → concordar = pronta para envio
     expect(diff!.texto[0]).toMatchObject({ tipo: "alterada" });
 
     // concorda sem editar → pronta para envio, caneta fica com vendas
-    expect(await concordarProposta(projeto.id, 2, ana)).toMatchObject({ ok: true, status: "PRONTA_PARA_ENVIO", canetaComId: ana.id, numero: 2 });
+    expect(await concordarProposta(projeto.id, 4, ana)).toMatchObject({ ok: true, status: "PRONTA_PARA_ENVIO", canetaComId: ana.id, numero: 2, revisao: 5 });
     expect(await proposta(projeto.id)).toMatchObject({ status: "PRONTA_PARA_ENVIO", canetaComId: ana.id, canetaLado: "VENDAS" });
     // pronta: ninguém edita sem reabrir
-    expect(await salvarRascunho(projeto.id, { revisao: 2, conteudo: { markdown: "mexi" } }, ana)).toEqual({ ok: false, erro: "PROPOSTA_PRONTA" });
+    expect(await salvarRascunho(projeto.id, { revisao: 5, conteudo: { markdown: "mexi" } }, ana)).toEqual({ ok: false, erro: "PROPOSTA_PRONTA" });
 
     expect(await eventos(projeto.id)).toEqual(["criada", "versao_salva", "devolvida", "versao_salva", "devolvida", "concordou"]);
     const periodos = await db.propostaCaneta.findMany({ orderBy: { inicio: "asc" } });
@@ -128,7 +133,7 @@ describe("pingue-pongue: devolver ⇄ devolver → concordar = pronta para envio
     const { ana, paula, projeto } = await semear();
     await criarProposta(projeto.id, ana);
     await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "ok assim" }, paraId: paula.id }, ana);
-    expect(await concordarProposta(projeto.id, 1, paula)).toMatchObject({ ok: true, status: "PRONTA_PARA_ENVIO", canetaComId: ana.id });
+    expect(await concordarProposta(projeto.id, await rev(projeto.id), paula)).toMatchObject({ ok: true, status: "PRONTA_PARA_ENVIO", canetaComId: ana.id });
     expect(await proposta(projeto.id)).toMatchObject({ canetaLado: "VENDAS", canetaComId: ana.id });
   });
 
@@ -137,7 +142,7 @@ describe("pingue-pongue: devolver ⇄ devolver → concordar = pronta para envio
     await criarProposta(projeto.id, ana);
     await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "ok" }, paraId: paula.id }, ana);
     await db.usuario.update({ where: { id: ana.id }, data: { ativo: false } });
-    expect(await concordarProposta(projeto.id, 1, paula)).toMatchObject({ ok: true, canetaComId: null });
+    expect(await concordarProposta(projeto.id, await rev(projeto.id), paula)).toMatchObject({ ok: true, canetaComId: null });
     expect(await pegarCaneta(projeto.id, gv)).toMatchObject({ ok: true, canetaComId: gv.id, status: "PRONTA_PARA_ENVIO" });
   });
 });
@@ -151,9 +156,9 @@ describe("recusas da máquina de estados (nada é gravado)", () => {
     expect(await concordarProposta(projeto.id, 1, ana)).toEqual({ ok: false, erro: "CONCORDAR_PROPRIA_VERSAO" });
     await devolverProposta(projeto.id, { revisao: 1, paraId: paula.id }, ana);
     // Paula mexeu no rascunho: concordar é sem editar
-    await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "v1 mexida" } }, paula);
-    expect(await concordarProposta(projeto.id, 2, paula)).toEqual({ ok: false, erro: "CONCORDAR_RASCUNHO_ALTERADO" });
-    expect(await concordarProposta(projeto.id, 1, paula)).toMatchObject({ ok: false, erro: "CONFLITO" });
+    await salvarRascunho(projeto.id, { revisao: 2, conteudo: { markdown: "v1 mexida" } }, paula);
+    expect(await concordarProposta(projeto.id, 3, paula)).toEqual({ ok: false, erro: "CONCORDAR_RASCUNHO_ALTERADO" });
+    expect(await concordarProposta(projeto.id, 2, paula)).toMatchObject({ ok: false, erro: "CONFLITO" });
     expect((await proposta(projeto.id)).status).toBe("EM_ANALISE");
   });
 
@@ -163,7 +168,7 @@ describe("recusas da máquina de estados (nada é gravado)", () => {
     await salvarVersao(projeto.id, { revisao: 0, conteudo: { markdown: "v1" } }, ana);
     expect(await devolverProposta(projeto.id, { revisao: 1, paraId: paula.id }, ana)).toMatchObject({ ok: true, numero: 1 });
     expect(await db.propostaVersao.count()).toBe(1);
-    expect(await devolverProposta(projeto.id, { revisao: 1, paraId: ana.id }, paula)).toEqual({ ok: false, erro: "DEVOLVER_SEM_MUDANCAS" });
+    expect(await devolverProposta(projeto.id, { revisao: 2, paraId: ana.id }, paula)).toEqual({ ok: false, erro: "DEVOLVER_SEM_MUDANCAS" });
   });
 
   it("devolver: destino tem de ser do outro lado, ativo e que edita; o rascunho mandado não fica gravado", async () => {
@@ -204,8 +209,8 @@ describe("passar e pegar", () => {
     expect(await passarCaneta(projeto.id, paula.id, ana)).toEqual({ ok: false, erro: "DESTINO_MESMO_LADO" });
     expect(await passarCaneta(projeto.id, ana.id, ana)).toEqual({ ok: false, erro: "DESTINO_MESMO_LADO" });
     expect(await passarCaneta(projeto.id, bia.id, ana)).toMatchObject({ ok: true, status: "RASCUNHO", canetaComId: bia.id });
-    expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, ana)).toEqual({ ok: false, erro: "SEM_CANETA" });
-    expect((await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, bia)).ok).toBe(true);
+    expect(await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "x" } }, ana)).toEqual({ ok: false, erro: "SEM_CANETA" });
+    expect((await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "x" } }, bia)).ok).toBe(true);
     expect(await eventos(projeto.id)).toEqual(["criada", "caneta_passada"]);
   });
 
@@ -232,13 +237,13 @@ describe("reabrir", () => {
     const { ana, paula, projeto } = await semear();
     await criarProposta(projeto.id, ana);
     await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "v1" }, paraId: paula.id }, ana);
-    await concordarProposta(projeto.id, 1, paula);
+    await concordarProposta(projeto.id, 2, paula);
     expect(await reabrirProposta(projeto.id, paula)).toEqual({ ok: false, erro: "SEM_CANETA" });
-    expect(await reabrirProposta(projeto.id, ana)).toMatchObject({ ok: true, status: "EM_AJUSTE" });
+    expect(await reabrirProposta(projeto.id, ana)).toMatchObject({ ok: true, status: "EM_AJUSTE", revisao: 4 });
     expect(await reabrirProposta(projeto.id, ana)).toEqual({ ok: false, erro: "REABRIR_SO_PRONTA" });
-    expect((await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "v1 com ajuste" } }, ana)).ok).toBe(true);
+    expect((await salvarRascunho(projeto.id, { revisao: 4, conteudo: { markdown: "v1 com ajuste" } }, ana)).ok).toBe(true);
     // a última versão é de vendas: não dá para concordar consigo mesmo
-    expect(await concordarProposta(projeto.id, 2, ana)).toEqual({ ok: false, erro: "CONCORDAR_PROPRIA_VERSAO" });
+    expect(await concordarProposta(projeto.id, 5, ana)).toEqual({ ok: false, erro: "CONCORDAR_PROPRIA_VERSAO" });
   });
 });
 
@@ -321,5 +326,118 @@ describe("diff, leitura e avisos", () => {
     }
     expect(recebidos).toEqual([expect.objectContaining({ acao: "devolveu", paraId: paula.id, lado: "PROJETOS", status: "EM_ANALISE", numero: 1 })]);
     expect((await proposta(projeto.id)).canetaComId).toBe(paula.id);
+  });
+});
+
+describe("corridas com o autosave (lock + revisão a cada mudança de caneta)", () => {
+  const ultimaVersao = (propostaId: string) => db.propostaVersao.findFirstOrThrow({ where: { propostaId }, orderBy: { numero: "desc" } });
+
+  it("autosave em voo + concordar (tela e MCP da mesma pessoa): se ficou pronta, o rascunho é a versão acordada", async () => {
+    for (let i = 0; i < 5; i++) {
+      await limparBanco(["proposta_caneta", "proposta_versao", "proposta", "transicao_fase", "timeline", "oportunidade", "fase", "pipeline", "sessao", "usuario"]);
+      const { ana, paula, projeto } = await semear();
+      await criarProposta(projeto.id, ana);
+      await devolverProposta(projeto.id, { revisao: 0, conteudo: { markdown: "v1 de vendas" }, paraId: paula.id }, ana);
+      await devolverProposta(projeto.id, { revisao: await rev(projeto.id), conteudo: { markdown: "v2 de projetos" }, paraId: ana.id }, paula);
+      const base = await rev(projeto.id);
+      const [auto, conc] = await Promise.all([salvarRascunho(projeto.id, { revisao: base, conteudo: { markdown: "digitado" } }, ana), concordarProposta(projeto.id, base, ana)]);
+      expect([auto.ok, conc.ok].filter(Boolean)).toHaveLength(1);
+      const p = await proposta(projeto.id);
+      if (p.status === "PRONTA_PARA_ENVIO") expect(p.conteudoMd).toBe((await ultimaVersao(p.id)).conteudoMd);
+      else expect(p.conteudoMd).toBe("digitado");
+    }
+  });
+
+  it("autosave em voo + devolver: nenhuma escrita sem caneta entra depois da passagem", async () => {
+    for (let i = 0; i < 5; i++) {
+      await limparBanco(["proposta_caneta", "proposta_versao", "proposta", "transicao_fase", "timeline", "oportunidade", "fase", "pipeline", "sessao", "usuario"]);
+      const { ana, paula, projeto } = await semear();
+      await criarProposta(projeto.id, ana);
+      await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "pronto para ir" } }, ana);
+      const [auto, dev] = await Promise.all([
+        salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "digitado depois" } }, ana),
+        devolverProposta(projeto.id, { revisao: 1, paraId: paula.id }, ana),
+      ]);
+      const p = await proposta(projeto.id);
+      if (dev.ok) {
+        expect(p.canetaComId).toBe(paula.id);
+        expect(auto).toMatchObject({ ok: false }); // CONFLITO ou SEM_CANETA, nunca gravado
+        expect(p.conteudoMd).toBe((await ultimaVersao(p.id)).conteudoMd);
+      } else {
+        expect(dev).toMatchObject({ erro: "CONFLITO" });
+        expect(auto.ok).toBe(true);
+        expect(p).toMatchObject({ canetaComId: ana.id, conteudoMd: "digitado depois" });
+      }
+    }
+  });
+
+  it("toda ação de caneta incrementa a revisão: a aba antiga de quem passou recebe conflito/sem caneta, nunca grava", async () => {
+    const { ana, bia, gv, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    expect(await passarCaneta(projeto.id, bia.id, ana)).toMatchObject({ ok: true, revisao: 1 });
+    expect(await pegarCaneta(projeto.id, gv)).toMatchObject({ ok: true, revisao: 2 });
+    expect(await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "x" } }, gv)).toMatchObject({ ok: false, erro: "CONFLITO" });
+  });
+});
+
+describe("versões sem lado (salvas pela gestão antes da caneta)", () => {
+  it("devolver sem mudança cria versão nova com o lado de quem devolve; o outro lado consegue concordar", async () => {
+    const { ana, gil, paula, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    const p = await proposta(projeto.id);
+    await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: p.conteudoMd, estruturado: p.estruturado ?? {}, autorId: gil.id, autorLado: null } });
+    expect(await concordarProposta(projeto.id, 0, ana)).toEqual({ ok: false, erro: "CONCORDAR_PROPRIA_VERSAO" });
+    expect(await devolverProposta(projeto.id, { revisao: 0, paraId: paula.id }, ana)).toMatchObject({ ok: true, numero: 2 });
+    expect(await ultimaVersaoLado(p.id)).toBe("VENDAS");
+    expect(await concordarProposta(projeto.id, await rev(projeto.id), paula)).toMatchObject({ ok: true, status: "PRONTA_PARA_ENVIO" });
+  });
+
+  async function ultimaVersaoLado(propostaId: string) {
+    return (await db.propostaVersao.findFirstOrThrow({ where: { propostaId }, orderBy: { numero: "desc" } })).autorLado;
+  }
+});
+
+describe("inviável tem volta: card reaberto pelo Kanban", () => {
+  it("sair de Perdido volta a proposta para Em ajuste, sem caneta (o GP de vendas pega), com Timeline", async () => {
+    const { ana, gp, gv, projeto, vendas } = await semear();
+    await criarProposta(projeto.id, ana);
+    await marcarInviavel(projeto.id, "caro demais", gp);
+    const antes = await rev(projeto.id);
+    expect(await moverCard(projeto.id, vendas.fases[0].id, ana)).toMatchObject({ ok: true, mudou: true });
+    expect(await proposta(projeto.id)).toMatchObject({ status: "EM_AJUSTE", canetaComId: null, canetaLado: "VENDAS", motivoInviavel: null, revisao: antes + 1 });
+    expect(await eventos(projeto.id)).toContain("reaberta_do_perdido");
+    expect(await pegarCaneta(projeto.id, gv)).toMatchObject({ ok: true, status: "EM_AJUSTE" });
+  });
+
+  it("card sem proposta inviável sai de Perdido sem mexer na proposta", async () => {
+    const { ana, projeto, vendas } = await semear();
+    await criarProposta(projeto.id, ana);
+    await moverCard(projeto.id, vendas.fases[1].id, ana, { dadosTerminal: { motivo: "preco" } });
+    const antes = await proposta(projeto.id);
+    await moverCard(projeto.id, vendas.fases[0].id, ana);
+    expect(await proposta(projeto.id)).toMatchObject({ status: antes.status, revisao: antes.revisao, canetaComId: ana.id });
+  });
+});
+
+describe("Gestão desativa ou troca o lado do dono da caneta", () => {
+  it("a caneta fica sem dono e o período fecha (o tempo com a caneta não infla)", async () => {
+    const { ana, gil, gv, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    expect(await atualizarUsuario(ana.id, { ativo: false }, gil)).toEqual({ ok: true });
+    expect(await proposta(projeto.id)).toMatchObject({ canetaComId: null, canetaLado: "VENDAS", revisao: 1 });
+    expect(await db.propostaCaneta.count({ where: { fim: null } })).toBe(0);
+    const tl = await db.timeline.findFirstOrThrow({ where: { projetoId: projeto.id, payload: { path: ["evento"], equals: "caneta_liberada" } } });
+    expect(tl.payload).toMatchObject({ deId: ana.id, deNome: "Ana", motivo: "desativado" });
+    expect(await pegarCaneta(projeto.id, gv)).toMatchObject({ ok: true });
+  });
+
+  it("mudou de lado: libera; mudança que mantém a pessoa apta (só nome) não mexe", async () => {
+    const { ana, gil, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    await atualizarUsuario(ana.id, { nome: "Ana Maria" }, gil);
+    expect((await proposta(projeto.id)).canetaComId).toBe(ana.id);
+    await atualizarUsuario(ana.id, { papel: "PROJETOS" }, gil);
+    expect(await proposta(projeto.id)).toMatchObject({ canetaComId: null });
+    expect((await db.timeline.findFirstOrThrow({ where: { payload: { path: ["evento"], equals: "caneta_liberada" } } })).payload).toMatchObject({ motivo: "mudou_de_lado" });
   });
 });

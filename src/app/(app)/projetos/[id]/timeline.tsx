@@ -272,6 +272,10 @@ function Descricao({
           return <>pegou a caneta da proposta{nome(p.deNome) ? <> (estava com {quem(p.deNome)})</> : null}</>;
         case "reaberta":
           return <>reabriu a proposta para ajuste</>;
+        case "reaberta_do_perdido":
+          return <>reabriu o card: a proposta inviável voltou para ajuste com vendas (o GP de vendas pega a caneta)</>;
+        case "caneta_liberada":
+          return <>a caneta da proposta ficou sem dono ({quem(p.deNome)} {p.motivo === "desativado" ? "foi desativado(a)" : "não é mais do lado"}); o GP do lado pega</>;
         case "inviavel":
           return (
             <>

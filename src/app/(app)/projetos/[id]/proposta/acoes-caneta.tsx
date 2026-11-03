@@ -50,6 +50,7 @@ export function AcoesCaneta({
   rotuloOutroLado,
   revisao,
   preparar,
+  aoConcluir,
 }: {
   projetoId: string;
   acoes: readonly AcaoCaneta[];
@@ -58,6 +59,8 @@ export function AcoesCaneta({
   rotuloOutroLado: string;
   revisao: number;
   preparar?: (acao: AcaoCaneta) => Promise<Preparo>;
+  /** Revisão nova devolvida pelo servidor (o editor adota antes do refresh). */
+  aoConcluir?: (revisao: number) => void;
 }) {
   const router = useRouter();
   const base = useId();
@@ -84,7 +87,7 @@ export function AcoesCaneta({
         setFalha({ texto: p.erro });
         return;
       }
-      const f = await executarAcao(() => {
+      const chamar = () => {
         switch (a) {
           case "passar":
             return passarCanetaAction(projetoId, paraId);
@@ -99,9 +102,16 @@ export function AcoesCaneta({
           case "inviavel":
             return marcarInviavelAction(projetoId, motivo);
         }
+      };
+      let revisaoNova: number | undefined;
+      const f = await executarAcao(async () => {
+        const r = await chamar();
+        if (r.ok === true) revisaoNova = r.revisao;
+        return r;
       }, VERBO[a]);
       setFalha(f);
       if (!f) {
+        if (revisaoNova !== undefined) aoConcluir?.(revisaoNova);
         setAberta(null);
         setNota("");
         setMotivo("");

@@ -256,7 +256,7 @@ export function PainelProposta({
         ) : null}
       </section>
 
-      {caneta ? <AcoesCaneta projetoId={projetoId} revisao={revisao} preparar={preparar} {...caneta} /> : null}
+      {caneta ? <AcoesCaneta projetoId={projetoId} revisao={revisao} preparar={preparar} aoConcluir={(r) => autosave.adotarRevisao(r)} {...caneta} /> : null}
     </div>
   );
 }

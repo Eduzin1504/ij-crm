@@ -1096,12 +1096,20 @@ Máquina de estados pura em `src/lib/propostas/caneta.ts`, aplicada no serviço
   ela → **Pronta para envio** (a caneta fica com vendas). **Reabrir** volta para
   Em ajuste. **Inviável** (GP de projetos ou dono do lado projetos, com motivo):
   status Inviável e o Projeto vai para Perdido pelo mesmo caminho do Kanban.
+- **Concorrência:** autosave, salvar versão e toda ação da caneta travam a
+  linha da proposta (`FOR UPDATE`), e toda mudança de caneta/status incrementa
+  `proposta.revisao` — um autosave em voo de quem acabou de passar a caneta vira
+  conflito, nunca escrita sem caneta. A tela adota a revisão nova devolvida.
+- **Inviável tem volta:** reabrir o card (sair de Perdido pelo Kanban) leva a
+  proposta para Em ajuste, sem ninguém com a caneta (o GP de vendas pega).
+- **Gestão desativa/troca o lado do dono:** a caneta fica sem dono e o período
+  fecha (`liberarCanetasDe`, `src/lib/propostas/caneta-banco.ts`).
 - **Tempo com a caneta**: cada posse é um período em `proposta_caneta`
   (`inicio`/`fim`; aberto = `fim` nulo). Somar por pessoa para o painel.
 - **Diff**: `/projetos/<id>/proposta/diff?de=&para=` (e `ver_diff_proposta`).
 - **Avisos** (GAB-88): `src/lib/propostas/avisos.ts` — o serviço chama
   `avisarCaneta` depois do commit; registre um ouvinte com `aoMudarCaneta`.
-- **Destravar na mão** (ex.: dono saiu e não há GP): dê o cargo GP a alguém do
+- **Destravar na mão** (ex.: ninguém com a caneta e não há GP): dê o cargo GP a alguém do
   lado na Gestão e peça para pegar — não edite `caneta_com_id` direto (o período
   em `proposta_caneta` ficaria aberto para a pessoa errada).
 - **Erros:** `[proposta.passarCaneta|devolver|concordar|pegarCaneta|reabrir|inviavel] ref=<ref>`.

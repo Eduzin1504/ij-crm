@@ -120,8 +120,8 @@ export async function salvarVersaoAction(
 
 // ---------------------------------------------------------------- caneta (GAB-87)
 
-/** Resposta das ações da caneta: a página recarrega (quem edita mudou). */
-export type RespostaCaneta = { ok: true } | { ok?: false; erro: string; conflito?: ConflitoUI } | Inesperado;
+/** Resposta das ações da caneta: a página recarrega (quem edita mudou); `revisao` = a nova (toda ação a incrementa). */
+export type RespostaCaneta = { ok: true; revisao: number } | { ok?: false; erro: string; conflito?: ConflitoUI } | Inesperado;
 
 const textoCurto = z.string().max(4000);
 
@@ -133,7 +133,7 @@ export async function passarCanetaAction(projetoId: string, paraId: string): Pro
     const r = await passarCaneta(projetoId, paraId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }
 
@@ -162,7 +162,7 @@ export async function devolverAction(
     );
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }
 
@@ -173,7 +173,7 @@ export async function concordarAction(projetoId: string, revisao: number): Promi
     const r = await concordarProposta(projetoId, revisao, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }
 
@@ -184,7 +184,7 @@ export async function pegarCanetaAction(projetoId: string): Promise<RespostaCane
     const r = await pegarCaneta(projetoId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }
 
@@ -195,7 +195,7 @@ export async function reabrirAction(projetoId: string): Promise<RespostaCaneta> 
     const r = await reabrirProposta(projetoId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }
 
@@ -206,6 +206,6 @@ export async function marcarInviavelAction(projetoId: string, motivo: string): P
     const r = await marcarInviavel(projetoId, motivo, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
-    return { ok: true };
+    return { ok: true, revisao: r.revisao };
   });
 }

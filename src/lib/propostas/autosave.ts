@@ -152,6 +152,15 @@ export class Autosave<Doc> {
     });
   }
 
+  /**
+   * Uma ação da caneta (GAB-87) incrementou a revisão no servidor sem mexer no
+   * texto: adota a nova, sem descartar o que estiver pendente (senão a próxima
+   * digitação de quem continua editando daria conflito falso).
+   */
+  adotarRevisao(revisao: number) {
+    this.revisao = revisao;
+  }
+
   /** Conflito resolvido carregando o do servidor: o texto local é descartado. */
   usarDoServidor(revisao: number) {
     this.revisao = revisao;

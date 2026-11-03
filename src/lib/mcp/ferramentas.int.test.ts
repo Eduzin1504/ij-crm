@@ -434,18 +434,20 @@ describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
       versao: 1,
     });
     // vendedora não edita mais pelo Claude; Paula sim
-    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 1, markdown: "x" }, vendedora))).toMatch(/não está com a caneta/);
+    // devolver passou a caneta (rev 1 → 2): toda passagem incrementa a revisão
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 2, markdown: "x" }, vendedora))).toMatch(/não está com a caneta/);
     expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, projetos)).acoesQueVocePode).toEqual(["passar_caneta_proposta", "devolver_proposta", "concordar_proposta", "marcar_proposta_inviavel"]);
-    await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 1, markdown: "Site com 8 páginas." }, projetos);
-    expect(dados(await executarFerramenta("devolver_proposta", { projeto_id: id, revisao: 2, para_id: vendedora.id }, projetos))).toMatchObject({ status: "Em ajuste", canetaCom: "Ana", versao: 2 });
+    expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, projetos)).revisao).toBe(2);
+    await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 2, markdown: "Site com 8 páginas." }, projetos);
+    expect(dados(await executarFerramenta("devolver_proposta", { projeto_id: id, revisao: 3, para_id: vendedora.id }, projetos))).toMatchObject({ status: "Em ajuste", canetaCom: "Ana", versao: 2 });
 
     const diff = dados(await executarFerramenta("ver_diff_proposta", { projeto_id: id }, vendedora));
     expect(diff).toMatchObject({ de: { versao: 1, lado: "Vendas" }, para: { versao: 2, lado: "Projetos" }, texto: "- Site com 5 páginas.\n+ Site com 8 páginas." });
     expect((await executarFerramenta("ver_diff_proposta", { projeto_id: id, de: 7 }, vendedora)).isError).toBe(true);
 
     // concordar com revisão velha → conflito; com a atual → pronta
-    expect(texto(await executarFerramenta("concordar_proposta", { projeto_id: id, revisao: 1 }, vendedora))).toMatch(/Use ler_proposta/);
-    expect(dados(await executarFerramenta("concordar_proposta", { projeto_id: id, revisao: 2 }, vendedora))).toMatchObject({ status: "Pronta para envio", canetaCom: "Ana" });
+    expect(texto(await executarFerramenta("concordar_proposta", { projeto_id: id, revisao: 3 }, vendedora))).toMatch(/Use ler_proposta/);
+    expect(dados(await executarFerramenta("concordar_proposta", { projeto_id: id, revisao: 4 }, vendedora))).toMatchObject({ status: "Pronta para envio", canetaCom: "Ana" });
     expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora))).toMatchObject({ status: "Pronta para envio", voceEdita: false, acoesQueVocePode: ["passar_caneta_proposta", "reabrir_proposta"] });
 
     const tl = await db.timeline.findMany({ where: { projetoId: id, tipo: "PROPOSTA" }, orderBy: { em: "asc" } });
