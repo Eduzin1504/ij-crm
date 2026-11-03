@@ -61,11 +61,12 @@ const CAMPOS_ESTRUTURADOS = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["titulo", "dia", "valor"],
+          required: ["titulo", "dia", "valor", "trecho"],
           properties: {
             titulo: { type: "string", description: "Nome da entrega/parcela." },
             dia: { anyOf: [{ type: "string" }, nulo], description: 'Data AAAA-MM-DD só se o documento traz dia, mês e ano; senão null.' },
             valor: { anyOf: [{ type: "string" }, nulo], description: 'Valor da parcela, decimal com ponto (ex.: "4000.00"); null se não há.' },
+            trecho: TRECHO,
           },
         },
       },
@@ -100,7 +101,7 @@ const estruturadoZod = {
   prazo_dias: campoZod(z.number().int()),
   escopo_resumo: campoZod(z.string()),
   entregas: z.strictObject({
-    itens: z.array(z.strictObject({ titulo: z.string(), dia: z.string().nullable(), valor: z.string().nullable() })),
+    itens: z.array(z.strictObject({ titulo: z.string(), dia: z.string().nullable(), valor: z.string().nullable(), trecho: z.string().nullable() })),
     confianca: z.number(),
   }),
 };
@@ -113,11 +114,11 @@ export type LeituraProposta = z.infer<typeof esquemaPropostaTexto> & { markdown?
 const REGRAS_CAMPOS = `Parte estruturada (todo campo tem "confianca" de 0 a 1 e "trecho"):
 - NUNCA invente nem estime. Se o documento não diz explicitamente, use valor null, confianca 0 e trecho null.
 - "trecho" é cópia literal e curta do documento que sustenta o valor. Sem trecho, não há valor.
-- Confiança alta (≥ 0.8) só quando o valor está escrito de forma direta e sem ambiguidade. Valor lido com dúvida (texto borrado, dois valores possíveis, conta que você teve de fazer): confiança baixa.
+- Confiança alta (≥ 0.8) só quando o valor está escrito de forma direta e sem ambiguidade. Valor lido com dúvida (texto borrado, dois valores possíveis) ou que exigiu conversão/conta sua: confiança no máximo 0.5.
 - valor_total: o valor total do projeto em reais, decimal com ponto, sem "R$" e sem separador de milhar ("12500.00"). Se só há parcelas, não some: deixe null.
-- prazo_dias: prazo total em dias corridos. "8 semanas" = 56; "3 meses" = 90 (confiança no máximo 0.7, porque mês é aproximado). Datas de início e fim explícitas: a diferença em dias.
+- prazo_dias: prazo total em dias corridos. Só é confiança alta se o documento já diz em dias ("60 dias"). "8 semanas" = 56, "3 meses" = 90 e datas de início/fim (a diferença em dias) são conversões: confiança no máximo 0.5.
 - escopo_resumo: resumo curto do que será entregue, só com o que está escrito.
-- entregas: cada entrega ou parcela do cronograma. "dia" só se houver dia, mês e ano explícitos (AAAA-MM-DD); "semana 3" ou "30 dias após o início" → null. "valor" só se a parcela tiver valor próprio.`;
+- entregas: cada entrega ou parcela do cronograma. "dia" só se houver dia, mês e ano explícitos (AAAA-MM-DD); "semana 3" ou "30 dias após o início" → null. "valor" só se a parcela tiver valor próprio. "trecho" de cada item: cópia literal da linha do cronograma; sem trecho, null.`;
 
 export const PROMPT_SISTEMA_PROPOSTA_TEXTO = `Você lê propostas comerciais de uma empresa júnior brasileira (consultoria/tecnologia) para preencher um CRM.
 

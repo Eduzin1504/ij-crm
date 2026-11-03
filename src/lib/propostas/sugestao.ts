@@ -5,7 +5,9 @@
  *
  * Regra central ("nunca inventado"): um campo só entra se veio com valor no
  * formato certo, com o trecho do documento que o sustenta e confiança ≥
- * `LIMIAR_CONFIANCA`. O resto fica vazio (ou com o valor que já estava no
+ * ACIMA de `LIMIAR_CONFIANCA` (estritamente: o prompt manda conversões como
+ * "3 meses" virem no máximo 0.5, e 0.7 exato também não passa). Cada entrega do
+ * cronograma precisa do PRÓPRIO trecho. O resto fica vazio (ou com o valor que já estava no
  * rascunho) e aparece em `revisar`, com o motivo e o que foi lido, para a
  * pessoa conferir.
  */
@@ -57,7 +59,8 @@ function dinheiro(v: string | null): string | null {
   return DECIMAL.test(t) ? valorParaCampo(Number(t).toFixed(2)) : null;
 }
 
-const confiavel = (c: { confianca: number; trecho: string | null }) => c.confianca >= LIMIAR_CONFIANCA && !!c.trecho?.trim();
+const acimaDoLimiar = (confianca: number) => confianca > LIMIAR_CONFIANCA;
+const confiavel = (c: { confianca: number; trecho: string | null }) => acimaDoLimiar(c.confianca) && !!c.trecho?.trim();
 
 function motivo(c: { valor: unknown; confianca: number; trecho: string | null }, valido: boolean): string {
   if (c.valor === null) return NAO_ENCONTRADO;
@@ -81,24 +84,28 @@ export function interpretarLeitura(l: LeituraProposta): { campos: CamposSugerido
 
   const e = l.escopo_resumo.valor?.replace(/\s+/g, " ").trim() || null;
   // Resumo não precisa de trecho literal (é síntese), só de confiança.
-  const escopoResumo = e !== null && l.escopo_resumo.confianca >= LIMIAR_CONFIANCA ? e.slice(0, ESCOPO_RESUMO_MAX) : null;
+  const escopoResumo = e !== null && acimaDoLimiar(l.escopo_resumo.confianca) ? e.slice(0, ESCOPO_RESUMO_MAX) : null;
   if (escopoResumo === null) marcar("escopoResumo", e === null ? NAO_ENCONTRADO : INCERTO, e, l.escopo_resumo.trecho);
 
   let entregas: EntregaForm[] | null = null;
   const itens = l.entregas.itens;
   if (itens.length === 0) marcar("entregas", NAO_ENCONTRADO, null, null);
-  else if (l.entregas.confianca < LIMIAR_CONFIANCA) marcar("entregas", INCERTO, itens.map((i) => i.titulo).join("; ").slice(0, 300), null);
+  else if (!acimaDoLimiar(l.entregas.confianca)) marcar("entregas", INCERTO, itens.map((i) => i.titulo).join("; ").slice(0, 300), null);
   else {
     const boas: EntregaForm[] = [];
     for (const i of itens) {
       const titulo = i.titulo.replace(/\s+/g, " ").trim().slice(0, TITULO_ENTREGA_MAX);
       const dia = i.dia?.trim() ?? "";
       if (!titulo || !diaValido(dia)) {
-        marcar("entregas", `entrega "${titulo || "sem nome"}" sem data completa (dia/mês/ano): não incluída`, titulo || null, null);
+        marcar("entregas", `entrega "${titulo || "sem nome"}" sem data completa (dia/mês/ano): não incluída`, titulo || null, i.trecho);
+        continue;
+      }
+      if (!i.trecho?.trim()) {
+        marcar("entregas", `entrega "${titulo}" ${SEM_TRECHO}: não incluída`, [titulo, dia, i.valor].filter(Boolean).join(" · "), null);
         continue;
       }
       const v = dinheiro(i.valor);
-      if (i.valor !== null && v === null) marcar("entregas", `entrega "${titulo}": valor em formato que não deu para usar`, i.valor, null);
+      if (i.valor !== null && v === null) marcar("entregas", `entrega "${titulo}": valor em formato que não deu para usar`, i.valor, i.trecho);
       boas.push({ titulo, dia, valor: v ?? "" });
     }
     entregas = boas.length > 0 ? boas.slice(0, ENTREGAS_MAX) : null;

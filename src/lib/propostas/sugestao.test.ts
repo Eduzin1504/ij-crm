@@ -17,8 +17,8 @@ describe("interpretarLeitura (GAB-90): só aplica o que o arquivo sustenta", () 
         escopo_resumo: { valor: "  Site   institucional ", confianca: 0.8, trecho: null },
         entregas: {
           itens: [
-            { titulo: "MVP", dia: "2026-12-15", valor: "4000.00" },
-            { titulo: "Final", dia: "2027-01-30", valor: null },
+            { titulo: "MVP", dia: "2026-12-15", valor: "4000.00", trecho: "MVP — 15/12/2026 — R$ 4.000,00" },
+            { titulo: "Final", dia: "2027-01-30", valor: null, trecho: "Final — 30/01/2027" },
           ],
           confianca: 0.9,
         },
@@ -72,9 +72,9 @@ describe("interpretarLeitura (GAB-90): só aplica o que o arquivo sustenta", () 
       leitura({
         entregas: {
           itens: [
-            { titulo: "Diagnóstico", dia: null, valor: null },
-            { titulo: "Relatório", dia: "2026-02-31", valor: null },
-            { titulo: "Entrega final", dia: "2026-12-01", valor: "abc" },
+            { titulo: "Diagnóstico", dia: null, valor: null, trecho: "Diagnóstico — semana 2" },
+            { titulo: "Relatório", dia: "2026-02-31", valor: null, trecho: "Relatório 31/02" },
+            { titulo: "Entrega final", dia: "2026-12-01", valor: "abc", trecho: "Entrega final 01/12/2026" },
           ],
           confianca: 0.9,
         },
@@ -89,9 +89,38 @@ describe("interpretarLeitura (GAB-90): só aplica o que o arquivo sustenta", () 
   });
 
   it("cronograma com confiança baixa: não aplica nenhuma entrega", () => {
-    const r = interpretarLeitura(leitura({ entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: null }], confianca: 0.5 } }));
+    const r = interpretarLeitura(leitura({ entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: null, trecho: "MVP 15/12" }], confianca: 0.5 } }));
     expect(r.campos.entregas).toBeNull();
     expect(r.revisar.find((i) => i.campo === "entregas")).toMatchObject({ motivo: "leitura incerta: confira no arquivo", lido: "MVP" });
+  });
+});
+
+describe("fronteira do limiar e trecho por entrega (revisão do PR #59)", () => {
+  it('"3 meses" (conversão, confiança 0.7 exata ou menos) NÃO é aplicado: vai para revisar', () => {
+    for (const confianca of [0.7, 0.5]) {
+      const r = interpretarLeitura(leitura({ prazo_dias: { valor: 90, confianca, trecho: "Prazo: 3 meses" } }));
+      expect(r.campos.prazoDias).toBeNull();
+      expect(r.revisar.find((i) => i.campo === "prazoDias")).toMatchObject({ motivo: "leitura incerta: confira no arquivo", lido: "90", trecho: "Prazo: 3 meses" });
+    }
+    expect(interpretarLeitura(leitura({ prazo_dias: { valor: 60, confianca: 0.71, trecho: "60 dias" } })).campos.prazoDias).toBe("60");
+    expect(interpretarLeitura(leitura({ escopo_resumo: { valor: "x", confianca: 0.7, trecho: null } })).campos.escopoResumo).toBeNull();
+    expect(interpretarLeitura(leitura({ entregas: { itens: [{ titulo: "A", dia: "2026-12-01", valor: null, trecho: "A" }], confianca: 0.7 } })).campos.entregas).toBeNull();
+  });
+
+  it("entrega sem trecho próprio não entra (nem a data nem o valor da parcela): vai para revisar", () => {
+    const r = interpretarLeitura(
+      leitura({
+        entregas: {
+          itens: [
+            { titulo: "MVP", dia: "2026-12-15", valor: "4000.00", trecho: null },
+            { titulo: "Final", dia: "2027-01-30", valor: "6000.00", trecho: "Final 30/01/2027 R$ 6.000" },
+          ],
+          confianca: 0.95,
+        },
+      }),
+    );
+    expect(r.campos.entregas).toEqual([{ titulo: "Final", dia: "2027-01-30", valor: "6.000,00" }]);
+    expect(r.revisar).toContainEqual({ campo: "entregas", motivo: 'entrega "MVP" sem trecho do arquivo que comprove: não incluída', lido: "MVP · 2026-12-15 · 4000.00", trecho: null });
   });
 });
 
