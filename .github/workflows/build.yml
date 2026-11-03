@@ -61,3 +61,11 @@ jobs:
           cd "$RUNNER_TEMP/standalone"
           node src/lib/anexos/pdf-filho.mjs < "$RUNNER_TEMP/ci.pdf" | tee "$RUNNER_TEMP/saida.json"
           grep -q '"paginas":\["Proposta do CI"\]' "$RUNNER_TEMP/saida.json"
+
+      # GAB-89: o PDF da proposta lê as fontes Inter do disco (src/lib/pdf/fontes.ts):
+      # elas só entram no standalone por `outputFileTracingIncludes`.
+      - name: Fontes do PDF no standalone
+        run: |
+          for f in Inter-Regular Inter-Bold Inter-Italic Inter-BoldItalic; do
+            test -s ".next/standalone/src/lib/pdf/fontes/$f.ttf" || { echo "faltou $f.ttf no standalone"; exit 1; }
+          done
