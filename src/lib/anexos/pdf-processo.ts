@@ -31,7 +31,7 @@ export type ResultadoPdf =
   | { tipo: "corrompido" }
   | { tipo: "falha"; motivo: string };
 
-export type OpcoesPdf = { textoMax: number; tempoMaxMs?: number; rssMaxBytes?: number };
+export type OpcoesPdf = { textoMax: number; tempoMaxMs?: number; rssMaxBytes?: number; soContar?: boolean };
 
 /**
  * Caminho do script do filho. Relativo ao diretório do app: no standalone o
@@ -61,7 +61,7 @@ function executar(bytes: Uint8Array, o: OpcoesPdf): Promise<ResultadoPdf> {
     const filho = spawn(process.execPath, ["--max-old-space-size=128", scriptDoFilho()], {
       stdio: ["pipe", "pipe", "pipe"],
       // Env mínimo: o filho não precisa (nem deve ver) DATABASE_URL e segredos.
-      env: { PATH: process.env.PATH ?? "", NODE_ENV: process.env.NODE_ENV, TEXTO_MAX: String(o.textoMax) } as NodeJS.ProcessEnv,
+      env: { PATH: process.env.PATH ?? "", NODE_ENV: process.env.NODE_ENV, TEXTO_MAX: String(o.textoMax), ...(o.soContar ? { SO_CONTAR: "1" } : {}) } as NodeJS.ProcessEnv,
     });
     let fim: ResultadoPdf | null = null;
     let fechou = false;
@@ -140,4 +140,13 @@ export function extrairPdfEmProcesso(bytes: Uint8Array, o: OpcoesPdf): Promise<R
   const vez = fila.then(() => executar(bytes, o));
   fila = vez.catch(() => {});
   return vez;
+}
+
+/**
+ * Só conta as páginas (GAB-90: teto de páginas antes de mandar um PDF
+ * escaneado ao modelo com visão). Mesmo filho, mesma fila e mesmos tetos de
+ * tempo/memória; não lê o texto. `{ tipo: "texto", total }` = nº de páginas.
+ */
+export function contarPaginasPdf(bytes: Uint8Array): Promise<ResultadoPdf> {
+  return extrairPdfEmProcesso(bytes, { textoMax: 1, soContar: true });
 }

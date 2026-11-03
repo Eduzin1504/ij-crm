@@ -65,6 +65,7 @@ import {
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import type { UsuarioMcp } from "./oauth";
+import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
 
 export type Resposta = { ok: true; dados: unknown } | { ok: false; erro: string };
@@ -815,6 +816,7 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   reabrirMcp,
   inviavelMcp,
   verDiffMcp,
+  preencherPropostaDeAnexo,
 ];
 
 function resultado(r: Resposta): CallToolResult {

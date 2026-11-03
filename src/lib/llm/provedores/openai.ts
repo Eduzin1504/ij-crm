@@ -85,25 +85,43 @@ function traduzirErro(e: unknown, uso: (r: OpenAI.Responses.Response) => UsoLlm)
   return { erro: new ErroLlm("REDE", { detalhe: { codigo: e instanceof Error ? e.name : typeof e } }), retentavel: false };
 }
 
+/**
+ * Só texto → string (como sempre). Com arquivo (GAB-90): uma mensagem com o
+ * texto e o arquivo inline — PDF como `input_file`, imagem como `input_image`
+ * (data URL; nada é enviado à Files API, nada fica guardado: `store: false`).
+ */
+function entrada(pedido: PedidoExtracao): string | OpenAI.Responses.ResponseInput {
+  const a = pedido.arquivo;
+  if (!a) return pedido.usuario;
+  const dataUrl = `data:${a.mime};base64,${a.base64}`;
+  const arquivo: OpenAI.Responses.ResponseInputContent =
+    a.mime === "application/pdf" ? { type: "input_file", filename: a.nome, file_data: dataUrl } : { type: "input_image", image_url: dataUrl, detail: "high" };
+  return [{ role: "user", content: [{ type: "input_text", text: pedido.usuario }, arquivo] }];
+}
+
 export function criarProvedorOpenAI({ apiKey, modelo, fetch, timeoutMs }: Opcoes): ProvedorLlm {
   const cliente = new OpenAI({ apiKey, timeout: timeoutMs ?? TIMEOUT_LLM_MS, maxRetries: 0, ...(fetch ? { fetch } : {}) });
 
   function chamar(pedido: PedidoExtracao, uso: (r: OpenAI.Responses.Response) => UsoLlm): Promise<OpenAI.Responses.Response> {
     return comRetentativa(
       async () => {
-        const r = await cliente.responses.create({
-          model: modelo,
-          instructions: pedido.sistema,
-          input: pedido.usuario,
-          max_output_tokens: pedido.maxTokens ?? MAX_TOKENS_EXTRACAO,
-          reasoning: { effort: "low" },
-          text: { format: { type: "json_schema", name: pedido.nome ?? "extracao", strict: true, schema: pedido.schema } },
-          store: false,
-        });
+        const r = await cliente.responses.create(
+          {
+            model: modelo,
+            instructions: pedido.sistema,
+            input: entrada(pedido),
+            max_output_tokens: pedido.maxTokens ?? MAX_TOKENS_EXTRACAO,
+            reasoning: { effort: "low" },
+            text: { format: { type: "json_schema", name: pedido.nome ?? "extracao", strict: true, schema: pedido.schema } },
+            store: false,
+          },
+          pedido.timeoutMs ? { timeout: pedido.timeoutMs } : undefined,
+        );
         if (r.status === "failed") throw new RespostaFalhou(r.error?.code ?? "desconhecido", r);
         return r;
       },
       (e) => traduzirErro(e, uso),
+      pedido.tentativas,
     );
   }
 

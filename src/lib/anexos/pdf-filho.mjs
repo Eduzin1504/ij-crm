@@ -8,6 +8,7 @@
  *
  * Protocolo: PDF inteiro pelo stdin; uma linha JSON no stdout:
  *   { "paginas": string[], "total": n }   texto por página (cortado em TEXTO_MAX no total)
+ *                                         (com SO_CONTAR=1: só abre e conta, `paginas` vazio — GAB-90)
  *   { "senha": true }                     PDF protegido por senha
  *   { "corrompido": true }                o pdf.js não abriu o arquivo
  *
@@ -38,7 +39,9 @@ try {
 } catch (e) {
   responder(e && e.name === "PasswordException" ? { senha: true } : { corrompido: true });
 }
-if (doc) {
+if (doc && process.env.SO_CONTAR === "1") {
+  responder({ paginas: [], total: doc.numPages });
+} else if (doc) {
   const paginas = [];
   let total = 0;
   // Página a página (e não `extractText` de tudo): para assim que o teto de texto enche.

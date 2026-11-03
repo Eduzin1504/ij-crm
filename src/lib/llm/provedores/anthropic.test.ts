@@ -49,6 +49,18 @@ describe("provedor Anthropic (SDK oficial, fetch falso)", () => {
     expect(TIMEOUT_LLM_MS).toBe(30_000);
   });
 
+  it("com arquivo (GAB-90): bloco document (PDF) ou image em base64, antes do texto", async () => {
+    const fetch = vi.fn().mockImplementation(async () => resposta(200, mensagem(JSON.stringify(FIXTURES_EXTRACAO[0].saida))));
+    await provedor(fetch).extrair({ ...PEDIDO, arquivo: { nome: "p.pdf", mime: "application/pdf" as const, base64: "JVBERi0=" } });
+    await provedor(fetch).extrair({ ...PEDIDO, arquivo: { nome: "f.png", mime: "image/png" as const, base64: "iVBORw==" } });
+    const corpo = (i: number) => JSON.parse((fetch.mock.calls[i] as [string, RequestInit])[1].body as string);
+    expect(corpo(0).messages[0].content).toEqual([
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "JVBERi0=" } },
+      { type: "text", text: "usuario" },
+    ]);
+    expect(corpo(1).messages[0].content[0]).toEqual({ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw==" } });
+  });
+
   it("4xx (400, 401, 429) não re-tenta", async () => {
     for (const status of [400, 401, 429]) {
       const fetch = vi.fn().mockResolvedValue(resposta(status, { type: "error", error: { type: "x", message: "detalhe com texto do usuário" } }));

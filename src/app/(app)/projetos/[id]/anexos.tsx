@@ -7,39 +7,17 @@ import { Button } from "@/components/ui/button";
 import { MensagemErro } from "@/components/erros/mensagem-erro";
 import { AcaoConfirmada } from "@/components/lixeira/acao-confirmada";
 import type { AnexoDoProjeto } from "@/lib/anexos/anexos";
-import { ANEXO_MAX_BYTES, EXTENSOES_ACEITAS, formatarTamanho, MENSAGEM_ERRO_ANEXO, ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
-import { FALHA_CONEXAO, type FalhaUI } from "@/lib/erros/cliente";
+import { enviarAnexo } from "@/lib/anexos/cliente";
+import { ANEXO_MAX_BYTES, EXTENSOES_ACEITAS, formatarTamanho, ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
+import type { FalhaUI } from "@/lib/erros/cliente";
 import { formatarDataHora } from "@/lib/projetos/formatar";
 import { excluirAnexoAction } from "../../_lixeira/actions";
 
 const IMAGEM = new Set(["PNG", "JPEG", "WEBP"]);
 
-/**
- * Upload pela rota (não por server action): limite próprio e erros em JSON
- * (src/app/api/projetos/[id]/anexos/route.ts). Tipo e tamanho são conferidos
- * de novo no servidor, pelos bytes; aqui o tamanho só evita subir à toa.
- */
 async function enviar(cardId: string, arquivo: File): Promise<FalhaUI | null> {
-  if (arquivo.size > ANEXO_MAX_BYTES) return { texto: MENSAGEM_ERRO_ANEXO.GRANDE_DEMAIS };
-  let res: Response;
-  try {
-    res = await fetch(`/api/projetos/${encodeURIComponent(cardId)}/anexos`, {
-      method: "POST",
-      body: arquivo,
-      headers: { "Content-Type": "application/octet-stream", "X-Nome-Arquivo": encodeURIComponent(arquivo.name) },
-    });
-  } catch {
-    return FALHA_CONEXAO;
-  }
-  let corpo: { ok?: boolean; erro?: string; ref?: string };
-  try {
-    corpo = (await res.json()) as typeof corpo;
-  } catch {
-    return { texto: `Resposta inesperada do servidor (HTTP ${res.status}). Tente de novo.` };
-  }
-  if (corpo.ok) return null;
-  if (corpo.erro === "INESPERADO") return { texto: "Não foi possível anexar o arquivo. Erro no servidor.", ref: corpo.ref };
-  return { texto: corpo.erro ?? `Falha ao anexar (HTTP ${res.status}).` };
+  const r = await enviarAnexo(cardId, arquivo);
+  return r.ok ? null : r.falha;
 }
 
 /** Bloco "Anexos" do Projeto (GAB-84): lista com download e texto extraído; quem escreve anexa e exclui. */

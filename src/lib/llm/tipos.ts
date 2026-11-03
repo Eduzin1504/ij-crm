@@ -24,7 +24,18 @@ export type PedidoExtracao = {
   nome?: string;
   /** Teto de tokens de saída (inclui raciocínio na OpenAI). Padrão `MAX_TOKENS_EXTRACAO`. */
   maxTokens?: number;
+  /** Timeout por tentativa (ms). Padrão `TIMEOUT_LLM_MS`; a leitura de arquivo (GAB-90) usa mais. */
+  timeoutMs?: number;
+  /** Tentativas no máximo (padrão `TENTATIVAS_LLM` = 2). A leitura de arquivo com visão (GAB-90) usa 1. */
+  tentativas?: number;
+  /**
+   * Arquivo junto da mensagem (GAB-90: PDF escaneado/imagem lido pelo modelo
+   * com visão — sem OCR no servidor). Bytes em base64, nunca logados.
+   */
+  arquivo?: ArquivoLlm;
 };
+
+export type ArquivoLlm = { nome: string; mime: "application/pdf" | "image/png" | "image/jpeg" | "image/webp"; base64: string };
 
 /** `bruto` = JSON já parseado, ainda NÃO validado (a validação é do chamador). */
 export type RespostaProvedor = { bruto: unknown; uso: UsoLlm };

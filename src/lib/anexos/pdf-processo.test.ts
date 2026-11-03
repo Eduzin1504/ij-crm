@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { pdfBomba, pdfDeTexto } from "@/test/fixtures/anexos";
-import { extrairPdfEmProcesso, scriptDoFilho } from "./pdf-processo";
+import { contarPaginasPdf, extrairPdfEmProcesso, scriptDoFilho } from "./pdf-processo";
 
 const enc = new TextEncoder();
 
@@ -19,6 +19,11 @@ describe("extrairPdfEmProcesso (filho com teto de tempo e memória)", () => {
   it("teto de texto: o filho para de extrair e o pai corta de novo", async () => {
     const r = await extrairPdfEmProcesso(pdfDeTexto(["abcdefghij", "klmnopqrst", "uvwxyz"]), { textoMax: 12 });
     expect(r).toEqual({ tipo: "texto", total: 3, paginas: ["abcdefghij", "kl"] });
+  });
+
+  it("contarPaginasPdf (GAB-90): só o número de páginas, sem texto; corrompido continua corrompido", async () => {
+    expect(await contarPaginasPdf(pdfDeTexto(["", "", ""]))).toEqual({ tipo: "texto", total: 3, paginas: [] });
+    expect(await contarPaginasPdf(enc.encode("%PDF-1.4\nlixo"))).toEqual({ tipo: "corrompido" });
   });
 
   it("PDF que o pdf.js não abre → corrompido", async () => {

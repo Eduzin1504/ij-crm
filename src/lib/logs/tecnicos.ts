@@ -35,7 +35,8 @@ export async function registrarLogWebhook(e: EventoWebhook): Promise<void> {
 }
 
 export type ChamadaLlm = {
-  operacao: "extracao" | "classificacao" | "resumo";
+  /** `proposta_arquivo` (GAB-90): leitura de arquivo para a proposta; `ref` = `<ref>:<prefixo do anexo>`. */
+  operacao: "extracao" | "classificacao" | "resumo" | "proposta_arquivo";
   uso?: UsoLlm;
   /** `ok` ou o código do `ErroLlm`. */
   status: string;
