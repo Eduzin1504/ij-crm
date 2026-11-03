@@ -16,18 +16,28 @@ type Tx = Prisma.TransactionClient;
 /**
  * O Projeto saiu de Perdido pelo Kanban (card reaberto): a proposta Inviável
  * volta para o pingue-pongue — Em ajuste, com vendas e sem ninguém com a
- * caneta (o GP de vendas pega). Sem proposta, ou não inviável: nada.
+ * caneta (o GP de vendas pega). GAB-89: a Recusada pelo cliente volta como
+ * Revisão pedida (o cliente voltou a conversar: nova versão com vendas; se
+ * mudar escopo/prazo/valor, passa por projetos). Outro status: nada.
  */
 export async function reabrirPropostaInviavel(tx: Tx, projetoId: string, porId: string, em: Date): Promise<void> {
   const linhas = await tx.$queryRaw<{ id: string; status: string }[]>`SELECT id, status::text AS status FROM proposta WHERE oportunidade_id = ${projetoId} FOR UPDATE`;
   const p = linhas[0];
-  if (!p || p.status !== "INVIAVEL") return;
+  if (!p || (p.status !== "INVIAVEL" && p.status !== "RECUSADA")) return;
+  const recusada = p.status === "RECUSADA";
   await tx.propostaCaneta.updateMany({ where: { propostaId: p.id, fim: null }, data: { fim: em } });
   await tx.proposta.update({
     where: { id: p.id },
-    data: { status: "EM_AJUSTE", canetaCom: { disconnect: true }, canetaLado: "VENDAS", motivoInviavel: null, revisao: { increment: 1 }, atualizadoEm: em },
+    data: {
+      status: recusada ? "REVISAO_PEDIDA" : "EM_AJUSTE",
+      canetaCom: { disconnect: true },
+      canetaLado: "VENDAS",
+      ...(recusada ? { motivoRecusa: null } : { motivoInviavel: null }),
+      revisao: { increment: 1 },
+      atualizadoEm: em,
+    },
   });
-  await tx.timeline.create({ data: { projetoId, tipo: "PROPOSTA", payload: { evento: "reaberta_do_perdido" }, usuarioId: porId, em } });
+  await tx.timeline.create({ data: { projetoId, tipo: "PROPOSTA", payload: { evento: "reaberta_do_perdido", ...(recusada ? { de: "RECUSADA" } : {}) }, usuarioId: porId, em } });
 }
 
 /**

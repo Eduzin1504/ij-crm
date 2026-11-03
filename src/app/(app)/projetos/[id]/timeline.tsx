@@ -238,7 +238,7 @@ function Descricao({
       );
     }
     case "PROPOSTA": {
-      // GAB-86: criação e versões salvas. GAB-87: passagens da caneta (nomes gravados no payload).
+      // GAB-86: criação e versões salvas. GAB-87: passagens da caneta (nomes gravados no payload). GAB-89: envio e resposta.
       const projetoId = e.projetoId;
       const nome = (v: unknown) => (typeof v === "string" && v ? v : null);
       const lado = (v: unknown) => (v === "VENDAS" ? "vendas" : v === "PROJETOS" ? "projetos" : null);
@@ -273,7 +273,44 @@ function Descricao({
         case "reaberta":
           return <>reabriu a proposta para ajuste</>;
         case "reaberta_do_perdido":
-          return <>reabriu o card: a proposta inviável voltou para ajuste com vendas (o GP de vendas pega a caneta)</>;
+          return p.de === "RECUSADA" ? (
+            <>reabriu o card: a proposta recusada voltou como revisão pedida, com vendas (o GP de vendas pega a caneta)</>
+          ) : (
+            <>reabriu o card: a proposta inviável voltou para ajuste com vendas (o GP de vendas pega a caneta)</>
+          );
+        // GAB-89: envio e resposta do cliente.
+        case "enviada":
+          return (
+            <>
+              marcou a proposta ({versao(p.numero)}) como <b className="font-medium text-foreground">enviada</b> ao cliente
+            </>
+          );
+        case "aceita":
+          return (
+            <>
+              registrou: o cliente <b className="font-medium text-foreground">aceitou</b> a proposta{typeof p.numero === "number" ? <> ({versao(p.numero)})</> : null}
+            </>
+          );
+        case "recusada":
+          return (
+            <>
+              registrou: o cliente <b className="font-medium text-foreground">recusou</b> a proposta
+              {nome(p.motivo) ? <span className="text-fg-mute"> — “{p.motivo as string}”</span> : null}
+            </>
+          );
+        case "revisao_pedida":
+          return (
+            <>
+              registrou: o cliente <b className="font-medium text-foreground">pediu revisão</b> da proposta
+              {nome(p.pedido) ? <span className="text-fg-mute"> — “{p.pedido as string}”</span> : null}
+            </>
+          );
+        case "revisao_concluida":
+          return (
+            <>
+              concluiu a revisão ({versao(p.numero)}): proposta <b className="font-medium text-foreground">pronta para envio</b> de novo
+            </>
+          );
         case "caneta_liberada":
           return <>a caneta da proposta ficou sem dono ({quem(p.deNome)} {p.motivo === "desativado" ? "foi desativado(a)" : "não é mais do lado"}); o GP do lado pega</>;
         case "inviavel":

@@ -1127,3 +1127,32 @@ Máquina de estados pura em `src/lib/propostas/caneta.ts`, aplicada no serviço
   processo, 1 por pessoa), PDF acima de 30 páginas, e anexo cujo arquivo sumiu
   do disco (`ENOENT` no log com a ref: restaure o volume `app_anexos` ou peça
   para reenviar).
+
+### 13.3 Envio, resposta do cliente e trava de contrato (GAB-89)
+
+Regras puras em `src/lib/propostas/envio.ts`; serviço em `propostas.ts` (mesmo
+lock da proposta, mesma ordem do Kanban: quadro → proposta; toda transição
+incrementa a revisão).
+
+- **PDF** (`GET /api/projetos/<id>/proposta/pdf?versao=N`, `gerar_pdf_proposta`):
+  versão final (pronta) ou a enviada, texto + parte estruturada. Gerador em
+  `src/lib/pdf/` (pdf-lib + Inter embutida em subconjunto, sem navegador);
+  **template** separado em `src/lib/pdf/templates/` — trocar pelo oficial da IJ =
+  novo `TemplatePdf` + `templateAtual()`. As fontes vêm de `src/lib/pdf/fontes/`
+  (no standalone por `outputFileTracingIncludes`; o CI confere). Fonte faltando →
+  500 com `[api.proposta.pdf] ref=<ref>`.
+- **Enviada**: vendas (dono da caneta ou GP de vendas) marca; grava
+  `versao_enviada`. O sistema não manda nada ao cliente.
+- **Resposta**: Aceita → Projeto para **Montando contrato** (`registrarMovimento`);
+  Recusada → motivo da lista do Kanban, Projeto para **Perdido**; Revisão pedida →
+  caneta com quem registrou. Concluir a revisão direto só se a parte estruturada é
+  a da versão enviada; senão Devolver para projetos. Card recusado reaberto pelo
+  Kanban → proposta volta como Revisão pedida.
+- **Trava** (`src/lib/projetos/trava-contrato.ts`): Montando contrato e tudo depois
+  dele em Vendas (subfases, Ganho) só com proposta **Aceita** — Kanban, MCP,
+  WhatsApp (não move, `revisar`, o grupo recebe o que falta) e card novo. Nem
+  gestor força. Card que já está em Montando contrato ou além (migrado) anda livre
+  lá dentro; saindo de Perdido conta onde foi perdido. Import do Pipefy não passa
+  pela trava. **Card legado parado antes do marco** que já fechou: não há atalho —
+  crie a proposta, leve-a a Pronta, marque enviada e registre o aceite.
+- **Erros:** `[proposta.enviada|resposta|concluirRevisao] ref=<ref>`, `[api.proposta.pdf] ref=<ref>`.

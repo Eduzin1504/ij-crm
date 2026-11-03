@@ -821,6 +821,13 @@ model Proposta {
   canetaLado     Area?          @map("caneta_lado")
   /// GAB-87: motivo de "inviável" (status INVIAVEL), dado por projetos.
   motivoInviavel String?        @map("motivo_inviavel")
+  /// GAB-89: envio ao cliente. `versaoEnviada` = número da versão final (a do PDF) marcada como
+  /// enviada; base da regra da revisão (mudou escopo/prazo/valor desde ela → passa por projetos).
+  versaoEnviada  Int?           @map("versao_enviada")
+  enviadaEm      DateTime?      @map("enviada_em")
+  /// Resposta do cliente (aceita/recusada/revisão pedida) e o motivo da recusa (o mesmo do `motivo_perda`).
+  respondidaEm   DateTime?      @map("respondida_em")
+  motivoRecusa   String?        @map("motivo_recusa")
   criadoPorId    String         @map("criado_por_id")
   criadoEm       DateTime       @default(now()) @map("criado_em")
   atualizadoEm   DateTime       @updatedAt @map("atualizado_em")

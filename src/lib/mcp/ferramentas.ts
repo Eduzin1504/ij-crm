@@ -45,12 +45,16 @@ import { MARKDOWN_MAX } from "@/lib/propostas/documento";
 import { estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
 import { acoesPossiveis, ladoDaCaneta, MOTIVO_INVIAVEL_MAX, podeEditarProposta, type AcaoCaneta } from "@/lib/propostas/caneta";
 import { diffParaTexto } from "@/lib/propostas/diff";
+import { acoesDeEnvio, PEDIDO_REVISAO_MAX, type AcaoEnvio } from "@/lib/propostas/envio";
+import { urlPdfDaProposta } from "@/lib/propostas/url";
 import {
+  concluirRevisao,
   concordarProposta,
   criarProposta,
   devolverProposta,
   diffDaProposta,
   listarPessoasDaCaneta,
+  marcarEnviada,
   marcarInviavel,
   mensagemDaFalha,
   obterPropostaDoProjeto,
@@ -59,8 +63,10 @@ import {
   pegarCaneta,
   pessoaDaCaneta,
   reabrirProposta,
+  registrarResposta,
   salvarRascunho,
   salvarVersao,
+  versaoFinalDaProposta,
   type Falha,
 } from "@/lib/propostas/propostas";
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
@@ -324,7 +330,7 @@ const moverProjeto = ferramenta({
   nome: "mover_projeto",
   titulo: "Mover projeto de fase",
   descricao:
-    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
+    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
   escrita: true,
   entrada: {
     id,
@@ -538,6 +544,13 @@ const FERRAMENTA_DA_ACAO: Record<AcaoCaneta, string> = {
   inviavel: "marcar_proposta_inviavel",
 };
 
+/** GAB-89: envio e resposta do cliente. */
+const FERRAMENTA_DO_ENVIO: Record<AcaoEnvio, string> = {
+  enviar: "marcar_proposta_enviada",
+  responder: "registrar_resposta_proposta",
+  concluirRevisao: "concluir_revisao_proposta",
+};
+
 const erroProposta = (r: Falha) => erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
 
 const projetoId = id.describe("id do projeto (de buscar_projetos)");
@@ -560,7 +573,9 @@ const lerProposta = ferramenta({
     const p = r.proposta;
     const edita = !!pessoa && podeEditarProposta(pessoa, p.estado);
     const acoes = pessoa ? acoesPossiveis(pessoa, p.estado) : [];
+    const envio = pessoa ? acoesDeEnvio(pessoa, p.estado) : [];
     const pessoas = acoes.some((x) => x === "passar" || x === "devolver") ? await listarPessoasDaCaneta() : [];
+    const final = await versaoFinalDaProposta(a.projeto_id);
     return ok({
       existe: true,
       projeto: r.projeto.titulo,
@@ -574,9 +589,12 @@ const lerProposta = ferramenta({
         regra: "Só quem está com a caneta edita (você, pelo Claude, age como você). Os outros leem e comentam.",
       },
       ...(p.motivoInviavel ? { motivoInviavel: p.motivoInviavel } : {}),
+      ...(p.versaoEnviada ? { envio: { versaoEnviada: p.versaoEnviada, enviadaEm: p.enviadaEm?.toISOString() ?? null, respondidaEm: p.respondidaEm?.toISOString() ?? null } } : {}),
+      ...(p.motivoRecusa ? { motivoRecusa: p.motivoRecusa } : {}),
+      ...(final.ok ? { pdf: { versao: final.numero, dica: "Gere o link com gerar_pdf_proposta." } } : {}),
       voceEdita: edita,
       voceEstaComACaneta: p.canetaComId === eu.id,
-      acoesQueVocePode: acoes.map((x) => FERRAMENTA_DA_ACAO[x]),
+      acoesQueVocePode: [...acoes.map((x) => FERRAMENTA_DA_ACAO[x]), ...envio.map((x) => FERRAMENTA_DO_ENVIO[x])],
       ...(pessoas.length
         ? { pessoasParaCaneta: pessoas.map((x) => ({ id: x.id, nome: x.nome, lado: ROTULO_AREA[x.lado], ...(x.gp ? { gp: true } : {}) })) }
         : {}),
@@ -773,6 +791,66 @@ const inviavelMcp = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- envio e resposta do cliente (GAB-89)
+
+const gerarPdfMcp = ferramenta({
+  nome: "gerar_pdf_proposta",
+  titulo: "Gerar o PDF da proposta (link de download)",
+  descricao:
+    "Link de download do PDF da proposta: a versão final (texto + valor, prazo, escopo e cronograma) no template da IJ. Existe a partir de Pronta para envio (depois do envio, é a versão enviada). O link abre no navegador com o login do CRM. O sistema não envia nada ao cliente: a pessoa baixa e manda pelo canal que quiser, depois marca com marcar_proposta_enviada.",
+  escrita: false,
+  entrada: { projeto_id: projetoId },
+  executar: async (a) => {
+    const r = await versaoFinalDaProposta(a.projeto_id);
+    if (!r.ok) return erroProposta(r);
+    return ok({ versao: r.numero, arquivo: r.nomeArquivo, download: urlPdfDaProposta(urlBase(), a.projeto_id, r.numero), url: urlProposta(a.projeto_id) });
+  },
+});
+
+const marcarEnviadaMcp = ferramenta({
+  nome: "marcar_proposta_enviada",
+  titulo: "Marcar proposta como enviada ao cliente",
+  descricao:
+    "Vendas marca que mandou a proposta (Pronta para envio) ao cliente — o sistema não envia e-mail. Só quem está com a caneta (vendas) ou o GP de vendas. Mande `versao` (de gerar_pdf_proposta) para garantir que é a do PDF que foi mandado.",
+  escrita: true,
+  entrada: { projeto_id: projetoId, versao: z.number().int().min(1).optional() },
+  executar: async (a, eu) => {
+    const r = await marcarEnviada(a.projeto_id, eu, { versao: a.versao });
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const registrarRespostaMcp = ferramenta({
+  nome: "registrar_resposta_proposta",
+  titulo: "Registrar a resposta do cliente à proposta",
+  descricao: `Resposta do cliente a uma proposta Enviada (vendas: quem está com a caneta ou o GP de vendas). "aceita" → o projeto vai para Montando contrato. "recusada" → motivo_perda obrigatório (chave de listar_fases; "outro" exige detalhe_perda) e o projeto vai para Perdido. "revisao_pedida" → a caneta volta para você, com o pedido (opcional, até ${PEDIDO_REVISAO_MAX} caracteres); edite e use concluir_revisao_proposta (se escopo/prazo/valor não mudaram) ou devolver_proposta para projetos. Confirme com a pessoa antes: aceite e recusa movem o card.`,
+  escrita: true,
+  entrada: {
+    projeto_id: projetoId,
+    resposta: z.enum(["aceita", "recusada", "revisao_pedida"]),
+    motivo_perda: z.string().max(50).optional(),
+    detalhe_perda: z.string().max(1000).optional(),
+    pedido: z.string().max(4000).optional(),
+  },
+  executar: async (a, eu) => {
+    const resposta = a.resposta === "aceita" ? "ACEITA" : a.resposta === "recusada" ? "RECUSADA" : "REVISAO_PEDIDA";
+    const r = await registrarResposta(a.projeto_id, { resposta, motivo: a.motivo_perda, detalhe: a.detalhe_perda, pedido: a.pedido }, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const concluirRevisaoMcp = ferramenta({
+  nome: "concluir_revisao_proposta",
+  titulo: "Concluir a revisão pedida pelo cliente",
+  descricao: `Revisão pedida pelo cliente → Pronta para envio de novo, sem passar por projetos: só se valor, prazo, escopo e entregas são os mesmos da versão enviada (senão é recusado: use devolver_proposta). Salva o rascunho atual como versão (nota opcional, até ${NOTA_VERSAO_MAX} caracteres) se o texto mudou. Mande a \`revisao\` de ler_proposta.`,
+  escrita: true,
+  entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), nota: z.string().max(2000).optional() },
+  executar: async (a, eu) => {
+    const r = await concluirRevisao(a.projeto_id, { revisao: a.revisao, nota: a.nota }, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
 const verDiffMcp = ferramenta({
   nome: "ver_diff_proposta",
   titulo: "Ver o que mudou entre versões da proposta",
@@ -867,6 +945,10 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   preencherPropostaDeAnexo,
   listarAvisosMcp,
   marcarAvisosLidosMcp,
+  gerarPdfMcp,
+  marcarEnviadaMcp,
+  registrarRespostaMcp,
+  concluirRevisaoMcp,
 ];
 
 function resultado(r: Resposta): CallToolResult {

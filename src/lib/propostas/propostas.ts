@@ -27,9 +27,12 @@ import { emViaMcp } from "@/lib/canal";
 import { db } from "@/lib/db";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
 import { travarPipelines } from "@/lib/fases/fases";
+import { gerarPdf } from "@/lib/pdf/gerador";
+import { templateAtual } from "@/lib/pdf/templates";
 import { ErroDeRegra, MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { registrarMovimento } from "@/lib/projetos/projetos";
-import { PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
+import { interpretarPerda, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
+import { alemDoContrato, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
 import { avisarCaneta, type EventoCaneta } from "./avisos";
 import {
   ladoDaCaneta,
@@ -46,8 +49,10 @@ import {
 } from "./caneta";
 import { diffEstruturado, diffMarkdown, type LinhaDiff, type MudancaCampo } from "./diff";
 import { lerDocumento, MARKDOWN_MAX } from "./documento";
+import { PEDIDO_REVISAO_MAX, recusaDoEnvio, RESPOSTAS_CLIENTE, versaoDoPdf, type AcaoEnvio, type RespostaCliente } from "./envio";
 import { interpretarEstruturado, lerEstruturadoGravado, mesmoEstruturado, type Estruturado } from "./estruturado";
 import { documentoParaMarkdown, markdownParaDocumento } from "./markdown";
+import { documentoPdfDaProposta, nomeArquivoPdf } from "./pdf";
 import { MENSAGEM_ERRO_PROPOSTA, mensagemConflito, NOTA_VERSAO_MAX, podeCriarProposta, type ErroProposta } from "./regras";
 
 type Tx = Prisma.TransactionClient;
@@ -130,6 +135,7 @@ async function contexto(tx: Tx, projetoId: string, ator: Ator) {
       estruturado: true,
       canetaComId: true,
       canetaLado: true,
+      versaoEnviada: true,
       versoes: { orderBy: { numero: "desc" }, take: 1, select: { numero: true, autorId: true, autorLado: true, conteudoMd: true, estruturado: true } },
     },
   });
@@ -143,6 +149,7 @@ async function contexto(tx: Tx, projetoId: string, ator: Ator) {
 /** Por que não edita o rascunho (null = edita). */
 function recusaDeEdicao(pessoa: Pessoa | null, estado: EstadoCaneta): ErroProposta | null {
   if (estado.status === "PRONTA_PARA_ENVIO") return "PROPOSTA_PRONTA";
+  if (estado.status === "ENVIADA") return "PROPOSTA_COM_O_CLIENTE";
   if (!STATUS_COM_CANETA.includes(estado.status)) return "PROPOSTA_ENCERRADA";
   return pessoa && podeEditarProposta(pessoa, estado) ? null : "SEM_CANETA";
 }
@@ -246,6 +253,10 @@ export async function obterPropostaDoProjeto(projetoId: string) {
           canetaLado: true,
           canetaCom: { select: { id: true, nome: true } },
           motivoInviavel: true,
+          versaoEnviada: true,
+          enviadaEm: true,
+          respondidaEm: true,
+          motivoRecusa: true,
           periodosCaneta: { where: { fim: null }, take: 1, select: { inicio: true } },
           criadoEm: true,
           criadoPor: { select: { id: true, nome: true } },
@@ -660,6 +671,206 @@ export async function marcarInviavel(projetoId: string, motivoBruto: string, ato
     return { ok: true as const, status, canetaComId: null, canetaComNome: null, revisao, aviso };
   });
   return comAviso(r);
+}
+
+// ---------------------------------------------------------------- envio e resposta do cliente (GAB-89)
+
+/** Recusa das regras puras de `./envio.ts` → falha (sem pessoa = não age). */
+function exigirEnvio(acao: AcaoEnvio, pessoa: Pessoa | null, estado: EstadoCaneta) {
+  const r = pessoa ? recusaDoEnvio(acao, pessoa, estado) : "ENVIO_SO_VENDAS";
+  if (r) falhar(r);
+}
+
+/**
+ * Vendas marca como ENVIADA a versão final (a do PDF). `versao` (opcional) =
+ * a que a pessoa baixou: se a final mudou desde então, recusa. A caneta fica
+ * com quem está (vendas registra a resposta). O sistema não manda nada.
+ */
+export async function marcarEnviada(projetoId: string, ator: Ator, opts: { versao?: number } = {}): Promise<ResultadoCaneta> {
+  const r = await emTransacao(async (tx) => {
+    await travarProposta(tx, projetoId);
+    const { pessoa, proposta, estado, ultima } = await contexto(tx, projetoId, ator);
+    if (!proposta || !estado) falhar("PROPOSTA_NAO_ENCONTRADA");
+    exigirEnvio("enviar", pessoa, estado);
+    if (!ultima) falhar("PDF_INDISPONIVEL");
+    if (opts.versao !== undefined && opts.versao !== ultima.numero) falhar("VERSAO_FINAL_MUDOU");
+    const agora = new Date();
+    const status: StatusProposta = "ENVIADA";
+    const { revisao } = await tx.proposta.update({
+      where: { id: proposta.id },
+      data: { status, versaoEnviada: ultima.numero, enviadaEm: agora, respondidaEm: null, motivoRecusa: null, revisao: { increment: 1 }, atualizadoEm: agora },
+      select: { revisao: true },
+    });
+    await registrarCaneta(tx, projetoId, ator, agora, { evento: "enviada", numero: ultima.numero });
+    const dono = proposta.canetaComId ? await lerPessoa(tx, proposta.canetaComId) : null;
+    const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "enviou", porId: ator.id, paraId: dono?.id ?? null, lado: "VENDAS", status, numero: ultima.numero };
+    return { ok: true as const, status, canetaComId: dono?.id ?? null, canetaComNome: dono?.nome ?? null, numero: ultima.numero, revisao, aviso };
+  });
+  return comAviso(r);
+}
+
+export type EntradaResposta = {
+  resposta: RespostaCliente;
+  /** Recusada: chave do motivo de perda (a mesma lista do Kanban) e detalhe ("outro" exige). */
+  motivo?: string;
+  detalhe?: string;
+  /** Revisão pedida: o que o cliente pediu (opcional, vai para a Timeline). */
+  pedido?: string;
+};
+
+/**
+ * Resposta do cliente a uma proposta ENVIADA, registrada por vendas:
+ * - ACEITA → o Projeto vai para o marco Montando contrato pelo MESMO caminho
+ *   do Kanban (`registrarMovimento`; a trava passa porque a proposta já está
+ *   aceita na transação). Card que já está lá ou além (migrado) fica onde está.
+ * - RECUSADA → motivo obrigatório (lista do Kanban); o Projeto vai para Perdido
+ *   com esse `motivo_perda`.
+ * - REVISAO_PEDIDA → a caneta volta para vendas (quem registrou) e o
+ *   pingue-pongue reabre (ver `concluirRevisao` e a regra da parte estruturada).
+ */
+export async function registrarResposta(projetoId: string, e: EntradaResposta, ator: Ator): Promise<ResultadoCaneta> {
+  const resposta = RESPOSTAS_CLIENTE.find((x) => x === e.resposta);
+  if (!resposta) return { ok: false, erro: "RESPOSTA_INVALIDA" };
+  let motivoPerda: string | null = null;
+  if (resposta === "RECUSADA") {
+    const perda = interpretarPerda({ motivo: e.motivo, detalhe: e.detalhe });
+    if (!perda.ok) return { ok: false, erro: "REGRA_PROJETO", mensagem: MENSAGEM_ERRO_PROJETO[perda.erro] };
+    motivoPerda = perda.motivoPerda;
+  }
+  const pedido = typeof e.pedido === "string" ? e.pedido.trim().replace(/\s+/g, " ") : "";
+  if (pedido.length > PEDIDO_REVISAO_MAX) return { ok: false, erro: "PEDIDO_REVISAO_LONGO" };
+
+  const r = await emTransacao(async (tx) => {
+    const alvo = await tx.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { pipelineId: true } });
+    if (!alvo) falhar("PROJETO_NAO_ENCONTRADO");
+    // Aceite/recusa movem o card: mesma ordem de locks do Kanban (quadro, depois a proposta).
+    if (resposta !== "REVISAO_PEDIDA") await travarPipelines(tx, [alvo.pipelineId]);
+    await travarProposta(tx, projetoId);
+    const { pessoa, proposta, estado } = await contexto(tx, projetoId, ator);
+    if (!proposta || !estado) falhar("PROPOSTA_NAO_ENCONTRADA");
+    exigirEnvio("responder", pessoa, estado);
+    const agora = new Date();
+    const numero = proposta.versaoEnviada ?? undefined;
+    const base = { projetoId, propostaId: proposta.id, porId: ator.id, ...(numero ? { numero } : {}) };
+
+    if (resposta === "REVISAO_PEDIDA") {
+      const status: StatusProposta = "REVISAO_PEDIDA";
+      const revisao = await trocarCaneta(tx, proposta.id, pessoa!, "VENDAS", agora, { status, respondidaEm: agora });
+      await registrarCaneta(tx, projetoId, ator, agora, { evento: "revisao_pedida", ...(numero ? { numero } : {}), ...(pedido ? { pedido } : {}) });
+      const aviso: EventoCaneta = { ...base, acao: "revisao_pedida", paraId: pessoa!.id, lado: "VENDAS", status };
+      return { ok: true as const, status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, numero, revisao, aviso };
+    }
+
+    const op = await tx.projeto.findUniqueOrThrow({ where: { id: projetoId }, select: { pipelineId: true, pipeline: { select: { chave: true } }, fase: true } });
+    if (op.pipelineId !== alvo.pipelineId || op.pipeline.chave !== PIPELINE_VENDAS) falhar("PROJETO_FORA_DE_VENDAS");
+    if (op.fase.isTerminal) falhar("PROJETO_ENCERRADO");
+
+    if (resposta === "ACEITA") {
+      const mc = await faseMontandoContrato(tx);
+      if (!mc || mc.arquivadaEm || mc.pipelineId !== op.pipelineId) falhar("FASE_MONTANDO_CONTRATO_INDISPONIVEL");
+      const status: StatusProposta = "ACEITA";
+      const revisao = await trocarCaneta(tx, proposta.id, null, "VENDAS", agora, { status, respondidaEm: agora });
+      await registrarCaneta(tx, projetoId, ator, agora, { evento: "aceita", ...(numero ? { numero } : {}) });
+      if (!alemDoContrato(op.fase, mc)) {
+        await registrarMovimento(tx, { projetoId, pipelineChave: op.pipeline.chave, origem: op.fase, destino: mc, porId: ator.id, em: new Date(agora.getTime() + 1), origemTransicao: "UI" });
+      }
+      const aviso: EventoCaneta = { ...base, acao: "aceita", paraId: null, lado: null, status };
+      return { ok: true as const, status, canetaComId: null, canetaComNome: null, numero, revisao, aviso };
+    }
+
+    const perdido = await tx.fase.findUnique({ where: { marco: "PERDIDO" } });
+    if (!perdido || perdido.arquivadaEm || perdido.pipelineId !== op.pipelineId || perdido.tipoTerminal !== "PERDIDO") falhar("FASE_PERDIDO_INDISPONIVEL");
+    const status: StatusProposta = "RECUSADA";
+    const revisao = await trocarCaneta(tx, proposta.id, null, "VENDAS", agora, { status, respondidaEm: agora, motivoRecusa: motivoPerda });
+    await registrarCaneta(tx, projetoId, ator, agora, { evento: "recusada", motivo: motivoPerda, ...(numero ? { numero } : {}) });
+    await registrarMovimento(tx, {
+      projetoId,
+      pipelineChave: op.pipeline.chave,
+      origem: op.fase,
+      destino: perdido,
+      porId: ator.id,
+      em: new Date(agora.getTime() + 1),
+      origemTransicao: "UI",
+      dadosTerminal: { motivo: e.motivo, detalhe: e.detalhe },
+    });
+    const aviso: EventoCaneta = { ...base, acao: "recusada", paraId: null, lado: null, status };
+    return { ok: true as const, status, canetaComId: null, canetaComNome: null, numero, revisao, aviso };
+  });
+  return comAviso(r);
+}
+
+/**
+ * Concluir a revisão pedida pelo cliente SEM passar por projetos: só se a
+ * parte estruturada (escopo, prazo, valor, entregas) é a mesma da versão
+ * enviada — senão `REVISAO_MUDOU_ESTRUTURADO` (Devolver para projetos é o
+ * caminho). Aplica o rascunho mandado junto (como Devolver), salva a versão
+ * se o texto mudou e volta a Pronta para envio; vendas baixa o PDF novo e envia.
+ */
+export async function concluirRevisao(projetoId: string, m: MudancaRascunho & { nota?: string }, ator: Ator): Promise<ResultadoCaneta> {
+  const nota = m.nota?.trim() || null;
+  if (nota && nota.length > NOTA_VERSAO_MAX) return { ok: false, erro: "NOTA_LONGA" };
+  const r = await emTransacao(async (tx) => {
+    await travarProposta(tx, projetoId);
+    const { pessoa, proposta, estado } = await contexto(tx, projetoId, ator);
+    if (!proposta || !estado) falhar("PROPOSTA_NAO_ENCONTRADA");
+    exigirEnvio("concluirRevisao", pessoa, estado);
+    const rasc = await aplicarRascunho(tx, projetoId, m, ator);
+    const enviada = proposta.versaoEnviada
+      ? await tx.propostaVersao.findUnique({ where: { propostaId_numero: { propostaId: proposta.id, numero: proposta.versaoEnviada } }, select: { estruturado: true } })
+      : null;
+    // Sem a versão enviada para comparar (não deveria acontecer): pelo seguro, passa por projetos.
+    if (!enviada || !mesmoEstruturado(lerEstruturadoGravado(enviada.estruturado), rasc.estruturado)) falhar("REVISAO_MUDOU_ESTRUTURADO");
+    const ultima = await ultimaVersao(tx, proposta.id);
+    const agora = new Date();
+    const numero = ultima && mesmoConteudo(ultima, rasc) ? ultima.numero : await gravarVersao(tx, projetoId, rasc, ultima, nota, ator, agora);
+    const status: StatusProposta = "PRONTA_PARA_ENVIO";
+    const { revisao } = await tx.proposta.update({ where: { id: proposta.id }, data: { status, revisao: { increment: 1 }, atualizadoEm: agora }, select: { revisao: true } });
+    await registrarCaneta(tx, projetoId, ator, new Date(agora.getTime() + 1), { evento: "revisao_concluida", numero });
+    const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "revisao_concluida", porId: ator.id, paraId: pessoa!.id, lado: "VENDAS", status, numero };
+    return { ok: true as const, status, canetaComId: pessoa!.id, canetaComNome: pessoa!.nome, numero, revisao, aviso };
+  });
+  return comAviso(r);
+}
+
+/**
+ * Versão final para o PDF (sem gerar): pronta → a última; depois do envio →
+ * a enviada. `versao` pedida (link do MCP/da tela) tem de ser ela.
+ */
+export async function versaoFinalDaProposta(projetoId: string, versao?: number): Promise<Resultado<{ numero: number; nomeArquivo: string }>> {
+  const p = await db.proposta.findFirst({
+    where: { projetoId, projeto: { deletadoEm: null } },
+    select: { status: true, versaoEnviada: true, projeto: { select: { titulo: true } }, versoes: { orderBy: { numero: "desc" }, take: 1, select: { numero: true } } },
+  });
+  if (!p) {
+    const existe = await db.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true } });
+    return { ok: false, erro: existe ? "PROPOSTA_NAO_ENCONTRADA" : "PROJETO_NAO_ENCONTRADO" };
+  }
+  const numero = versaoDoPdf(p, p.versoes[0]?.numero ?? null);
+  if (numero === null) return { ok: false, erro: "PDF_INDISPONIVEL" };
+  if (versao !== undefined && versao !== numero) return { ok: false, erro: "VERSAO_FINAL_MUDOU" };
+  return { ok: true, numero, nomeArquivo: nomeArquivoPdf(p.projeto.titulo, numero) };
+}
+
+/** PDF da proposta (versão final + parte estruturada) no template atual. Leitura: quem vê a proposta baixa. */
+export async function pdfDaProposta(projetoId: string, versao?: number): Promise<Resultado<{ bytes: Uint8Array; numero: number; nomeArquivo: string }>> {
+  const f = await versaoFinalDaProposta(projetoId, versao);
+  if (!f.ok) return f;
+  const v = await db.propostaVersao.findFirst({
+    where: { numero: f.numero, proposta: { projetoId } },
+    select: { conteudoMd: true, estruturado: true, criadoEm: true, proposta: { select: { projeto: { select: { titulo: true, empresa: { select: SELECAO_NOME_EXIBIDO } } } } } },
+  });
+  if (!v) return { ok: false, erro: "VERSAO_NAO_ENCONTRADA" };
+  const projeto = v.proposta.projeto;
+  const doc = documentoPdfDaProposta({
+    projeto: projeto.titulo,
+    empresa: projeto.empresa ? nomeExibido(projeto.empresa) : null,
+    numero: f.numero,
+    data: v.criadoEm,
+    markdown: v.conteudoMd,
+    estruturado: lerEstruturadoGravado(v.estruturado),
+  });
+  const bytes = await gerarPdf(doc, templateAtual(), { criadoEm: v.criadoEm });
+  return { ok: true, bytes, numero: f.numero, nomeArquivo: f.nomeArquivo };
 }
 
 // ---------------------------------------------------------------- leitura da caneta

@@ -10,10 +10,12 @@ import { listarAnexos } from "@/lib/anexos/anexos";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { formatarDataHora } from "@/lib/projetos/formatar";
 import { acoesPossiveis, ladoDaCaneta, outroLado, podeEditarProposta } from "@/lib/propostas/caneta";
+import { acoesDeEnvio, versaoDoPdf } from "@/lib/propostas/envio";
 import { estruturadoParaEntrada } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
 import { listarPessoasDaCaneta, obterPropostaDoProjeto, pessoaDaCaneta, tempoComCaneta } from "@/lib/propostas/propostas";
 import { podeCriarProposta } from "@/lib/propostas/regras";
+import { urlPdfDaProposta } from "@/lib/propostas/url";
 import { AcoesCaneta } from "./acoes-caneta";
 import { CriarProposta } from "./criar-proposta";
 import { EstruturadoLeitura } from "./estruturado-leitura";
@@ -50,8 +52,13 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
   const acoes = proposta && pessoa ? acoesPossiveis(pessoa, proposta.estado) : [];
   const lado = proposta ? ladoDaCaneta(proposta) : "VENDAS";
   const pessoas = acoes.some((a) => a === "passar" || a === "devolver") ? await listarPessoasDaCaneta() : [];
+  // GAB-89: envio ao cliente (PDF da versão final, marcar enviada, resposta, concluir revisão).
+  const envio = proposta && pessoa ? acoesDeEnvio(pessoa, proposta.estado) : [];
+  const versaoPdf = proposta ? versaoDoPdf(proposta, proposta.versoes[0]?.numero ?? null) : null;
   const caneta = {
     acoes,
+    envio,
+    versaoPdf,
     mesmoLado: pessoas.filter((p) => p.lado === lado && p.id !== eu.id),
     outroLado: pessoas.filter((p) => p.lado === outroLado(lado)),
     rotuloOutroLado: ROTULO_AREA[outroLado(lado)],
@@ -101,6 +108,11 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
           {proposta.status === "INVIAVEL" ? (
             <span className="text-fg-soft">
               ninguém — proposta inviável{proposta.motivoInviavel ? <>: “{proposta.motivoInviavel}”</> : null}
+            </span>
+          ) : proposta.status === "ACEITA" || proposta.status === "RECUSADA" ? (
+            <span className="text-fg-soft">
+              ninguém — proposta {proposta.status === "ACEITA" ? "aceita pelo cliente" : "recusada pelo cliente"}
+              {proposta.motivoRecusa ? <>: “{proposta.motivoRecusa}”</> : null}
             </span>
           ) : (
             <span>
@@ -154,6 +166,32 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
             </div>
           )}
           <aside className="space-y-6">
+            {versaoPdf ? (
+              <section className="rounded-xl border border-border bg-surface p-4 text-sm" aria-label="Envio ao cliente">
+                <h2 className="mb-2 text-sm font-medium">Envio ao cliente</h2>
+                <a
+                  href={urlPdfDaProposta("", projeto.id, versaoPdf)}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-strong px-2.5 py-1 text-xs hover:bg-muted"
+                >
+                  Baixar PDF da proposta (v{versaoPdf})
+                </a>
+                <ul className="mt-2 space-y-0.5 text-xs text-fg-mute">
+                  {proposta.status === "PRONTA_PARA_ENVIO" ? <li>Pronta: baixe, mande ao cliente pelo canal que quiser e marque como enviada.</li> : null}
+                  {proposta.enviadaEm && proposta.versaoEnviada ? (
+                    <li>
+                      v{proposta.versaoEnviada} enviada em {formatarDataHora(proposta.enviadaEm)}.
+                    </li>
+                  ) : null}
+                  {proposta.respondidaEm && proposta.status !== "ENVIADA" && proposta.status !== "PRONTA_PARA_ENVIO" ? (
+                    <li>
+                      Resposta do cliente em {formatarDataHora(proposta.respondidaEm)}
+                      {proposta.motivoRecusa ? <>: recusada — “{proposta.motivoRecusa}”</> : "."}
+                    </li>
+                  ) : null}
+                </ul>
+              </section>
+            ) : null}
             <section className="rounded-xl border border-border bg-surface p-4 text-xs text-fg-mute">
               <p>
                 Criada por {proposta.criadoPor.nome} em {formatarDataHora(proposta.criadoEm)}.

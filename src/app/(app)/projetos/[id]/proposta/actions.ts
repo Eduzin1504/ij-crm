@@ -8,15 +8,19 @@ import type { ConflitoCliente } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
 import { estruturadoParaEntrada, type FormularioEstruturado } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { RESPOSTAS_CLIENTE } from "@/lib/propostas/envio";
 import {
+  concluirRevisao,
   concordarProposta,
   criarProposta,
   devolverProposta,
+  marcarEnviada,
   marcarInviavel,
   mensagemDaFalha,
   passarCaneta,
   pegarCaneta,
   reabrirProposta,
+  registrarResposta,
   salvarRascunho,
   salvarVersao,
   type Falha,
@@ -204,6 +208,68 @@ export async function marcarInviavelAction(projetoId: string, motivo: string): P
     const ator = await exigirEscrita();
     if (!id.safeParse(projetoId).success || !textoCurto.safeParse(motivo).success) return { erro: "Dados inválidos." };
     const r = await marcarInviavel(projetoId, motivo, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true, revisao: r.revisao };
+  });
+}
+
+// ---------------------------------------------------------------- envio e resposta do cliente (GAB-89)
+
+/** Marca como enviada a versão `versao` (a do PDF que a pessoa baixou). */
+export async function marcarEnviadaAction(projetoId: string, versao: number): Promise<RespostaCaneta> {
+  return comTratamento("proposta.enviada", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !z.number().int().min(1).safeParse(versao).success) return { erro: "Dados inválidos." };
+    const r = await marcarEnviada(projetoId, ator, { versao });
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true, revisao: r.revisao };
+  });
+}
+
+const respostaSchema = z.object({
+  resposta: z.enum(RESPOSTAS_CLIENTE),
+  motivo: z.string().max(50).optional(),
+  detalhe: z.string().max(4000).optional(),
+  pedido: z.string().max(4000).optional(),
+});
+
+/** Resposta do cliente: aceita (→ Montando contrato), recusada (motivo → Perdido) ou revisão pedida. */
+export async function registrarRespostaAction(projetoId: string, dados: unknown): Promise<RespostaCaneta> {
+  return comTratamento("proposta.resposta", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    const d = respostaSchema.safeParse(dados);
+    if (!id.safeParse(projetoId).success || !d.success) return { erro: "Dados inválidos." };
+    const r = await registrarResposta(projetoId, d.data, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    revalidatePath("/kanban");
+    return { ok: true, revisao: r.revisao };
+  });
+}
+
+/** Concluir a revisão sem passar por projetos: manda junto o editor e os dados (como devolver). */
+export async function concluirRevisaoAction(
+  projetoId: string,
+  revisao: number,
+  dados: { documento?: unknown; estruturado?: unknown; nota?: string },
+): Promise<RespostaCaneta> {
+  return comTratamento("proposta.concluirRevisao", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success || (dados.nota !== undefined && typeof dados.nota !== "string")) {
+      return { erro: "Dados inválidos." };
+    }
+    const r = await concluirRevisao(
+      projetoId,
+      {
+        revisao,
+        nota: dados.nota,
+        ...(dados.documento !== undefined ? { conteudo: { documento: dados.documento } } : {}),
+        ...(dados.estruturado !== undefined ? { estruturado: dados.estruturado } : {}),
+      },
+      ator,
+    );
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
     revalidar(projetoId);
     return { ok: true, revisao: r.revisao };

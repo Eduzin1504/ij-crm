@@ -15,6 +15,9 @@ const acoes = vi.hoisted(() => ({
   pegarCanetaAction: vi.fn(),
   reabrirAction: vi.fn(),
   marcarInviavelAction: vi.fn(),
+  marcarEnviadaAction: vi.fn(),
+  registrarRespostaAction: vi.fn(),
+  concluirRevisaoAction: vi.fn(),
 }));
 const refresh = vi.hoisted(() => vi.fn());
 const substituido = vi.hoisted(() => ({ doc: null as unknown }));
