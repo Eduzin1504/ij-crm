@@ -11,6 +11,8 @@ import { anexarArquivo } from "@/lib/anexos/anexos";
 import { excluirCard } from "@/lib/lixeira/cards";
 import { pdfDeTexto, PNG } from "@/test/fixtures/anexos";
 import { criarProposta, salvarVersao } from "@/lib/propostas/propostas";
+import { definirPropostaArquivoMock } from "@/lib/llm/provedores/mock";
+import { ErroLlm } from "@/lib/llm/tipos";
 import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
@@ -54,7 +56,7 @@ let dirAnexos: string;
 beforeEach(async () => {
   dirAnexos = await mkdtemp(path.join(tmpdir(), "mcp-anexos-"));
   process.env.ANEXOS_DIR = dirAnexos;
-  await limparBanco(["proposta_caneta", "proposta_versao", "proposta", "anexo", "prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
+  await limparBanco(["log_llm", "alerta_operacional", "proposta_caneta", "proposta_versao", "proposta", "anexo", "prazo", "transicao_fase", "timeline", "oportunidade", "contato", "empresa", "fase", "pipeline", "sessao", "usuario"]);
   invalidarCachePipelines();
 });
 afterEach(async () => {
@@ -90,6 +92,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       pegar_caneta_proposta: { projeto_id: id },
       reabrir_proposta: { projeto_id: id },
       marcar_proposta_inviavel: { projeto_id: id, motivo: "x" },
+      preencher_proposta_de_anexo: { projeto_id: id, anexo_id: "a".repeat(32) },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };
@@ -472,5 +475,83 @@ describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
     const p = await db.projeto.findUniqueOrThrow({ where: { id } });
     expect(p).toMatchObject({ faseId: fase(vendas, "perdido").id, motivoPerda: "Outro: Proposta inviável: Escopo fora do que entregamos" });
     expect(await db.timeline.count({ where: { projetoId: id, tipo: "MOVIMENTACAO", viaMcp: true } })).toBe(1);
+describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tela", () => {
+  const LEITURA = {
+    valor_total: { valor: "20000.00", confianca: 0.95, trecho: "Total: R$ 20.000,00" },
+    prazo_dias: { valor: null, confianca: 0, trecho: null },
+    escopo_resumo: { valor: "Site institucional", confianca: 0.9, trecho: null },
+    entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: null }], confianca: 0.9 },
+  };
+  let provedorAntes: string | undefined;
+  beforeEach(() => {
+    provedorAntes = process.env.LLM_PROVEDOR;
+    process.env.LLM_PROVEDOR = "mock"; // nunca API paga nos testes
+  });
+  afterEach(() => {
+    definirPropostaArquivoMock(null);
+    if (provedorAntes === undefined) delete process.env.LLM_PROVEDOR;
+    else process.env.LLM_PROVEDOR = provedorAntes;
+  });
+
+  async function comAnexo() {
+    const s = await semear();
+    const card = await criarCard({ pipelineId: s.vendas.id, faseId: fase(s.vendas, "primeiro_contato").id, titulo: "Site da Padaria" }, s.vendedora);
+    if (!card.ok) throw new Error("seed");
+    const anexo = await anexarArquivo(card.id, { nome: "proposta.md", bytes: new TextEncoder().encode("# Proposta\n\nTotal: R$ 20.000,00") }, s.vendedora);
+    if (!anexo.ok) throw new Error("seed anexo");
+    await criarProposta(card.id, s.vendedora);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    return { ...s, id: card.id, anexoId: anexo.anexo.id };
+  }
+
+  it("sugere sem gravar; aplicar grava pelo rascunho (via MCP) e só com a revisão atual", async () => {
+    const { id, anexoId, vendedora } = await comAnexo();
+    definirPropostaArquivoMock(() => LEITURA);
+    const s = dados(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId }, vendedora));
+    expect(s).toMatchObject({
+      aplicado: false,
+      markdown: "# Proposta\n\nTotal: R$ 20.000,00",
+      campos: { valor: "20.000,00", prazo_dias: null, escopo_resumo: "Site institucional", entregas: [{ titulo: "MVP", dia: "2026-12-15" }] },
+      revisar: [{ campo: "Prazo (dias)", motivo: "não encontrado no arquivo" }],
+    });
+    expect((await db.proposta.findFirstOrThrow()).revisao).toBe(0);
+
+    expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true }, vendedora))).toMatch(/informe a revisao/);
+    await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "outra pessoa mexeu" }, vendedora);
+    const velho = await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 0 }, vendedora);
+    expect(velho.isError).toBe(true);
+    expect(texto(velho)).toMatch(/alterada em outro lugar.*Use ler_proposta/s);
+    expect((await db.proposta.findFirstOrThrow()).conteudoMd).toBe("outra pessoa mexeu");
+
+    const ap = dados(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 1 }, vendedora));
+    expect(ap).toMatchObject({ aplicado: true, revisao: 2 });
+    const p = await db.proposta.findFirstOrThrow();
+    expect(p).toMatchObject({ conteudoMd: "# Proposta\n\nTotal: R$ 20.000,00", rascunhoViaMcp: true, estruturado: { valor: "20000.00", prazoDias: null } });
+    expect(await db.logLlm.count()).toBe(3);
+  });
+
+  it("quem não edita a proposta (projetos, outro vendedor) é recusado antes de gastar com a IA", async () => {
+    const { id, anexoId, projetos } = await comAnexo();
+    const outro = await db.usuario.create({ data: { nome: "Beto", email: "beto@ij.test", papel: "VENDEDOR" } });
+    const chamado = vi.fn(() => LEITURA);
+    definirPropostaArquivoMock(chamado);
+    for (const quem of [projetos, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
+      expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId }, quem))).toMatch(/Só quem é de vendas e responsável/);
+    }
+    expect(chamado).not.toHaveBeenCalled();
+  });
+
+  it("falha da IA: erro com ref (a mesma do log do servidor) e o rascunho intacto", async () => {
+    const { id, anexoId, vendedora } = await comAnexo();
+    definirPropostaArquivoMock(() => {
+      throw new ErroLlm("TIMEOUT");
+    });
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 0 }, vendedora);
+    expect(r.isError).toBe(true);
+    const ref = /\(ref: ([0-9a-f]{8})\)/.exec(texto(r))?.[1];
+    expect(texto(r)).toMatch(/demorou demais.*O rascunho não foi alterado/);
+    expect(erro.mock.calls.some((c) => String(c[0]).includes(`ref=${ref}`))).toBe(true);
+    expect(await db.proposta.findFirstOrThrow()).toMatchObject({ revisao: 0 });
   });
 });
