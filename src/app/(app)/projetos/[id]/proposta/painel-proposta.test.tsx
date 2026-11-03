@@ -73,7 +73,7 @@ describe("PainelProposta", () => {
     expect(acoes.salvarTextoAction).toHaveBeenCalledTimes(1);
 
     acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
-    fireEvent.click(screen.getByRole("button", { name: /Manter a minha/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Manter o meu texto e sobrescrever" }));
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 7, expect.objectContaining({ type: "doc" }));
     expect(screen.queryByText(/alterada em outro lugar/)).toBeNull();
@@ -111,5 +111,47 @@ describe("PainelProposta", () => {
     expect(acoes.salvarVersaoAction).toHaveBeenCalledWith("p1", 4, { documento: expect.objectContaining({ type: "doc" }), nota: "primeira" });
     expect(screen.getByText("Versão v1 salva.")).toBeInTheDocument();
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it("manter o meu texto: dados sem alteração local passam a ser os do servidor (o próximo 'Salvar dados' não desfaz a mudança do outro)", async () => {
+    const dadosServidor = { valor: "25.000,00", prazoDias: "", escopoResumo: "", entregas: [] };
+    acoes.salvarTextoAction.mockResolvedValueOnce({
+      ok: false,
+      erro: "c",
+      conflito: { revisao: 6, por: "Gil", viaMcp: true, em: null, documento: { type: "doc", content: [] }, estruturado: dadosServidor },
+    });
+    montar();
+    fireEvent.change(screen.getByLabelText("texto"), { target: { value: "meu" } });
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 7 });
+    fireEvent.click(screen.getByRole("button", { name: "Manter o meu texto e sobrescrever" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByPlaceholderText("12.500,00")).toHaveValue("25.000,00");
+    expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
+
+    acoes.salvarEstruturadoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
+    fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar dados" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "25.000,00", prazoDias: "30" }));
+  });
+
+  it("manter os meus com dados alterados aqui: a escolha avisa e grava texto e dados por cima", async () => {
+    acoes.salvarTextoAction.mockResolvedValueOnce({
+      ok: false,
+      erro: "c",
+      conflito: { revisao: 6, por: "Gil", viaMcp: false, em: null, documento: { type: "doc", content: [] }, estruturado: { ...vazio, valor: "25.000,00" } },
+    });
+    montar();
+    fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "30.000,00" } });
+    fireEvent.change(screen.getByLabelText("texto"), { target: { value: "meu" } });
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 7 });
+    acoes.salvarEstruturadoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
+    fireEvent.click(screen.getByRole("button", { name: "Manter os meus (texto e dados) e sobrescrever" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 6, expect.anything());
+    expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "30.000,00" }));
+    expect(screen.queryByText("Dados alterados, não salvos")).toBeNull();
   });
 });

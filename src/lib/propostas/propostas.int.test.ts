@@ -79,11 +79,25 @@ describe("rascunho (autosave): Markdown canônico, controle otimista", () => {
     expect(lido?.proposta).toMatchObject({ revisao: 1, rascunhoPor: { nome: "Ana" }, rascunhoViaMcp: false });
   });
 
-  it("sem mudança: não mexe na revisão (aba parada não briga com a outra)", async () => {
+  it("sem mudança e base atual: ok sem mexer na revisão", async () => {
     const { ana, projeto } = await semear();
     await criarProposta(projeto.id, ana);
     await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "texto" } }, ana);
-    expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "texto" } }, ana)).toMatchObject({ ok: true, revisao: 1, mudou: false });
+    expect(await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "texto" } }, ana)).toMatchObject({ ok: true, revisao: 1, mudou: false });
+  });
+
+  it("sem mudança mas base VELHA é conflito (senão a aba velha adota a revisão nova e desfaz a mudança do outro)", async () => {
+    const { ana, gil, projeto } = await semear();
+    await criarProposta(projeto.id, ana);
+    await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "texto" }, estruturado: { valor: "20.000,00" } }, ana);
+    // A e B na revisão 1; B (MCP) troca o valor para 25k → revisão 2
+    expect(await comViaMcp(() => salvarRascunho(projeto.id, { revisao: 1, estruturado: { valor: "25.000,00" } }, gil))).toMatchObject({ ok: true, revisao: 2 });
+    // A digitou e apagou: o autosave manda o mesmo texto com a base 1 → conflito, não "ok rev 2"
+    const a = await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "texto" } }, ana);
+    expect(a).toMatchObject({ ok: false, erro: "CONFLITO", conflito: { revisao: 2, por: "Gil", estruturado: { valor: "25000.00" } } });
+    // e o "Salvar dados" de A com o formulário velho (20k) e base 1 também não passa
+    expect(await salvarRascunho(projeto.id, { revisao: 1, estruturado: { valor: "20.000,00", prazoDias: "30" } }, ana)).toMatchObject({ ok: false, erro: "CONFLITO" });
+    expect((await db.proposta.findUniqueOrThrow({ where: { projetoId: projeto.id } })).valor?.toFixed(2)).toBe("25000.00");
   });
 
   it("duas abas / pessoa + MCP: quem grava com revisão velha recebe CONFLITO com o atual, nada é sobrescrito", async () => {

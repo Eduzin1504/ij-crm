@@ -10,6 +10,7 @@ import path from "node:path";
 import { anexarArquivo } from "@/lib/anexos/anexos";
 import { excluirCard } from "@/lib/lixeira/cards";
 import { pdfDeTexto, PNG } from "@/test/fixtures/anexos";
+import { criarProposta, salvarVersao } from "@/lib/propostas/propostas";
 import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
@@ -106,6 +107,8 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     if (!card.ok) throw new Error("seed");
     const anexo = await anexarArquivo(card.id, { nome: "notas.md", bytes: new TextEncoder().encode("# Reunião") }, vendedora);
     if (!anexo.ok) throw new Error("seed anexo");
+    await criarProposta(card.id, vendedora);
+    await salvarVersao(card.id, { revisao: 0 }, vendedora);
     const leituras = [
       ["listar_fases", {}],
       ["listar_responsaveis", {}],
@@ -115,6 +118,9 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       ["listar_anexos", { projeto_id: card.id }],
       ["ler_anexo", { anexo_id: anexo.anexo.id }],
       ["consultar_painel_vendas", { indicador: "acompanhamento" }],
+      ["ler_proposta", { projeto_id: card.id }],
+      ["listar_versoes_proposta", { projeto_id: card.id }],
+      ["ler_versao_proposta", { projeto_id: card.id, numero: 1 }],
     ] as const;
     // Um caso por ferramenta de leitura: ferramenta nova sem caso aqui quebra o teste.
     expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());

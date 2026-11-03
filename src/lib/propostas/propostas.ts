@@ -254,8 +254,10 @@ type MudancaRascunho = { revisao: number; conteudo?: ConteudoEntrada; estruturad
 /**
  * Núcleo do rascunho, dentro da transação: valida, compara com o atual e grava
  * só se mudou, condicionado à revisão lida (`updateMany … where revisao`).
- * Nada mudou → ok sem tocar na revisão (mesmo que a base esteja velha: o
- * conteúdo pedido já é o do servidor).
+ * Nada mudou → ok sem tocar na revisão, MAS só se a base for a atual. Base
+ * velha é sempre CONFLITO, mesmo sem mudança: senão quem leu antes "pega" a
+ * revisão nova sem ter visto o que mudou (ex.: outra pessoa trocou o valor) e a
+ * próxima gravação dele desfaz a mudança em silêncio (lost update).
  */
 async function aplicarRascunho(tx: Tx, projetoId: string, m: MudancaRascunho, ator: Ator) {
   const { pode } = await contexto(tx, projetoId, ator);
@@ -265,8 +267,12 @@ async function aplicarRascunho(tx: Tx, projetoId: string, m: MudancaRascunho, at
   const md = m.conteudo ? conteudoParaMarkdown(m.conteudo) : atual.conteudoMd;
   const estAtual = lerEstruturadoGravado(atual.estruturado);
   const est = m.estruturado !== undefined ? lerEstruturado(m.estruturado) : estAtual;
+  if (m.revisao !== atual.revisao) {
+    const p = await tx.proposta.findUniqueOrThrow({ where: { id: atual.id }, select: SELECAO_CONFLITO });
+    throw new ErroDeProposta({ ok: false, erro: "CONFLITO", conflito: paraConflito(p) });
+  }
   if (md === atual.conteudoMd && mesmoEstruturado(est, estAtual)) {
-    return { id: atual.id, revisao: atual.revisao, mudou: false, markdown: md, estruturado: est, baseValida: m.revisao === atual.revisao };
+    return { id: atual.id, revisao: atual.revisao, mudou: false, markdown: md, estruturado: est };
   }
   const n = await tx.proposta.updateMany({
     where: { id: atual.id, revisao: m.revisao },
@@ -284,7 +290,7 @@ async function aplicarRascunho(tx: Tx, projetoId: string, m: MudancaRascunho, at
     const p = await tx.proposta.findUniqueOrThrow({ where: { id: atual.id }, select: SELECAO_CONFLITO });
     throw new ErroDeProposta({ ok: false, erro: "CONFLITO", conflito: paraConflito(p) });
   }
-  return { id: atual.id, revisao: m.revisao + 1, mudou: true, markdown: md, estruturado: est, baseValida: true };
+  return { id: atual.id, revisao: m.revisao + 1, mudou: true, markdown: md, estruturado: est };
 }
 
 /** Autosave da tela / `editar_proposta` do MCP. Não é versão e não vai para a Timeline. */
@@ -314,11 +320,8 @@ export async function salvarVersao(
   return emTransacao(async (tx) => {
     // Uma versão por vez por proposta: trava a linha (o número sai do máximo atual).
     await tx.$queryRaw`SELECT id FROM proposta WHERE oportunidade_id = ${projetoId} FOR UPDATE`;
+    // Base velha já é CONFLITO em `aplicarRascunho`: a versão é do conteúdo que quem pediu viu.
     const r = await aplicarRascunho(tx, projetoId, m, ator);
-    if (!r.baseValida) {
-      const p = await tx.proposta.findUniqueOrThrow({ where: { id: r.id }, select: SELECAO_CONFLITO });
-      throw new ErroDeProposta({ ok: false, erro: "CONFLITO", conflito: paraConflito(p) });
-    }
     const ultima = await tx.propostaVersao.findFirst({ where: { propostaId: r.id }, orderBy: { numero: "desc" }, select: { numero: true, conteudoMd: true, estruturado: true } });
     if (ultima && ultima.conteudoMd === r.markdown && mesmoEstruturado(lerEstruturadoGravado(ultima.estruturado), r.estruturado)) falhar("SEM_MUDANCAS");
     const pessoa = await tx.usuario.findUniqueOrThrow({ where: { id: ator.id }, select: { papel: true, area: true, cargos: true } });

@@ -148,9 +148,23 @@ export function PainelProposta({
     autosave.usarDoServidor(c.revisao);
   }
 
+  /**
+   * Mantém o que é MEU por cima da revisão nova. Dados sem alteração local passam a
+   * ser os do servidor (senão o formulário velho, já com a revisão nova, desfaria a
+   * mudança do outro no próximo "Salvar dados"). Dados alterados aqui: a escolha diz
+   * que sobrescreve também, e eles são gravados logo em seguida.
+   */
   function manterMeu(c: ConflitoUI) {
     const doc = editor.current?.documento();
-    if (doc) void autosave.manterMeu(c.revisao, doc);
+    const meusDados = formSujo ? form : null;
+    if (!meusDados) setForm(c.estruturado);
+    startTransition(async () => {
+      if (doc) await autosave.manterMeu(c.revisao, doc);
+      if (meusDados) {
+        const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, meusDados)));
+        if (r?.ok) setFormSujo(false);
+      }
+    });
   }
 
   return (
@@ -173,7 +187,7 @@ export function PainelProposta({
                 Carregar a versão atual (descarta a minha)
               </Button>
               <Button type="button" size="xs" variant="ghost" onClick={() => manterMeu(conflito)}>
-                Manter a minha e sobrescrever
+                {formSujo ? "Manter os meus (texto e dados) e sobrescrever" : "Manter o meu texto e sobrescrever"}
               </Button>
             </div>
           </div>

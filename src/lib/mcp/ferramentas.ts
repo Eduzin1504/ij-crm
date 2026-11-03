@@ -38,6 +38,7 @@ import { criarPrazo, listarPrazosDoCard, marcarPrazoFeito } from "@/lib/prazos/p
 import { carregarPainelPara, INDICADORES } from "@/lib/painel/servico";
 import { DEFINICOES_PAINEL, VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes";
 import { resolverPeriodo } from "@/lib/ranking/periodo";
+import { MARKDOWN_MAX } from "@/lib/propostas/documento";
 import { estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
 import { criarProposta, mensagemDaFalha, obterPropostaDoProjeto, obterVersao, salvarRascunho, salvarVersao } from "@/lib/propostas/propostas";
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeEditarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
@@ -499,8 +500,8 @@ function estruturadoMcp(e: Estruturado) {
 }
 
 async function voceEdita(eu: UsuarioMcp, projeto: { responsavelId: string }): Promise<boolean> {
-  const u = await db.usuario.findUnique({ where: { id: eu.id }, select: { id: true, papel: true, area: true, cargos: true } });
-  return !!u && podeEditarProposta(u, projeto);
+  const u = await db.usuario.findUnique({ where: { id: eu.id }, select: { id: true, papel: true, area: true, cargos: true, ativo: true } });
+  return !!u && u.ativo && podeEditarProposta(u, projeto);
 }
 
 const projetoId = id.describe("id do projeto (de buscar_projetos)");
@@ -558,7 +559,7 @@ const editarPropostaMcp = ferramenta({
   entrada: {
     projeto_id: projetoId,
     revisao: z.number().int().min(0),
-    markdown: z.string().max(200_000).optional(),
+    markdown: z.string().max(MARKDOWN_MAX).optional().describe(`até ${MARKDOWN_MAX} caracteres`),
     valor: z.string().max(50).optional(),
     prazo_dias: z.string().max(10).optional().describe("dias corridos; vazio limpa"),
     escopo_resumo: z.string().max(4000).optional(),
