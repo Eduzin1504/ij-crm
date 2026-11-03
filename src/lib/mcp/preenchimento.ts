@@ -13,6 +13,7 @@ import { z } from "zod";
 import { estruturadoParaEntrada, ESTRUTURADO_VAZIO } from "@/lib/propostas/estruturado";
 import { sugerirDeAnexo } from "@/lib/propostas/preenchimento";
 import { mensagemDaFalha, obterPropostaDoProjeto, salvarRascunho } from "@/lib/propostas/propostas";
+import { mensagemConflito } from "@/lib/propostas/regras";
 import { mesclarSugestao, ROTULO_CAMPO_SUGESTAO, type CamposSugeridos } from "@/lib/propostas/sugestao";
 import type { Ferramenta, Resposta } from "./ferramentas";
 import { urlBase } from "./url";
@@ -46,6 +47,14 @@ export const preencherPropostaDeAnexo: Ferramenta = {
   executar: async (bruto, eu): Promise<Resposta> => {
     const a = bruto as z.infer<z.ZodObject<typeof entrada>>;
     if (a.aplicar && a.revisao === undefined) return { ok: false, erro: "Para aplicar, informe a revisao lida em ler_proposta." };
+    if (a.aplicar) {
+      // Revisão velha falha ANTES de gastar com a IA (o `salvarRascunho` ainda confere de novo ao gravar).
+      const atual = await obterPropostaDoProjeto(a.projeto_id);
+      const p = atual?.proposta;
+      if (p && p.revisao !== a.revisao) {
+        return { ok: false, erro: `${mensagemConflito({ revisao: p.revisao, por: p.rascunhoPor?.nome ?? null, viaMcp: p.rascunhoViaMcp })} Use ler_proposta. Nada foi lido nem gravado.` };
+      }
+    }
     const r = await sugerirDeAnexo(a.projeto_id, a.anexo_id, eu);
     if (!r.ok) return { ok: false, erro: r.ref ? `${r.mensagem} (ref: ${r.ref})` : r.mensagem };
     const s = r.sugestao;

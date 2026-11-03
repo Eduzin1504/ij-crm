@@ -480,7 +480,7 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     valor_total: { valor: "20000.00", confianca: 0.95, trecho: "Total: R$ 20.000,00" },
     prazo_dias: { valor: null, confianca: 0, trecho: null },
     escopo_resumo: { valor: "Site institucional", confianca: 0.9, trecho: null },
-    entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: null }], confianca: 0.9 },
+    entregas: { itens: [{ titulo: "MVP", dia: "2026-12-15", valor: null, trecho: "MVP: 15/12/2026" }], confianca: 0.9 },
   };
   let provedorAntes: string | undefined;
   beforeEach(() => {
@@ -522,12 +522,14 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     expect(velho.isError).toBe(true);
     expect(texto(velho)).toMatch(/alterada em outro lugar[\s\S]*Use ler_proposta/);
     expect((await db.proposta.findFirstOrThrow()).conteudoMd).toBe("outra pessoa mexeu");
+    // revisão velha recusada ANTES da IA: só a sugestão inicial gastou até aqui
+    expect(await db.logLlm.count()).toBe(1);
 
     const ap = dados(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 1 }, vendedora));
     expect(ap).toMatchObject({ aplicado: true, revisao: 2 });
     const p = await db.proposta.findFirstOrThrow();
     expect(p).toMatchObject({ conteudoMd: "# Proposta\n\nTotal: R$ 20.000,00", rascunhoViaMcp: true, estruturado: { valor: "20000.00", prazoDias: null } });
-    expect(await db.logLlm.count()).toBe(3);
+    expect(await db.logLlm.count()).toBe(2);
   });
 
   it("quem não edita a proposta (projetos, outro vendedor) é recusado antes de gastar com a IA", async () => {
