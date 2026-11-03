@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ControleEditor } from "@/components/propostas/editor-texto";
+import { BotaoComentarTrecho, useComentarios, useDestaquesDoEditor } from "./comentarios-contexto";
 import { Autosave, type EstadoAutosave, type RespostaGravacao } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
@@ -89,10 +90,18 @@ export function PainelProposta({
 }) {
   const router = useRouter();
   const editor = useRef<ControleEditor>(null);
+  // GAB-91: comentários (null fora do provider): trechos destacados no editor e "Comentar trecho" pela seleção.
+  const comentarios = useComentarios();
+  const destaques = useDestaquesDoEditor();
+  const registrarSelecao = comentarios?.registrarSelecao;
+  const informarTexto = comentarios?.informarTexto;
+  useEffect(() => registrarSelecao?.(() => editor.current?.selecao?.() ?? null), [registrarSelecao]);
   const [estado, setEstado] = useState<EstadoAutosave>({ tipo: "salvo", em: null });
   // Props só na montagem: o `router.refresh()` (depois de salvar versão) traz props novas
   // e elas não podem atropelar o que está no editor/formulário.
   const [inicial] = useState(documento);
+  // O texto do editor é o que vale para "trecho alterado" nesta tela.
+  useEffect(() => informarTexto?.(inicial), [informarTexto, inicial]);
   const [form, setForm] = useState(estruturado);
   const [formSujo, setFormSujo] = useState(false);
   const [nota, setNota] = useState("");
@@ -176,6 +185,7 @@ export function PainelProposta({
    */
   function aplicarSugestao(s: { documento: Documento; campos: CamposSugeridos }) {
     editor.current?.substituir(s.documento);
+    informarTexto?.(s.documento);
     autosave.alterou(s.documento);
     const dados = mesclarSugestao(form, s.campos);
     setForm(dados);
@@ -185,6 +195,7 @@ export function PainelProposta({
 
   function usarDoServidor(c: ConflitoUI) {
     editor.current?.substituir(c.documento);
+    informarTexto?.(c.documento);
     setForm(c.estruturado);
     setFormSujo(false);
     autosave.usarDoServidor(c.revisao);
@@ -216,6 +227,7 @@ export function PainelProposta({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-medium">Texto</h2>
           <span className="flex-1" />
+          <BotaoComentarTrecho />
           <span className="font-mono text-[11px]" aria-live="polite">
             <Status estado={estado} tentar={() => void autosave.agora()} />
           </span>
@@ -236,7 +248,15 @@ export function PainelProposta({
           </div>
         ) : null}
 
-        <EditorTexto inicial={inicial} aoMudar={(d) => autosave.alterou(d)} controle={editor} />
+        <EditorTexto
+          inicial={inicial}
+          aoMudar={(d) => {
+            autosave.alterou(d);
+            comentarios?.informarTexto(d);
+          }}
+          controle={editor}
+          destaques={destaques}
+        />
         <p className="mt-2 text-xs text-fg-faint">
           Rascunho salvo sozinho enquanto você escreve (não vira versão). Atalhos: <code className="font-mono"># </code> título,{" "}
           <code className="font-mono">- </code> lista, <code className="font-mono">**negrito**</code>.

@@ -266,6 +266,11 @@ function Descricao({
               concordou com a {versao(p.numero)}: proposta <b className="font-medium text-foreground">pronta para envio</b>
             </>
           );
+        // GAB-91: o histórico de resolver/reabrir comentários da proposta.
+        case "comentario_resolvido":
+          return <>resolveu um comentário da proposta</>;
+        case "comentario_reaberto":
+          return <>reabriu um comentário da proposta</>;
         case "caneta_passada":
           return <>passou a caneta da proposta para {quem(p.paraNome)}</>;
         case "caneta_pega":
