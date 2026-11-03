@@ -26,6 +26,8 @@ export type PedidoExtracao = {
   maxTokens?: number;
   /** Timeout por tentativa (ms). Padrão `TIMEOUT_LLM_MS`; a leitura de arquivo (GAB-90) usa mais. */
   timeoutMs?: number;
+  /** Tentativas no máximo (padrão `TENTATIVAS_LLM` = 2). A leitura de arquivo com visão (GAB-90) usa 1. */
+  tentativas?: number;
   /**
    * Arquivo junto da mensagem (GAB-90: PDF escaneado/imagem lido pelo modelo
    * com visão — sem OCR no servidor). Bytes em base64, nunca logados.

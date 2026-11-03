@@ -13,9 +13,13 @@ export const TENTATIVAS_LLM = 2;
 /** Saída do tradutor de erro de cada SDK. `erro.message` só tem código/status. */
 export type TraducaoErro = { erro: ErroLlm; retentavel: boolean };
 
-export async function comRetentativa<T>(chamada: () => Promise<T>, traduzir: (e: unknown) => TraducaoErro): Promise<T> {
+/**
+ * `tentativas` (padrão `TENTATIVAS_LLM`): a leitura de arquivo escaneado (GAB-90)
+ * usa 1 — repetir uma chamada de visão de até 120 s dobraria custo e espera.
+ */
+export async function comRetentativa<T>(chamada: () => Promise<T>, traduzir: (e: unknown) => TraducaoErro, tentativas: number = TENTATIVAS_LLM): Promise<T> {
   let ultimo: ErroLlm | undefined;
-  for (let i = 0; i < TENTATIVAS_LLM; i++) {
+  for (let i = 0; i < Math.max(1, tentativas); i++) {
     try {
       return await chamada();
     } catch (e) {

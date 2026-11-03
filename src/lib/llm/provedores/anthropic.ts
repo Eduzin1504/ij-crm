@@ -81,6 +81,7 @@ export function criarProvedorAnthropic({ apiKey, modelo, fetch }: Opcoes): Prove
           pedido.timeoutMs ? { timeout: pedido.timeoutMs } : undefined,
         ),
       traduzirErro,
+      pedido.tentativas,
     );
   }
 

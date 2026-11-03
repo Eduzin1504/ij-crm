@@ -200,6 +200,7 @@ export function criarProvedorGemini({ apiKey, modelo, fetch, timeoutMs }: Opcoes
             },
           }),
         traduzirErro,
+        pedido.tentativas,
       );
       const u = resposta.usageMetadata;
       const pensamento = u?.thoughtsTokenCount ?? 0;

@@ -121,6 +121,7 @@ export function criarProvedorOpenAI({ apiKey, modelo, fetch, timeoutMs }: Opcoes
         return r;
       },
       (e) => traduzirErro(e, uso),
+      pedido.tentativas,
     );
   }
 

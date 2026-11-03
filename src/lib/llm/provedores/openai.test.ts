@@ -103,6 +103,19 @@ describe("provedor OpenAI (SDK oficial, Responses API, fetch falso)", () => {
     expect(corpoEnviado(fetch, 1).input[0].content[1]).toEqual({ type: "input_image", image_url: "data:image/png;base64,iVBORw==", detail: "high" });
   });
 
+  it("tentativas: 1 (leitura com visão, GAB-90): 5xx e timeout NÃO re-tentam — uma cobrança, uma espera", async () => {
+    const erro500 = () => erroApi(500, { type: "server_error", code: null, message: "x" });
+    const padrao = vi.fn().mockImplementation(async () => erro500());
+    await expect(provedor(padrao).extrair(PEDIDO)).rejects.toMatchObject({ codigo: "HTTP" });
+    expect(padrao).toHaveBeenCalledTimes(2);
+    const uma = vi.fn().mockImplementation(async () => erro500());
+    await expect(provedor(uma).extrair({ ...PEDIDO, tentativas: 1 })).rejects.toMatchObject({ codigo: "HTTP", status: 500 });
+    expect(uma).toHaveBeenCalledTimes(1);
+    const lento = vi.fn().mockImplementation((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")))));
+    await expect(provedor(lento, 20).extrair({ ...PEDIDO, tentativas: 1 })).rejects.toMatchObject({ codigo: "TIMEOUT" });
+    expect(lento).toHaveBeenCalledTimes(1);
+  });
+
   it("não manda parâmetros de sampling que modelo de raciocínio recusa", async () => {
     const fetch = vi.fn().mockResolvedValue(http(200, resposta([texto(JSON.stringify(SAIDA))])));
     await provedor(fetch).extrair(PEDIDO);

@@ -66,6 +66,8 @@ export async function lerPropostaDeArquivo(entrada: EntradaLeitura, opts: { ref:
       schema: (arquivo ? JSON_SCHEMA_PROPOSTA_ARQUIVO : JSON_SCHEMA_PROPOSTA_TEXTO) as unknown as Record<string, unknown>,
       maxTokens: arquivo ? MAX_TOKENS_PROPOSTA_ARQUIVO : MAX_TOKENS_PROPOSTA_TEXTO,
       timeoutMs: arquivo ? TIMEOUT_PROPOSTA_ARQUIVO_MS : TIMEOUT_PROPOSTA_TEXTO_MS,
+      // Visão: UMA tentativa. Repetir um timeout de 120 s dobraria custo e espera (e prenderia a action ~4 min).
+      tentativas: arquivo ? 1 : undefined,
       ...(entrada.modo === "arquivo" ? { arquivo: entrada.arquivo } : {}),
     });
   } catch (e) {
