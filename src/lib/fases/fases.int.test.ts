@@ -544,6 +544,16 @@ describe("Gestão de fases × trava de Montando contrato (GAB-89)", () => {
     expect((await db.projeto.findUniqueOrThrow({ where: { id: d.id } })).faseId).toBe(faseDe(vendas, "juridico").id);
   });
 
+  it("card isento (existia no deploy) não segura a Gestão: migra e cruza o marco", async () => {
+    const { vendas, g, ids } = await quadro();
+    const [pc, neg, prop, mc, jur, ganho, perd] = ids;
+    const c = await card(vendas.id, neg, g.id);
+    await db.projeto.update({ where: { id: c.id }, data: { isentoTravaContrato: true } });
+    expect(await reordenarFases(vendas.id, [pc, prop, mc, neg, jur, ganho, perd])).toEqual({ ok: true });
+    expect(await removerFase(neg, { destinoFaseId: jur }, g)).toMatchObject({ ok: true });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: c.id } })).faseId).toBe(jur);
+  });
+
   it("subfase que já está além do marco migra livre para outra além dele (cards migrados)", async () => {
     const { vendas, g } = await quadro();
     const extra = await db.fase.create({ data: { pipelineId: vendas.id, chave: "assinaturas", nome: "Assinaturas", ordem: 4 } });

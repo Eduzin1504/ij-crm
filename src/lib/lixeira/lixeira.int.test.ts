@@ -125,6 +125,11 @@ describe("soft-delete e restauração de card", () => {
       if (!r.ok) expect(mensagemLixeira(r)).toMatch(/não tem proposta aceita/);
     }
     expect((await db.projeto.findUniqueOrThrow({ where: { id: cardId } })).deletadoEm).not.toBeNull();
+    // card isento (existia no deploy) também volta lá
+    await db.projeto.update({ where: { id: cardId }, data: { isentoTravaContrato: true } });
+    expect(await restaurarCard(cardId, gestor, { faseId: juridico.id })).toEqual({ ok: true, faseId: juridico.id });
+    await excluirCard(cardId, vend);
+    await db.projeto.update({ where: { id: cardId }, data: { isentoTravaContrato: false, faseId: fase(vendas, "proposta").id } });
     // com a proposta aceita, volta lá
     await db.proposta.create({ data: { projetoId: cardId, status: "ACEITA", criadoPorId: vend.id } });
     expect(await restaurarCard(cardId, gestor, { faseId: mc.id })).toEqual({ ok: true, faseId: mc.id });

@@ -1152,8 +1152,14 @@ incrementa a revisão).
 - **Trava** (`src/lib/projetos/trava-contrato.ts`): Montando contrato e tudo depois
   dele em Vendas (subfases, Ganho) só com proposta **Aceita** — Kanban, MCP,
   WhatsApp (não move, `revisar`, o grupo recebe o que falta) e card novo. Nem
-  gestor força. Card que já está em Montando contrato ou além (migrado) anda livre
-  lá dentro; saindo de Perdido conta onde foi perdido. Import do Pipefy não passa
+  gestor força. **Cards que já existiam no deploy são isentos**
+  (`oportunidade.isento_trava_contrato`, marcado em todos pela migration
+  `20261101200000_envio_proposta` na hora em que ela roda; o import do Pipefy
+  também marca); só os criados depois exigem a proposta aceita. Isentar um card na
+  mão (exceção combinada com a gestão): `UPDATE oportunidade SET
+  isento_trava_contrato = true WHERE id = '<id>'`. Além disso, card que já está em
+  Montando contrato ou além anda livre lá dentro; saindo de Perdido conta onde foi
+  perdido. Import do Pipefy não passa
   pela trava. A lixeira (restaurar escolhendo fase) e a Gestão de fases também
   respeitam: remover fase migrando para lá → `DESTINO_EXIGE_PROPOSTA`; reordenar
   uma subfase com cards sem aceite para depois do marco → `FASE_CRUZA_CONTRATO`. **Card legado parado antes do marco** que já fechou: não há atalho —

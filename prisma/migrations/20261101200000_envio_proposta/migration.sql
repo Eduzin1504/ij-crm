@@ -6,3 +6,10 @@ ALTER TABLE "proposta"
   ADD COLUMN "enviada_em" TIMESTAMP(3),
   ADD COLUMN "respondida_em" TIMESTAMP(3),
   ADD COLUMN "motivo_recusa" TEXT;
+
+-- Decisão do produto: os cards que JÁ EXISTEM quando esta migration roda (no
+-- deploy) ficam isentos da trava de Montando contrato (proposta aceita); só os
+-- criados depois exigem. A marca depende da hora em que a migration roda, não
+-- de data no código. Coluna nova com DEFAULT false: cards novos nascem travados.
+ALTER TABLE "oportunidade" ADD COLUMN "isento_trava_contrato" BOOLEAN NOT NULL DEFAULT false;
+UPDATE "oportunidade" SET "isento_trava_contrato" = true;

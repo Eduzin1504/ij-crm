@@ -8,7 +8,11 @@
  * (`criarCardTravado`). Nem gestor força. O import do Pipefy (histórico) não
  * passa por aqui.
  *
- * Cards migrados que já estão além do marco Proposta não são afetados
+ * Cards que já existiam no deploy da trava são ISENTOS (decisão do produto):
+ * `projeto.isento_trava_contrato`, marcado pela migration 20261101200000 em
+ * todo card existente (e pelo import do Pipefy). Só os criados depois exigem.
+ *
+ * Além disso, cards já além do marco Proposta não são afetados
  * [escolha do agente, spec §4.2]: a trava só olha a ENTRADA nessa região do
  * quadro. A migração do ciclo único (GAB-81) pôs o marco Proposta logo antes
  * de Montando contrato, então "além de Proposta" = "em Montando contrato ou
@@ -44,6 +48,10 @@ export async function travaDoContrato(
 ): Promise<{ status: StatusProposta | null } | null> {
   const mc = await faseMontandoContrato(tx);
   if (!mc || !alemDoContrato(a.destino, mc)) return null;
+  if (a.projetoId) {
+    const isento = await tx.projeto.findUnique({ where: { id: a.projetoId }, select: { isentoTravaContrato: true } });
+    if (isento?.isentoTravaContrato) return null;
+  }
   if (a.origem) {
     let efetiva: PosicaoFase = a.origem;
     if (a.origem.tipoTerminal === "PERDIDO" && a.projetoId) {
@@ -69,10 +77,10 @@ export async function exigirTravaDoContrato(tx: Tx, a: { projetoId: string | nul
 
 /**
  * Cards vivos da fase que a trava seguraria se fossem levados para além de
- * Montando contrato: sem proposta, ou com proposta não aceita. Usado pela
+ * Montando contrato: não isentos, sem proposta ou com proposta não aceita. Usado pela
  * Gestão de fases (remover com migração, reordenar), que mexe em vários
  * cards de uma vez sem passar por `registrarMovimento`.
  */
 export async function contarCardsSemPropostaAceita(tx: Tx, faseId: string): Promise<number> {
-  return tx.projeto.count({ where: { faseId, deletadoEm: null, NOT: { proposta: { is: { status: "ACEITA" } } } } });
+  return tx.projeto.count({ where: { faseId, deletadoEm: null, isentoTravaContrato: false, NOT: { proposta: { is: { status: "ACEITA" } } } } });
 }

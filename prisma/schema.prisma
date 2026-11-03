@@ -421,6 +421,9 @@ model Projeto {
   proximaAcao           String?    @map("proxima_acao")
   proximaAcaoEm         DateTime?  @map("proxima_acao_em")
   revisar               Boolean    @default(false)
+  /// GAB-89: card que já existia no deploy da trava (marcado pela migration 20261101200000)
+  /// ou veio do import do Pipefy: livre da trava de Montando contrato (proposta aceita).
+  isentoTravaContrato   Boolean    @default(false) @map("isento_trava_contrato")
   faseDesde             DateTime   @default(now()) @map("fase_desde")
   criadoVia             CriadoVia  @map("criado_via")
   // v1 (GAB-32): card de projetos gerado pelo ganho desta venda. GAB-81: o ganho não cria mais
