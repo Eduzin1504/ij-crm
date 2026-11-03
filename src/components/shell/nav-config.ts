@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChartColumn,
   Contact,
+  FileText,
   FolderKanban,
   KanbanSquare,
   Settings2,
@@ -32,6 +33,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/kanban", label: "Vendas", icon: KanbanSquare, quadro: "vendas" },
   { href: "/kanban?quadro=projetos", label: "Projetos", icon: FolderKanban, quadro: "projetos" },
+  // GAB-86: todas as propostas (uma por projeto); a edição fica dentro do projeto.
+  { href: "/propostas", label: "Propostas", icon: FileText },
   { href: "/tabela", label: "Tabela", icon: Table2 },
   { href: "/contatos", label: "Contatos", icon: Contact },
   { href: "/empresas", label: "Empresas", icon: Building2 },

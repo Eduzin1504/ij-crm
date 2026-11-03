@@ -26,6 +26,7 @@ import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
 import { listarPrazosDoCard } from "@/lib/prazos/prazos";
 import { PrazosProvider } from "../../_calendario/editor-prazo";
 import { PrazosDoCard } from "./prazos-card";
+import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
 
 export const metadata = { title: "Card" };
 
@@ -199,6 +200,24 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 <RevisarSwitch cardId={card.id} valor={card.revisar} somenteLeitura={leitura} />
               </div>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-medium">Proposta</h2>
+              {card.proposta ? <StatusPropostaBadge status={card.proposta.status} /> : null}
+              <span className="flex-1" />
+              <Link href={`/projetos/${card.id}/proposta`} className="text-sm text-fg-soft underline decoration-fg-faint underline-offset-2 hover:text-foreground">
+                {card.proposta ? "Abrir proposta" : "Ver / criar proposta"}
+              </Link>
+            </div>
+            <p className="mt-1 text-xs text-fg-mute">
+              {card.proposta
+                ? card.proposta._count.versoes > 0
+                  ? `${card.proposta._count.versoes} ${card.proposta._count.versoes === 1 ? "versão salva" : "versões salvas"}.`
+                  : "Só rascunho, nenhuma versão salva ainda."
+                : "Ainda sem proposta (uma por projeto)."}
+            </p>
           </section>
 
           <DescricaoCard cardId={card.id} valor={card.descricao} somenteLeitura={leitura} />

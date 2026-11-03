@@ -14,7 +14,7 @@
  * Todo acesso filtra `deletadoEm: null`: card soft-deletado não aparece, não
  * move e não edita.
  */
-import type { Fase, Origem, OrigemTransicao, Papel, Prisma, TipoTerminal, TipoTimeline } from "@prisma/client";
+import type { Fase, Origem, OrigemTransicao, Papel, Prisma, StatusProposta, TipoTerminal, TipoTimeline } from "@prisma/client";
 import { podeEscrever, QUEM_ATUA } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
@@ -83,6 +83,8 @@ export type CardDoQuadro = {
   /** Último fechamento (mantido ao reabrir): pré-preenche o diálogo de ganho/perda. */
   valorFechado: { toFixed(n: number): string } | null;
   motivoPerda: string | null;
+  /** GAB-86: badge de status da proposta (null = sem proposta). */
+  proposta: { status: StatusProposta } | null;
 };
 
 export type Quadro = {
@@ -118,6 +120,7 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
         empresa: { select: SELECAO_NOME_EXIBIDO },
         valorFechado: true,
         motivoPerda: true,
+        proposta: { select: { status: true } },
       },
     }),
     // Descrição pode ter 5000 caracteres: o quadro recebe só a prévia, cortada no
@@ -160,6 +163,8 @@ export async function obterCard(id: string) {
         orderBy: [{ em: "asc" }, { id: "asc" }],
         include: { usuario: { select: { id: true, nome: true } } },
       },
+      // GAB-86: resumo da proposta (o detalhe dela é a página /projetos/[id]/proposta).
+      proposta: { select: { status: true, _count: { select: { versoes: true } } } },
     },
   });
 }

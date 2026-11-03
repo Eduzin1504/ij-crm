@@ -12,7 +12,8 @@
  * Erro de regra → texto em português para o Claude; exceção → log com `ref`
  * e a mesma `ref` na mensagem (padrão do repo: `registrarErro`).
  *
- * Próximas fatias (proposta, handoff…) acrescentam ferramentas a `FERRAMENTAS`.
+ * Próximas fatias acrescentam ferramentas a `FERRAMENTAS`. Proposta (GAB-86):
+ * ler/criar/editar (Markdown + parte estruturada), salvar versão e ler versões.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -37,6 +38,11 @@ import { criarPrazo, listarPrazosDoCard, marcarPrazoFeito } from "@/lib/prazos/p
 import { carregarPainelPara, INDICADORES } from "@/lib/painel/servico";
 import { DEFINICOES_PAINEL, VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes";
 import { resolverPeriodo } from "@/lib/ranking/periodo";
+import { MARKDOWN_MAX } from "@/lib/propostas/documento";
+import { estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
+import { criarProposta, mensagemDaFalha, obterPropostaDoProjeto, obterVersao, salvarRascunho, salvarVersao } from "@/lib/propostas/propostas";
+import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeEditarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
+import { db } from "@/lib/db";
 import type { UsuarioMcp } from "./oauth";
 import { urlBase } from "./url";
 
@@ -483,6 +489,152 @@ const consultarPainelVendas = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- proposta (GAB-86)
+
+const urlProposta = (pid: string) => `${urlBase()}/projetos/${pid}/proposta`;
+
+/** Parte estruturada no MESMO formato que `editar_proposta` aceita (dinheiro BR, dia AAAA-MM-DD). */
+function estruturadoMcp(e: Estruturado) {
+  const x = estruturadoParaEntrada(e);
+  return { valor: x.valor || null, prazo_dias: e.prazoDias, escopo_resumo: e.escopoResumo, entregas: x.entregas.map((en) => ({ ...en, valor: en.valor || null })) };
+}
+
+async function voceEdita(eu: UsuarioMcp, projeto: { responsavelId: string }): Promise<boolean> {
+  const u = await db.usuario.findUnique({ where: { id: eu.id }, select: { id: true, papel: true, area: true, cargos: true, ativo: true } });
+  return !!u && u.ativo && podeEditarProposta(u, projeto);
+}
+
+const projetoId = id.describe("id do projeto (de buscar_projetos)");
+
+const lerProposta = ferramenta({
+  nome: "ler_proposta",
+  titulo: "Ler proposta do projeto",
+  descricao:
+    "Lê a proposta do projeto (uma por projeto): status, o texto do rascunho em Markdown, a parte estruturada (valor, prazo em dias, escopo resumido, cronograma de entregas), a lista de versões salvas e a `revisao` atual — guarde-a: editar_proposta e salvar_versao_proposta pedem a revisão que você leu (se alguém mexeu depois, você recebe conflito em vez de sobrescrever). Diz também se você pode editar.",
+  escrita: false,
+  entrada: { projeto_id: projetoId },
+  executar: async (a, eu) => {
+    const r = await obterPropostaDoProjeto(a.projeto_id);
+    if (!r) return erro(MENSAGEM_ERRO_PROPOSTA.PROJETO_NAO_ENCONTRADO);
+    const edita = await voceEdita(eu, r.projeto);
+    if (!r.proposta) return ok({ existe: false, projeto: r.projeto.titulo, voceEdita: edita, dica: edita ? "Crie com criar_proposta." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria.", url: urlProposta(a.projeto_id) });
+    const p = r.proposta;
+    return ok({
+      existe: true,
+      projeto: r.projeto.titulo,
+      status: ROTULO_STATUS_PROPOSTA[p.status],
+      revisao: p.revisao,
+      voceEdita: edita,
+      markdown: p.conteudoMd,
+      estruturado: estruturadoMcp(p.estruturado),
+      rascunho: { por: p.rascunhoPor?.nome ?? null, em: p.rascunhoEm?.toISOString() ?? null, viaMcp: p.rascunhoViaMcp },
+      versoes: p.versoes.map((v) => ({ numero: v.numero, nota: v.nota, autor: v.autor.nome, em: v.criadoEm.toISOString(), viaMcp: v.viaMcp })),
+      formatacao: "Markdown aceito: # / ## / ### títulos, **negrito**, *itálico*, listas (- e 1.), --- linha. O resto (link, imagem, HTML, tabela, código) entra como texto.",
+      url: urlProposta(a.projeto_id),
+    });
+  },
+});
+
+const criarPropostaMcp = ferramenta({
+  nome: "criar_proposta",
+  titulo: "Criar proposta do projeto",
+  descricao: "Cria a proposta do projeto (no máximo uma por projeto), em Rascunho, com um esqueleto de títulos. Vai para a Timeline. Depois use editar_proposta.",
+  escrita: true,
+  entrada: { projeto_id: projetoId },
+  executar: async (a, eu) => {
+    const r = await criarProposta(a.projeto_id, eu);
+    if (!r.ok) return erro(mensagemDaFalha(r));
+    return ok({ criada: true, revisao: r.revisao, url: urlProposta(a.projeto_id) });
+  },
+});
+
+const entregaMcp = z.object({ titulo: z.string().max(400), dia: z.string().max(20).describe("AAAA-MM-DD"), valor: z.string().max(50).optional().describe("parcela em reais, 12.500,00") }).strict();
+
+const editarPropostaMcp = ferramenta({
+  nome: "editar_proposta",
+  titulo: "Editar rascunho da proposta",
+  descricao:
+    "Altera o RASCUNHO da proposta (não cria versão). Mande `revisao` (de ler_proposta) e o que mudar: `markdown` substitui o texto inteiro; valor (reais, 12.500,00), prazo_dias (inteiro), escopo_resumo e entregas (lista completa do cronograma, na ordem: titulo, dia AAAA-MM-DD, valor opcional) substituem só esses campos. Texto vazio limpa o campo. Se alguém alterou depois da sua leitura, volta conflito e nada é gravado: leia de novo e reaplique.",
+  escrita: true,
+  entrada: {
+    projeto_id: projetoId,
+    revisao: z.number().int().min(0),
+    markdown: z.string().max(MARKDOWN_MAX).optional().describe(`até ${MARKDOWN_MAX} caracteres`),
+    valor: z.string().max(50).optional(),
+    prazo_dias: z.string().max(10).optional().describe("dias corridos; vazio limpa"),
+    escopo_resumo: z.string().max(4000).optional(),
+    entregas: z.array(entregaMcp).max(100).optional(),
+  },
+  executar: async (a, eu) => {
+    const mexeEstruturado = a.valor !== undefined || a.prazo_dias !== undefined || a.escopo_resumo !== undefined || a.entregas !== undefined;
+    if (a.markdown === undefined && !mexeEstruturado) return erro("Informe o markdown e/ou algum campo da parte estruturada.");
+    let estruturado: EstruturadoEntrada | undefined;
+    if (mexeEstruturado) {
+      // Campos não mandados ficam como estão: parte do rascunho atual (a revisão protege contra leitura velha).
+      const atual = await obterPropostaDoProjeto(a.projeto_id);
+      const base = atual?.proposta ? estruturadoParaEntrada(atual.proposta.estruturado) : estruturadoParaEntrada({ valor: null, prazoDias: null, escopoResumo: null, entregas: [] });
+      estruturado = {
+        valor: a.valor ?? base.valor,
+        prazoDias: a.prazo_dias ?? base.prazoDias,
+        escopoResumo: a.escopo_resumo ?? base.escopoResumo,
+        entregas: a.entregas ?? base.entregas,
+      };
+    }
+    const r = await salvarRascunho(a.projeto_id, { revisao: a.revisao, ...(a.markdown !== undefined ? { conteudo: { markdown: a.markdown } } : {}), ...(estruturado ? { estruturado } : {}) }, eu);
+    if (!r.ok) return erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
+    return ok({ mudou: r.mudou, revisao: r.revisao, markdownGravado: r.markdown, estruturado: estruturadoMcp(r.estruturado), url: urlProposta(a.projeto_id) });
+  },
+});
+
+const salvarVersaoMcp = ferramenta({
+  nome: "salvar_versao_proposta",
+  titulo: "Salvar versão da proposta",
+  descricao: `Salva o rascunho atual como nova versão imutável (v1, v2…), com nota opcional (até ${NOTA_VERSAO_MAX} caracteres). Peça a \`revisao\` que você leu: a versão é do conteúdo que você viu. Vai para a Timeline.`,
+  escrita: true,
+  entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), nota: z.string().max(2000).optional() },
+  executar: async (a, eu) => {
+    const r = await salvarVersao(a.projeto_id, { revisao: a.revisao, nota: a.nota }, eu);
+    if (!r.ok) return erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
+    return ok({ versao: r.numero, url: `${urlProposta(a.projeto_id)}/versoes/${r.numero}` });
+  },
+});
+
+const listarVersoesMcp = ferramenta({
+  nome: "listar_versoes_proposta",
+  titulo: "Listar versões da proposta",
+  descricao: "Lista as versões salvas da proposta (mais nova primeiro): número, nota, autor, data e se foi via MCP.",
+  escrita: false,
+  entrada: { projeto_id: projetoId },
+  executar: async (a) => {
+    const r = await obterPropostaDoProjeto(a.projeto_id);
+    if (!r) return erro(MENSAGEM_ERRO_PROPOSTA.PROJETO_NAO_ENCONTRADO);
+    if (!r.proposta) return erro(MENSAGEM_ERRO_PROPOSTA.PROPOSTA_NAO_ENCONTRADA);
+    return ok({ versoes: r.proposta.versoes.map((v) => ({ numero: v.numero, nota: v.nota, autor: v.autor.nome, em: v.criadoEm.toISOString(), viaMcp: v.viaMcp })) });
+  },
+});
+
+const lerVersaoMcp = ferramenta({
+  nome: "ler_versao_proposta",
+  titulo: "Ler versão da proposta",
+  descricao: "Lê uma versão salva da proposta (imutável): o Markdown e a parte estruturada daquele momento, com nota, autor e data.",
+  escrita: false,
+  entrada: { projeto_id: projetoId, numero: z.number().int().min(1) },
+  executar: async (a) => {
+    const v = await obterVersao(a.projeto_id, a.numero);
+    if (!v) return erro(MENSAGEM_ERRO_PROPOSTA.VERSAO_NAO_ENCONTRADA);
+    return ok({
+      numero: v.numero,
+      nota: v.nota,
+      autor: v.autor.nome,
+      em: v.criadoEm.toISOString(),
+      viaMcp: v.viaMcp,
+      markdown: v.conteudoMd,
+      estruturado: estruturadoMcp(v.estruturado),
+      url: `${urlProposta(a.projeto_id)}/versoes/${v.numero}`,
+    });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -500,6 +652,12 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   listarAnexosMcp,
   lerAnexo,
   consultarPainelVendas,
+  lerProposta,
+  criarPropostaMcp,
+  editarPropostaMcp,
+  salvarVersaoMcp,
+  listarVersoesMcp,
+  lerVersaoMcp,
 ];
 
 function resultado(r: Resposta): CallToolResult {

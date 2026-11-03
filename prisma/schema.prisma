@@ -96,6 +96,7 @@ enum TipoTimeline {
   RESTAURACAO  // card voltou da lixeira (GAB-36)
   PRAZO        // prazo do card criado/concluído (GAB-51); payload.evento = "criado" | "concluido"
   ANEXO        // GAB-84: payload.evento = "adicionado" | "excluido" | "restaurado" | "apagado"; payload.anexoId, payload.nome
+  PROPOSTA     // GAB-86: proposta do Projeto; payload.evento = "criada" | "versao_salva" (+ numero, nota). A caneta (GAB-87) acrescenta eventos.
 }
 
 // GAB-84: tipo do anexo, detectado pelos BYTES no servidor (src/lib/anexos/tipos.ts).
@@ -115,6 +116,19 @@ enum Sentimento {
   POSITIVO
   NEUTRO
   NEGATIVO
+}
+
+/// GAB-86: status da proposta (spec fase 2 §4.3). Ciclo completo já no enum; nesta
+/// fatia só RASCUNHO é usado — a caneta/pingue-pongue (GAB-87) move entre os demais.
+enum StatusProposta {
+  RASCUNHO          // com vendas, antes de ir a projetos
+  EM_ANALISE        // caneta com projetos
+  EM_AJUSTE         // voltou para vendas
+  PRONTA_PARA_ENVIO // consenso
+  ENVIADA
+  ACEITA
+  RECUSADA
+  REVISAO_PEDIDA
 }
 
 enum StatusMensagem {
@@ -166,6 +180,10 @@ model Usuario {
   oauthCodigos      OauthCodigo[]
   mcpConexoes       McpConexao[]
   resumosJanela     ResumoJanela[]
+  propostasCriadas  Proposta[]       @relation("propostaCriadaPor")
+  propostasRascunho Proposta[]       @relation("propostaRascunhoPor")
+  propostasCaneta   Proposta[]       @relation("propostaCaneta")
+  versoesProposta   PropostaVersao[]
   prazos            Prazo[]          @relation("prazoResponsavel")
   prazosCriados     Prazo[]          @relation("prazoCriadoPor")
   prazosFeitos      Prazo[]          @relation("prazoFeitoPor")
@@ -439,6 +457,7 @@ model Projeto {
   mensagensEnviadas     MensagemEnviada[]
   prazos                Prazo[]
   anexos                Anexo[]
+  proposta              Proposta?
 
   @@index([pipelineId, faseId])
   @@index([responsavelId])
@@ -768,4 +787,69 @@ model Anexo {
   // + índice único PARCIAL (oportunidade_id, sha256) WHERE deletado_em IS NULL,
   // só na migração 20261101130000_anexos (o Prisma não representa índice parcial).
   @@map("anexo")
+}
+
+// ---------------------------------------------------------------- proposta (GAB-86)
+
+/// Proposta do Projeto (spec fase 2 §4.3/§4.5): UMA por Projeto (único no banco).
+/// O texto é Markdown CANÔNICO (fonte da verdade; ver src/lib/propostas/markdown.ts):
+/// o editor (Tiptap) recebe o JSON derivado dele e o MCP lê/escreve o próprio Markdown.
+/// `conteudo_md` + `estruturado` são o RASCUNHO (autosave; não é versão).
+/// `revisao` = controle otimista: toda gravação do rascunho exige a revisão lida e a
+/// incrementa (duas abas, pessoa + MCP: quem chega depois recebe conflito, nada é sobrescrito).
+model Proposta {
+  id             String         @id @default(cuid())
+  projetoId      String         @unique @map("oportunidade_id")
+  status         StatusProposta @default(RASCUNHO)
+  conteudoMd     String         @default("") @map("conteudo_md")
+  /// Rascunho da parte estruturada: { valor, prazoDias, escopoResumo, entregas[] } (src/lib/propostas/estruturado.ts).
+  estruturado    Json           @default("{}")
+  /// Cópia de `estruturado.valor` como coluna: lista/filtros/painel somam sem ler JSON.
+  valor          Decimal?       @db.Decimal(14, 2)
+  revisao        Int            @default(0)
+  /// Última gravação do rascunho: quem, quando e se foi pelo conector MCP.
+  rascunhoPorId  String?        @map("rascunho_por_id")
+  rascunhoEm     DateTime?      @map("rascunho_em")
+  rascunhoViaMcp Boolean        @default(false) @map("rascunho_via_mcp")
+  /// Caneta (GAB-87): quem está com ela e de que lado. Null nesta fatia (regra: vendas responsável edita).
+  canetaComId    String?        @map("caneta_com_id")
+  canetaLado     Area?          @map("caneta_lado")
+  criadoPorId    String         @map("criado_por_id")
+  criadoEm       DateTime       @default(now()) @map("criado_em")
+  atualizadoEm   DateTime       @updatedAt @map("atualizado_em")
+
+  // Apagar o Projeto de vez (admin) leva a proposta e as versões junto.
+  projeto     Projeto          @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  criadoPor   Usuario          @relation("propostaCriadaPor", fields: [criadoPorId], references: [id])
+  rascunhoPor Usuario?         @relation("propostaRascunhoPor", fields: [rascunhoPorId], references: [id], onDelete: SetNull)
+  canetaCom   Usuario?         @relation("propostaCaneta", fields: [canetaComId], references: [id], onDelete: SetNull)
+  versoes     PropostaVersao[]
+
+  @@index([status])
+  @@index([canetaComId])
+  @@map("proposta")
+}
+
+/// Versão da proposta: "Salvar versão" (v1, v2…). IMUTÁVEL — append-only como a
+/// Timeline; um trigger no banco recusa UPDATE (ver a migration 20261101150000).
+/// Snapshot completo: o Markdown e a parte estruturada daquele momento.
+model PropostaVersao {
+  id          String   @id @default(cuid())
+  propostaId  String   @map("proposta_id")
+  numero      Int
+  conteudoMd  String   @map("conteudo_md")
+  estruturado Json
+  nota        String?
+  autorId     String   @map("autor_id")
+  /// Lado do autor ao salvar (GAB-87: "concordar só vale se a última versão veio do outro lado" e o diff de quem recebe a caneta).
+  autorLado   Area?    @map("autor_lado")
+  viaMcp      Boolean  @default(false) @map("via_mcp")
+  criadoEm    DateTime @default(now()) @map("criado_em")
+
+  proposta Proposta @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  autor    Usuario  @relation(fields: [autorId], references: [id])
+
+  @@unique([propostaId, numero])
+  @@index([autorId])
+  @@map("proposta_versao")
 }

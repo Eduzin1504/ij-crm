@@ -1055,3 +1055,27 @@ a tela de autorização avisa quando o retorno é para `localhost`.
   firewall/WAF na frente do Caddy, libere essa faixa.
 - “Couldn't reach the MCP server” no claude.ai quase sempre é descoberta: confira
   os dois `curl` acima e o `APP_URL`.
+
+## 13. Propostas: rascunho, versões e conflito (GAB-86)
+
+Uma proposta por Projeto (`proposta.oportunidade_id` é único), aberta em
+`/projetos/<id>/proposta`; a aba **Propostas** (`/propostas`) lista todas.
+
+- **Quem edita (antes da caneta, GAB-87):** quem é de vendas e responsável pelo
+  Projeto, e a gestão (gestor/admin). Projetos, outros vendedores e visualizador
+  leem. Regra única em `src/lib/propostas/regras.ts` (`podeEditarProposta`).
+- **Fonte da verdade do texto:** Markdown canônico em `proposta.conteudo_md`
+  (é o que o MCP lê e escreve). O editor recebe o JSON derivado; o servidor
+  converte de volta e grava só Markdown. Formatação: títulos 1–3, negrito,
+  itálico, listas e linha horizontal — o resto vira texto literal.
+- **Rascunho x versão:** o autosave grava o rascunho (não é versão, não vai
+  para a Timeline). "Salvar versão" grava `proposta_versao` (v1, v2…), que o
+  banco não deixa alterar (trigger `proposta_versao_sem_update`). Criação e
+  cada versão entram na Timeline do Projeto (tipo `PROPOSTA`).
+- **Conflito:** cada gravação manda a `revisao` que leu. Se outra aba, outra
+  pessoa ou o Claude (MCP) gravou antes, nada é sobrescrito: a tela mostra quem
+  alterou e pede para escolher (carregar a atual ou manter a sua). No MCP a
+  ferramenta responde para ler de novo (`ler_proposta`).
+- **Erros:** a tela mostra `ref`; no log, `grep 'ref=<ref>'` mostra
+  `[proposta.salvarTexto|salvarEstruturado|salvarVersao|criar] ref=<ref> <causa>`
+  (pelo MCP, `[mcp.<ferramenta>]`).

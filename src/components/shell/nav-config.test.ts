@@ -50,6 +50,16 @@ describe("NAV_ITEMS", () => {
     expect(itemAtivo(cal, "/calendario", null)).toBe(true);
   });
 
+  it("Propostas aparece para todos os papéis, logo depois dos quadros (GAB-86)", () => {
+    for (const papel of ["VISUALIZADOR", "VENDEDOR", "PROJETOS", "GESTOR", "ADMIN"] as const) {
+      const hrefs = itensParaPapel(papel).map((i) => i.href);
+      expect(hrefs.indexOf("/propostas")).toBe(hrefs.indexOf("/kanban?quadro=projetos") + 1);
+    }
+    const propostas = NAV_ITEMS.find((i) => i.href === "/propostas")!;
+    expect(itemAtivo(propostas, "/propostas", null)).toBe(true);
+    expect(itemAtivo(propostas, "/kanban", null)).toBe(false);
+  });
+
   it("tem hrefs únicos", () => {
     const hrefs = NAV_ITEMS.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);

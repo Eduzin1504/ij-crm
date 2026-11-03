@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip } from "lucide-react";
+import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip, FileText } from "lucide-react";
 import type { TipoTimeline } from "@prisma/client";
 import { ehCampoEditavel, ROTULO_CAMPO } from "@/lib/projetos/campos";
 import { ROTULO_CAMPO_TERMINAL, ehCampoTerminal, formatarCampoTerminal, formatarDataHora, formatarDia, formatarValorCampo } from "@/lib/projetos/formatar";
@@ -23,6 +23,7 @@ const ICONE: Record<TipoTimeline, typeof Plus> = {
   RESTAURACAO: ArchiveRestore,
   PRAZO: Flag,
   ANEXO: Paperclip,
+  PROPOSTA: FileText,
 };
 
 /** Card ligado a este (venda ↔ projeto), para os links da Timeline. */
@@ -235,6 +236,36 @@ function Descricao({
           ) : null}
         </>
       );
+    }
+    case "PROPOSTA": {
+      // GAB-86: criação e versões salvas (a caneta, GAB-87, acrescenta eventos: caem no texto genérico).
+      const projetoId = e.projetoId;
+      if (p.evento === "versao_salva" && typeof p.numero === "number") {
+        return (
+          <>
+            salvou a{" "}
+            <Link
+              href={`/projetos/${projetoId}/proposta/versoes/${p.numero}`}
+              className="font-medium text-foreground underline decoration-fg-faint underline-offset-2 hover:decoration-foreground"
+            >
+              versão v{p.numero}
+            </Link>{" "}
+            da proposta
+            {typeof p.nota === "string" && p.nota ? <span className="text-fg-mute"> — “{p.nota}”</span> : null}
+          </>
+        );
+      }
+      if (p.evento === "criada") {
+        return (
+          <>
+            criou a{" "}
+            <Link href={`/projetos/${projetoId}/proposta`} className="font-medium text-foreground underline decoration-fg-faint underline-offset-2 hover:decoration-foreground">
+              proposta
+            </Link>
+          </>
+        );
+      }
+      return <>atualizou a proposta</>;
     }
   }
 }
