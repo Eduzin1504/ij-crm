@@ -39,7 +39,7 @@ describe("criar proposta: uma por Projeto, só quem edita", () => {
     const r = await criarProposta(projeto.id, ana);
     expect(r.ok).toBe(true);
     const p = await db.proposta.findUniqueOrThrow({ where: { projetoId: projeto.id } });
-    expect(p).toMatchObject({ status: "RASCUNHO", conteudoMd: MODELO_INICIAL, revisao: 0, criadoPorId: ana.id, canetaComId: null });
+    expect(p).toMatchObject({ status: "RASCUNHO", conteudoMd: MODELO_INICIAL, revisao: 0, criadoPorId: ana.id, canetaComId: ana.id, canetaLado: "VENDAS" });
     const tl = await db.timeline.findMany({ where: { projetoId: projeto.id } });
     expect(tl).toHaveLength(1);
     expect(tl[0]).toMatchObject({ tipo: "PROPOSTA", usuarioId: ana.id, viaMcp: false, payload: { evento: "criada" } });
@@ -87,25 +87,25 @@ describe("rascunho (autosave): Markdown canônico, controle otimista", () => {
   });
 
   it("sem mudança mas base VELHA é conflito (senão a aba velha adota a revisão nova e desfaz a mudança do outro)", async () => {
-    const { ana, gil, projeto } = await semear();
+    const { ana, projeto } = await semear();
     await criarProposta(projeto.id, ana);
     await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "texto" }, estruturado: { valor: "20.000,00" } }, ana);
-    // A e B na revisão 1; B (MCP) troca o valor para 25k → revisão 2
-    expect(await comViaMcp(() => salvarRascunho(projeto.id, { revisao: 1, estruturado: { valor: "25.000,00" } }, gil))).toMatchObject({ ok: true, revisao: 2 });
+    // A (tela) e B (o Claude dela, MCP) na revisão 1; B troca o valor para 25k → revisão 2
+    expect(await comViaMcp(() => salvarRascunho(projeto.id, { revisao: 1, estruturado: { valor: "25.000,00" } }, ana))).toMatchObject({ ok: true, revisao: 2 });
     // A digitou e apagou: o autosave manda o mesmo texto com a base 1 → conflito, não "ok rev 2"
     const a = await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "texto" } }, ana);
-    expect(a).toMatchObject({ ok: false, erro: "CONFLITO", conflito: { revisao: 2, por: "Gil", estruturado: { valor: "25000.00" } } });
+    expect(a).toMatchObject({ ok: false, erro: "CONFLITO", conflito: { revisao: 2, por: "Ana", viaMcp: true, estruturado: { valor: "25000.00" } } });
     // e o "Salvar dados" de A com o formulário velho (20k) e base 1 também não passa
     expect(await salvarRascunho(projeto.id, { revisao: 1, estruturado: { valor: "20.000,00", prazoDias: "30" } }, ana)).toMatchObject({ ok: false, erro: "CONFLITO" });
     expect((await db.proposta.findUniqueOrThrow({ where: { projetoId: projeto.id } })).valor?.toFixed(2)).toBe("25000.00");
   });
 
   it("duas abas / pessoa + MCP: quem grava com revisão velha recebe CONFLITO com o atual, nada é sobrescrito", async () => {
-    const { ana, gil, projeto } = await semear();
+    const { ana, projeto } = await semear();
     await criarProposta(projeto.id, ana);
-    expect((await comViaMcp(() => salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "versão do Claude" } }, gil))).ok).toBe(true);
+    expect((await comViaMcp(() => salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "versão do Claude" } }, ana))).ok).toBe(true);
     const r = await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "versão da aba antiga" } }, ana);
-    expect(r).toMatchObject({ ok: false, erro: "CONFLITO", conflito: { revisao: 1, por: "Gil", viaMcp: true, markdown: "versão do Claude" } });
+    expect(r).toMatchObject({ ok: false, erro: "CONFLITO", conflito: { revisao: 1, por: "Ana", viaMcp: true, markdown: "versão do Claude" } });
     expect((await db.proposta.findUniqueOrThrow({ where: { projetoId: projeto.id } })).conteudoMd).toBe("versão do Claude");
     // recarregou (revisão 1) → grava
     expect(await salvarRascunho(projeto.id, { revisao: 1, conteudo: { markdown: "agora sim" } }, ana)).toMatchObject({ ok: true, revisao: 2 });
@@ -158,10 +158,13 @@ describe("rascunho (autosave): Markdown canônico, controle otimista", () => {
     expect(r).toMatchObject({ ok: true, markdown: "\\<script>alert(1)\\</script>" });
   });
 
-  it("quem não edita não grava (projetos lê, visualizador lê)", async () => {
-    const { ana, paula, vera, projeto } = await semear();
+  it("só o dono da caneta grava: projetos, outra vendedora, gestor e visualizador leem", async () => {
+    const { ana, bia, paula, gil, vera, projeto } = await semear();
     await criarProposta(projeto.id, ana);
-    for (const quem of [paula, vera]) expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    for (const quem of [paula, bia, gil, vera]) {
+      expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, quem)).toEqual({ ok: false, erro: "SEM_CANETA" });
+      expect(await salvarVersao(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, quem)).toEqual({ ok: false, erro: "SEM_CANETA" });
+    }
     expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, ana)).toMatchObject({ ok: true });
   });
 
@@ -169,7 +172,7 @@ describe("rascunho (autosave): Markdown canônico, controle otimista", () => {
     const { ana, projeto } = await semear();
     await criarProposta(projeto.id, ana);
     await db.usuario.update({ where: { id: ana.id }, data: { papel: "VISUALIZADOR" } });
-    expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, { id: ana.id, papel: "VENDEDOR" })).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    expect(await salvarRascunho(projeto.id, { revisao: 0, conteudo: { markdown: "x" } }, { id: ana.id, papel: "VENDEDOR" })).toEqual({ ok: false, erro: "SEM_CANETA" });
   });
 
   it("sem proposta ainda", async () => {
@@ -194,7 +197,7 @@ describe("versões: imutáveis, numeradas, com nota, autor e Timeline", () => {
     expect(await obterVersao(projeto.id, 3)).toBeNull();
 
     const tl = await db.timeline.findMany({ where: { projetoId: projeto.id }, orderBy: { em: "asc" } });
-    expect(tl.map((t) => t.payload)).toEqual([{ evento: "criada", propostaId: expect.any(String) }, { evento: "versao_salva", numero: 1, nota: "pronta para olhar" }, { evento: "versao_salva", numero: 2 }]);
+    expect(tl.map((t) => t.payload)).toEqual([{ evento: "criada", propostaId: expect.any(String), canetaComId: ana.id, canetaComNome: "Ana" }, { evento: "versao_salva", numero: 1, nota: "pronta para olhar" }, { evento: "versao_salva", numero: 2 }]);
   });
 
   it("autosave não é versão", async () => {

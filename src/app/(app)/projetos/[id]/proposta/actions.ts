@@ -8,7 +8,19 @@ import type { ConflitoCliente } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
 import { estruturadoParaEntrada, type FormularioEstruturado } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
-import { criarProposta, mensagemDaFalha, salvarRascunho, salvarVersao, type Falha } from "@/lib/propostas/propostas";
+import {
+  concordarProposta,
+  criarProposta,
+  devolverProposta,
+  marcarInviavel,
+  mensagemDaFalha,
+  passarCaneta,
+  pegarCaneta,
+  reabrirProposta,
+  salvarRascunho,
+  salvarVersao,
+  type Falha,
+} from "@/lib/propostas/propostas";
 
 /** Conflito para a tela: o estado atual do servidor já como documento do editor. */
 export type ConflitoUI = ConflitoCliente & { documento: Documento; estruturado: FormularioEstruturado };
@@ -103,5 +115,97 @@ export async function salvarVersaoAction(
     if (!r.ok) return falhaParaTela(r);
     revalidar(projetoId);
     return { ok: true, revisao: r.revisao, numero: r.numero };
+  });
+}
+
+// ---------------------------------------------------------------- caneta (GAB-87)
+
+/** Resposta das ações da caneta: a página recarrega (quem edita mudou). */
+export type RespostaCaneta = { ok: true } | { ok?: false; erro: string; conflito?: ConflitoUI } | Inesperado;
+
+const textoCurto = z.string().max(4000);
+
+/** Passar a caneta para alguém do mesmo lado. */
+export async function passarCanetaAction(projetoId: string, paraId: string): Promise<RespostaCaneta> {
+  return comTratamento("proposta.passarCaneta", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !id.safeParse(paraId).success) return { erro: "Escolha para quem passar a caneta." };
+    const r = await passarCaneta(projetoId, paraId, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
+  });
+}
+
+/** Devolver ao outro lado: manda junto o editor e os dados (vira a versão entregue). */
+export async function devolverAction(
+  projetoId: string,
+  revisao: number,
+  dados: { paraId: string; documento?: unknown; estruturado?: unknown; nota?: string },
+): Promise<RespostaCaneta> {
+  return comTratamento("proposta.devolver", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success || (dados.nota !== undefined && typeof dados.nota !== "string")) {
+      return { erro: "Dados inválidos." };
+    }
+    if (!id.safeParse(dados.paraId).success) return { erro: "Escolha para quem devolver." };
+    const r = await devolverProposta(
+      projetoId,
+      {
+        revisao,
+        paraId: dados.paraId,
+        nota: dados.nota,
+        ...(dados.documento !== undefined ? { conteudo: { documento: dados.documento } } : {}),
+        ...(dados.estruturado !== undefined ? { estruturado: dados.estruturado } : {}),
+      },
+      ator,
+    );
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
+  });
+}
+
+export async function concordarAction(projetoId: string, revisao: number): Promise<RespostaCaneta> {
+  return comTratamento("proposta.concordar", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success) return { erro: "Dados inválidos." };
+    const r = await concordarProposta(projetoId, revisao, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
+  });
+}
+
+export async function pegarCanetaAction(projetoId: string): Promise<RespostaCaneta> {
+  return comTratamento("proposta.pegarCaneta", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
+    const r = await pegarCaneta(projetoId, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
+  });
+}
+
+export async function reabrirAction(projetoId: string): Promise<RespostaCaneta> {
+  return comTratamento("proposta.reabrir", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
+    const r = await reabrirProposta(projetoId, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
+  });
+}
+
+export async function marcarInviavelAction(projetoId: string, motivo: string): Promise<RespostaCaneta> {
+  return comTratamento("proposta.inviavel", async (): Promise<RespostaCaneta> => {
+    const ator = await exigirEscrita();
+    if (!id.safeParse(projetoId).success || !textoCurto.safeParse(motivo).success) return { erro: "Dados inválidos." };
+    const r = await marcarInviavel(projetoId, motivo, ator);
+    if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
+    revalidar(projetoId);
+    return { ok: true };
   });
 }

@@ -238,8 +238,48 @@ function Descricao({
       );
     }
     case "PROPOSTA": {
-      // GAB-86: criação e versões salvas (a caneta, GAB-87, acrescenta eventos: caem no texto genérico).
+      // GAB-86: criação e versões salvas. GAB-87: passagens da caneta (nomes gravados no payload).
       const projetoId = e.projetoId;
+      const nome = (v: unknown) => (typeof v === "string" && v ? v : null);
+      const lado = (v: unknown) => (v === "VENDAS" ? "vendas" : v === "PROJETOS" ? "projetos" : null);
+      const versao = (n: unknown) =>
+        typeof n === "number" ? (
+          <Link
+            href={`/projetos/${projetoId}/proposta/versoes/${n}`}
+            className="font-medium text-foreground underline decoration-fg-faint underline-offset-2 hover:decoration-foreground"
+          >
+            v{n}
+          </Link>
+        ) : null;
+      const quem = (v: unknown) => <b className="font-medium text-foreground">{nome(v) ?? "alguém"}</b>;
+      switch (p.evento) {
+        case "devolvida":
+          return (
+            <>
+              devolveu a proposta ({versao(p.numero)}) para {quem(p.paraNome)}
+              {lado(p.lado) ? <span className="text-fg-mute"> · {lado(p.lado)}</span> : null}
+            </>
+          );
+        case "concordou":
+          return (
+            <>
+              concordou com a {versao(p.numero)}: proposta <b className="font-medium text-foreground">pronta para envio</b>
+            </>
+          );
+        case "caneta_passada":
+          return <>passou a caneta da proposta para {quem(p.paraNome)}</>;
+        case "caneta_pega":
+          return <>pegou a caneta da proposta{nome(p.deNome) ? <> (estava com {quem(p.deNome)})</> : null}</>;
+        case "reaberta":
+          return <>reabriu a proposta para ajuste</>;
+        case "inviavel":
+          return (
+            <>
+              marcou a proposta como <b className="font-medium text-foreground">inviável</b>
+              {nome(p.motivo) ? <span className="text-fg-mute"> — “{p.motivo as string}”</span> : null}
+            </>
+          );
+      }
       if (p.evento === "versao_salva" && typeof p.numero === "number") {
         return (
           <>

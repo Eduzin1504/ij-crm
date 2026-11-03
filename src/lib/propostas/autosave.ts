@@ -48,6 +48,11 @@ export class Autosave<Doc> {
     return this.revisao;
   }
 
+  /** Estado atual (conflito/erro/salvo…) — lido fora do render (antes de passar a caneta). */
+  get situacao(): EstadoAutosave {
+    return this.estado;
+  }
+
   /** Há texto que ainda não chegou ao servidor (aviso ao sair da página). */
   get temPendencia(): boolean {
     return this.pendenteDoc !== null || this.estado.tipo === "salvando";

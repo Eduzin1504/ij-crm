@@ -9,6 +9,8 @@ import type { ControleEditor } from "@/components/propostas/editor-texto";
 import { Autosave, type EstadoAutosave, type RespostaGravacao } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
+import type { AcaoCaneta } from "@/lib/propostas/caneta";
+import { AcoesCaneta, type PessoaCaneta, type Preparo } from "./acoes-caneta";
 import { salvarEstruturadoAction, salvarTextoAction, salvarVersaoAction, type ConflitoUI } from "./actions";
 import { FormEstruturado, type FormEstruturadoValor } from "./form-estruturado";
 
@@ -62,6 +64,7 @@ function Status({ estado, tentar }: { estado: EstadoAutosave; tentar: () => void
  * Edição da proposta: texto (autosave), parte estruturada e "Salvar versão".
  * Tudo grava pela mesma fila (`Autosave`) com a revisão atual; conflito com
  * outra aba/pessoa/o MCP nunca sobrescreve sem a pessoa escolher.
+ * Só aparece para o dono da caneta (GAB-87), com as ações dela no fim.
  */
 export function PainelProposta({
   projetoId,
@@ -69,12 +72,14 @@ export function PainelProposta({
   documento,
   estruturado,
   ultimaVersao,
+  caneta,
 }: {
   projetoId: string;
   revisao: number;
   documento: Documento;
   estruturado: FormEstruturadoValor;
   ultimaVersao: number | null;
+  caneta?: { acoes: AcaoCaneta[]; mesmoLado: PessoaCaneta[]; outroLado: PessoaCaneta[]; rotuloOutroLado: string };
 }) {
   const router = useRouter();
   const editor = useRef<ControleEditor>(null);
@@ -139,6 +144,21 @@ export function PainelProposta({
         router.refresh();
       }
     });
+  }
+
+  /**
+   * Antes de passar/devolver/concordar: grava o texto pendente (a caneta vai sair
+   * da mão) e confere que o rascunho está são. Devolver leva o editor e os dados
+   * alterados junto (a versão entregue é o que está na tela).
+   */
+  async function preparar(acao: AcaoCaneta): Promise<Preparo> {
+    await autosave.agora();
+    const e = autosave.situacao;
+    if (e.tipo === "conflito") return { erro: "Resolva o conflito de edição do rascunho antes." };
+    if (e.tipo === "erro") return { erro: "O rascunho não foi salvo (veja o aviso no texto). Tente de novo antes." };
+    if (acao === "concordar" && formSujo) return { erro: "Há dados da proposta alterados e não salvos: concordar é aceitar sem editar. Descarte-os ou devolva." };
+    if (acao !== "devolver") return { revisao: autosave.revisaoAtual };
+    return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(formSujo ? { estruturado: form } : {}) };
   }
 
   function usarDoServidor(c: ConflitoUI) {
@@ -235,6 +255,8 @@ export function PainelProposta({
           </p>
         ) : null}
       </section>
+
+      {caneta ? <AcoesCaneta projetoId={projetoId} revisao={revisao} preparar={preparar} {...caneta} /> : null}
     </div>
   );
 }

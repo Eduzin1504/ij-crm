@@ -1061,9 +1061,9 @@ a tela de autorização avisa quando o retorno é para `localhost`.
 Uma proposta por Projeto (`proposta.oportunidade_id` é único), aberta em
 `/projetos/<id>/proposta`; a aba **Propostas** (`/propostas`) lista todas.
 
-- **Quem edita (antes da caneta, GAB-87):** quem é de vendas e responsável pelo
-  Projeto, e a gestão (gestor/admin). Projetos, outros vendedores e visualizador
-  leem. Regra única em `src/lib/propostas/regras.ts` (`podeEditarProposta`).
+- **Quem cria:** quem é de vendas e responsável pelo Projeto, e a gestão
+  (`podeCriarProposta` em `src/lib/propostas/regras.ts`).
+- **Quem edita: o dono da caneta** (GAB-87, ver §13.1). Todo o resto lê.
 - **Fonte da verdade do texto:** Markdown canônico em `proposta.conteudo_md`
   (é o que o MCP lê e escreve). O editor recebe o JSON derivado; o servidor
   converte de volta e grava só Markdown. Formatação: títulos 1–3, negrito,
@@ -1079,3 +1079,29 @@ Uma proposta por Projeto (`proposta.oportunidade_id` é único), aberta em
 - **Erros:** a tela mostra `ref`; no log, `grep 'ref=<ref>'` mostra
   `[proposta.salvarTexto|salvarEstruturado|salvarVersao|criar] ref=<ref> <causa>`
   (pelo MCP, `[mcp.<ferramenta>]`).
+
+### 13.1 Caneta e pingue-pongue (GAB-87)
+
+Máquina de estados pura em `src/lib/propostas/caneta.ts`, aplicada no serviço
+(`propostas.ts`) sob o lock da linha da proposta — vale para tela e MCP.
+
+- **Caneta** = `proposta.caneta_com_id` + `caneta_lado`. Só o dono (ativo, que
+  escreve e ainda do lado da caneta) grava rascunho/versão; o Claude dele via MCP
+  age como ele. Começa em vendas (com o responsável, se é de vendas; senão
+  ninguém). Gestão sem lado não age na caneta.
+- **Troca de mão** só quando o dono **passa** (mesmo lado) ou **devolve** (outro
+  lado: salva versão; status Em análise/Em ajuste). Exceção: o **GP do lado**
+  (cargo, GAB-82) **pega** — destrava quando o dono sumiu ou ninguém está com ela.
+- **Concordar**: só se a última versão veio do outro lado e o rascunho é igual a
+  ela → **Pronta para envio** (a caneta fica com vendas). **Reabrir** volta para
+  Em ajuste. **Inviável** (GP de projetos ou dono do lado projetos, com motivo):
+  status Inviável e o Projeto vai para Perdido pelo mesmo caminho do Kanban.
+- **Tempo com a caneta**: cada posse é um período em `proposta_caneta`
+  (`inicio`/`fim`; aberto = `fim` nulo). Somar por pessoa para o painel.
+- **Diff**: `/projetos/<id>/proposta/diff?de=&para=` (e `ver_diff_proposta`).
+- **Avisos** (GAB-88): `src/lib/propostas/avisos.ts` — o serviço chama
+  `avisarCaneta` depois do commit; registre um ouvinte com `aoMudarCaneta`.
+- **Destravar na mão** (ex.: dono saiu e não há GP): dê o cargo GP a alguém do
+  lado na Gestão e peça para pegar — não edite `caneta_com_id` direto (o período
+  em `proposta_caneta` ficaria aberto para a pessoa errada).
+- **Erros:** `[proposta.passarCaneta|devolver|concordar|pegarCaneta|reabrir|inviavel] ref=<ref>`.

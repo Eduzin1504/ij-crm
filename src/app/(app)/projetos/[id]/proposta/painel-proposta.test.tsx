@@ -9,6 +9,12 @@ const acoes = vi.hoisted(() => ({
   salvarEstruturadoAction: vi.fn(),
   salvarVersaoAction: vi.fn(),
   criarPropostaAction: vi.fn(),
+  passarCanetaAction: vi.fn(),
+  devolverAction: vi.fn(),
+  concordarAction: vi.fn(),
+  pegarCanetaAction: vi.fn(),
+  reabrirAction: vi.fn(),
+  marcarInviavelAction: vi.fn(),
 }));
 const refresh = vi.hoisted(() => vi.fn());
 const substituido = vi.hoisted(() => ({ doc: null as unknown }));
@@ -153,5 +159,54 @@ describe("PainelProposta", () => {
     expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 6, expect.anything());
     expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "30.000,00" }));
     expect(screen.queryByText("Dados alterados, não salvos")).toBeNull();
+  });
+
+  describe("caneta (GAB-87)", () => {
+    const caneta = { acoes: ["passar", "devolver", "concordar"] as ("passar" | "devolver" | "concordar")[], mesmoLado: [{ id: "bia", nome: "Bia" }], outroLado: [{ id: "paula", nome: "Paula" }], rotuloOutroLado: "Projetos" };
+    const montarComCaneta = () =>
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
+
+    it("devolver grava o pendente antes e manda o editor, a pessoa e a nota com a revisão nova", async () => {
+      acoes.salvarTextoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      acoes.devolverAction.mockResolvedValue({ ok: true });
+      montarComCaneta();
+      fireEvent.change(screen.getByLabelText("texto"), { target: { value: "minha parte" } });
+      fireEvent.click(screen.getByRole("button", { name: "Devolver" }));
+      fireEvent.change(screen.getByLabelText("Devolver para (projetos)"), { target: { value: "paula" } });
+      fireEvent.change(screen.getAllByLabelText("Nota da versão (opcional)")[1], { target: { value: "vejam o escopo" } });
+      fireEvent.click(screen.getByRole("button", { name: "Salvar versão e devolver" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.salvarTextoAction).toHaveBeenCalledTimes(1);
+      expect(acoes.devolverAction).toHaveBeenCalledWith("p1", 5, {
+        paraId: "paula",
+        // (o editor falso volta ao texto inicial a cada render; o que importa é ir o documento do editor)
+        documento: expect.objectContaining({ type: "doc" }),
+        estruturado: undefined,
+        nota: "vejam o escopo",
+      });
+      expect(refresh).toHaveBeenCalled();
+    });
+
+    it("concordar com dados alterados e não salvos é barrado na tela; recusa do servidor aparece com o texto dela", async () => {
+      montarComCaneta();
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      fireEvent.click(screen.getByRole("button", { name: "Concordar" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.concordarAction).not.toHaveBeenCalled();
+      expect(screen.getByRole("alert")).toHaveTextContent(/dados da proposta alterados/);
+    });
+
+    it("erro inesperado de uma ação da caneta mostra a ref", async () => {
+      acoes.passarCanetaAction.mockResolvedValue({ ok: false, erro: "INESPERADO", ref: "beef0001" });
+      montarComCaneta();
+      fireEvent.click(screen.getByRole("button", { name: "Passar a caneta" }));
+      fireEvent.change(screen.getByLabelText("Passar para"), { target: { value: "bia" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.passarCanetaAction).toHaveBeenCalledWith("p1", "bia");
+      expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível passar a caneta. Erro no servidor. (ref: beef0001)");
+      expect(refresh).not.toHaveBeenCalled();
+    });
   });
 });

@@ -14,6 +14,8 @@
  *
  * Próximas fatias acrescentam ferramentas a `FERRAMENTAS`. Proposta (GAB-86):
  * ler/criar/editar (Markdown + parte estruturada), salvar versão e ler versões.
+ * Caneta (GAB-87): passar, devolver, concordar, pegar, reabrir, inviável e diff —
+ * as mesmas funções de serviço da tela, com a máquina de estados de propostas/caneta.ts.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -40,9 +42,28 @@ import { DEFINICOES_PAINEL, VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes"
 import { resolverPeriodo } from "@/lib/ranking/periodo";
 import { MARKDOWN_MAX } from "@/lib/propostas/documento";
 import { estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
-import { criarProposta, mensagemDaFalha, obterPropostaDoProjeto, obterVersao, salvarRascunho, salvarVersao } from "@/lib/propostas/propostas";
-import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeEditarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
-import { db } from "@/lib/db";
+import { acoesPossiveis, ladoDaCaneta, MOTIVO_INVIAVEL_MAX, podeEditarProposta, type AcaoCaneta } from "@/lib/propostas/caneta";
+import { diffParaTexto } from "@/lib/propostas/diff";
+import {
+  concordarProposta,
+  criarProposta,
+  devolverProposta,
+  diffDaProposta,
+  listarPessoasDaCaneta,
+  marcarInviavel,
+  mensagemDaFalha,
+  obterPropostaDoProjeto,
+  obterVersao,
+  passarCaneta,
+  pegarCaneta,
+  pessoaDaCaneta,
+  reabrirProposta,
+  salvarRascunho,
+  salvarVersao,
+  type Falha,
+} from "@/lib/propostas/propostas";
+import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
+import { ROTULO_AREA } from "@/lib/auth/areas";
 import type { UsuarioMcp } from "./oauth";
 import { urlBase } from "./url";
 
@@ -499,10 +520,17 @@ function estruturadoMcp(e: Estruturado) {
   return { valor: x.valor || null, prazo_dias: e.prazoDias, escopo_resumo: e.escopoResumo, entregas: x.entregas.map((en) => ({ ...en, valor: en.valor || null })) };
 }
 
-async function voceEdita(eu: UsuarioMcp, projeto: { responsavelId: string }): Promise<boolean> {
-  const u = await db.usuario.findUnique({ where: { id: eu.id }, select: { id: true, papel: true, area: true, cargos: true, ativo: true } });
-  return !!u && u.ativo && podeEditarProposta(u, projeto);
-}
+/** O que cada ação faz, para o Claude escolher a ferramenta certa. */
+const FERRAMENTA_DA_ACAO: Record<AcaoCaneta, string> = {
+  passar: "passar_caneta_proposta",
+  devolver: "devolver_proposta",
+  concordar: "concordar_proposta",
+  pegar: "pegar_caneta_proposta",
+  reabrir: "reabrir_proposta",
+  inviavel: "marcar_proposta_inviavel",
+};
+
+const erroProposta = (r: Falha) => erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
 
 const projetoId = id.describe("id do projeto (de buscar_projetos)");
 
@@ -516,19 +544,38 @@ const lerProposta = ferramenta({
   executar: async (a, eu) => {
     const r = await obterPropostaDoProjeto(a.projeto_id);
     if (!r) return erro(MENSAGEM_ERRO_PROPOSTA.PROJETO_NAO_ENCONTRADO);
-    const edita = await voceEdita(eu, r.projeto);
-    if (!r.proposta) return ok({ existe: false, projeto: r.projeto.titulo, voceEdita: edita, dica: edita ? "Crie com criar_proposta." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria.", url: urlProposta(a.projeto_id) });
+    const pessoa = await pessoaDaCaneta(eu.id);
+    if (!r.proposta) {
+      const cria = !!pessoa && pessoa.ativo && podeCriarProposta(pessoa, r.projeto);
+      return ok({ existe: false, projeto: r.projeto.titulo, voceCria: cria, dica: cria ? "Crie com criar_proposta." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria.", url: urlProposta(a.projeto_id) });
+    }
     const p = r.proposta;
+    const edita = !!pessoa && podeEditarProposta(pessoa, p.estado);
+    const acoes = pessoa ? acoesPossiveis(pessoa, p.estado) : [];
+    const pessoas = acoes.some((x) => x === "passar" || x === "devolver") ? await listarPessoasDaCaneta() : [];
     return ok({
       existe: true,
       projeto: r.projeto.titulo,
       status: ROTULO_STATUS_PROPOSTA[p.status],
       revisao: p.revisao,
+      caneta: {
+        com: p.canetaCom?.nome ?? null,
+        comId: p.canetaComId,
+        lado: ROTULO_AREA[ladoDaCaneta(p)],
+        desde: p.canetaDesde?.toISOString() ?? null,
+        regra: "Só quem está com a caneta edita (você, pelo Claude, age como você). Os outros leem e comentam.",
+      },
+      ...(p.motivoInviavel ? { motivoInviavel: p.motivoInviavel } : {}),
       voceEdita: edita,
+      voceEstaComACaneta: p.canetaComId === eu.id,
+      acoesQueVocePode: acoes.map((x) => FERRAMENTA_DA_ACAO[x]),
+      ...(pessoas.length
+        ? { pessoasParaCaneta: pessoas.map((x) => ({ id: x.id, nome: x.nome, lado: ROTULO_AREA[x.lado], ...(x.gp ? { gp: true } : {}) })) }
+        : {}),
       markdown: p.conteudoMd,
       estruturado: estruturadoMcp(p.estruturado),
       rascunho: { por: p.rascunhoPor?.nome ?? null, em: p.rascunhoEm?.toISOString() ?? null, viaMcp: p.rascunhoViaMcp },
-      versoes: p.versoes.map((v) => ({ numero: v.numero, nota: v.nota, autor: v.autor.nome, em: v.criadoEm.toISOString(), viaMcp: v.viaMcp })),
+      versoes: p.versoes.map((v) => ({ numero: v.numero, nota: v.nota, autor: v.autor.nome, lado: v.autorLado ? ROTULO_AREA[v.autorLado] : null, em: v.criadoEm.toISOString(), viaMcp: v.viaMcp })),
       formatacao: "Markdown aceito: # / ## / ### títulos, **negrito**, *itálico*, listas (- e 1.), --- linha. O resto (link, imagem, HTML, tabela, código) entra como texto.",
       url: urlProposta(a.projeto_id),
     });
@@ -581,7 +628,7 @@ const editarPropostaMcp = ferramenta({
       };
     }
     const r = await salvarRascunho(a.projeto_id, { revisao: a.revisao, ...(a.markdown !== undefined ? { conteudo: { markdown: a.markdown } } : {}), ...(estruturado ? { estruturado } : {}) }, eu);
-    if (!r.ok) return erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
+    if (!r.ok) return erroProposta(r);
     return ok({ mudou: r.mudou, revisao: r.revisao, markdownGravado: r.markdown, estruturado: estruturadoMcp(r.estruturado), url: urlProposta(a.projeto_id) });
   },
 });
@@ -594,7 +641,7 @@ const salvarVersaoMcp = ferramenta({
   entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), nota: z.string().max(2000).optional() },
   executar: async (a, eu) => {
     const r = await salvarVersao(a.projeto_id, { revisao: a.revisao, nota: a.nota }, eu);
-    if (!r.ok) return erro(r.erro === "CONFLITO" ? `${mensagemDaFalha(r)} Use ler_proposta.` : mensagemDaFalha(r));
+    if (!r.ok) return erroProposta(r);
     return ok({ versao: r.numero, url: `${urlProposta(a.projeto_id)}/versoes/${r.numero}` });
   },
 });
@@ -635,6 +682,109 @@ const lerVersaoMcp = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- caneta (GAB-87)
+
+const paraId = id.describe("id da pessoa (de pessoasParaCaneta em ler_proposta)");
+
+/** Resultado comum das ações da caneta. */
+function okCaneta(pid: string, r: { status: Parameters<typeof rotuloStatus>[0]; canetaComNome: string | null; numero?: number }) {
+  return ok({ status: rotuloStatus(r.status), canetaCom: r.canetaComNome, ...(r.numero ? { versao: r.numero } : {}), url: urlProposta(pid) });
+}
+const rotuloStatus = (s: keyof typeof ROTULO_STATUS_PROPOSTA) => ROTULO_STATUS_PROPOSTA[s];
+
+const passarCanetaMcp = ferramenta({
+  nome: "passar_caneta_proposta",
+  titulo: "Passar a caneta da proposta",
+  descricao: "Passa a caneta (quem edita a proposta) para outra pessoa do MESMO lado (vendas→vendas, projetos→projetos). Só quem está com a caneta passa. Não salva versão. Para mandar ao outro lado use devolver_proposta.",
+  escrita: true,
+  entrada: { projeto_id: projetoId, para_id: paraId },
+  executar: async (a, eu) => {
+    const r = await passarCaneta(a.projeto_id, a.para_id, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const devolverMcp = ferramenta({
+  nome: "devolver_proposta",
+  titulo: "Devolver a proposta ao outro lado",
+  descricao: `Devolve a proposta para alguém do OUTRO lado avaliar (vendas ↔ projetos): salva o rascunho atual como versão (nota opcional, até ${NOTA_VERSAO_MAX} caracteres) e passa a caneta. Mande a \`revisao\` de ler_proposta (conflito = alguém mexeu depois). Se nada mudou desde a versão que veio do outro lado, use concordar_proposta.`,
+  escrita: true,
+  entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), para_id: paraId, nota: z.string().max(2000).optional() },
+  executar: async (a, eu) => {
+    const r = await devolverProposta(a.projeto_id, { revisao: a.revisao, paraId: a.para_id, nota: a.nota }, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const concordarMcp = ferramenta({
+  nome: "concordar_proposta",
+  titulo: "Concordar com a proposta",
+  descricao:
+    "Concorda com a última versão, que veio do OUTRO lado, sem editar: há consenso e a proposta fica Pronta para envio (a caneta fica com vendas, que envia). Só vale se a última versão é do outro lado e o rascunho não foi mexido depois dela. Mande a `revisao` de ler_proposta.",
+  escrita: true,
+  entrada: { projeto_id: projetoId, revisao: z.number().int().min(0) },
+  executar: async (a, eu) => {
+    const r = await concordarProposta(a.projeto_id, a.revisao, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const pegarCanetaMcp = ferramenta({
+  nome: "pegar_caneta_proposta",
+  titulo: "Pegar a caneta da proposta (GP)",
+  descricao: "Só para o GP do lado que está com a caneta: pega a caneta para destravar (quem estava com ela sumiu, ou ninguém está). Fica na Timeline.",
+  escrita: true,
+  entrada: { projeto_id: projetoId },
+  executar: async (a, eu) => {
+    const r = await pegarCaneta(a.projeto_id, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const reabrirMcp = ferramenta({
+  nome: "reabrir_proposta",
+  titulo: "Reabrir proposta pronta para envio",
+  descricao: "Proposta Pronta para envio → Em ajuste (vendas quer mudar algo antes de enviar). Só quem está com a caneta. Depois de mudar, ela precisa passar por projetos de novo (devolver_proposta).",
+  escrita: true,
+  entrada: { projeto_id: projetoId },
+  executar: async (a, eu) => {
+    const r = await reabrirProposta(a.projeto_id, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const inviavelMcp = ferramenta({
+  nome: "marcar_proposta_inviavel",
+  titulo: "Marcar proposta como inviável",
+  descricao: `Projetos diz que a proposta é inviável, com motivo (até ${MOTIVO_INVIAVEL_MAX} caracteres): a proposta sai do pingue-pongue e o projeto vai para Perdido no quadro de Vendas. Só o GP de projetos ou quem está com a caneta do lado de projetos. Não tem volta pelo MCP: confirme com a pessoa antes.`,
+  escrita: true,
+  entrada: { projeto_id: projetoId, motivo: z.string().max(2000) },
+  executar: async (a, eu) => {
+    const r = await marcarInviavel(a.projeto_id, a.motivo, eu);
+    return r.ok ? okCaneta(a.projeto_id, r) : erroProposta(r);
+  },
+});
+
+const verDiffMcp = ferramenta({
+  nome: "ver_diff_proposta",
+  titulo: "Ver o que mudou entre versões da proposta",
+  descricao:
+    "Diff entre duas versões da proposta: texto (linhas com '- ' saiu, '+ ' entrou, '  ' igual) e campos da parte estruturada que mudaram. Sem `de`/`para`: da última versão que o SEU lado entregou até a última (o que voltou para você).",
+  escrita: false,
+  entrada: { projeto_id: projetoId, de: z.number().int().min(1).optional(), para: z.number().int().min(1).optional() },
+  executar: async (a, eu) => {
+    const d = await diffDaProposta(a.projeto_id, { de: a.de, para: a.para, quem: eu.id });
+    if (!d) return erro(a.de !== undefined || a.para !== undefined ? MENSAGEM_ERRO_PROPOSTA.VERSAO_NAO_ENCONTRADA : "A proposta ainda não tem versão salva.");
+    return ok({
+      de: d.de ? { versao: d.de.numero, autor: d.de.autor, lado: d.de.lado ? ROTULO_AREA[d.de.lado] : null } : null,
+      para: { versao: d.para.numero, autor: d.para.autor, lado: d.para.lado ? ROTULO_AREA[d.para.lado] : null },
+      texto: diffParaTexto(d.texto),
+      estruturado: d.estruturado,
+      url: `${urlProposta(a.projeto_id)}/diff?${d.de ? `de=${d.de.numero}&` : ""}para=${d.para.numero}`,
+    });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -658,6 +808,13 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   salvarVersaoMcp,
   listarVersoesMcp,
   lerVersaoMcp,
+  passarCanetaMcp,
+  devolverMcp,
+  concordarMcp,
+  pegarCanetaMcp,
+  reabrirMcp,
+  inviavelMcp,
+  verDiffMcp,
 ];
 
 function resultado(r: Resposta): CallToolResult {
