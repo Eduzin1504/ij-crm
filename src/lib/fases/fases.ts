@@ -23,7 +23,8 @@ import {
 } from "./regras";
 import { ordemDeMarcosValida } from "./marcos";
 import { alemDoContrato, contarCardsSemPropostaAceita, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
-import { alemDaExecucao, contarCardsComHandoffPendente, faseExecucao } from "@/lib/projetos/trava-handoff";
+import { aoEntrarEmExecucao } from "@/lib/projetos/execucao-entrada";
+import { alemDaExecucao, contarCardsComHandoffPendente, destinoExigeHandoff, faseExecucao } from "@/lib/projetos/trava-handoff";
 import type { PipelineComFases } from "./tipos";
 
 export type { ErroFase, AcaoRemocao } from "./regras";
@@ -255,8 +256,14 @@ async function aplicarOrdem(tx: Tx, pipelineId: string, faseIds: string[]) {
       if (eraAntes && ficaDepois && (await contarCardsComHandoffPendente(tx, f.id)) > 0) throw new ErroDeRegra("FASE_CRUZA_EXECUCAO");
     }
   }
+  // GAB-95: os cards da subfase que cruzou para depois de Execução entraram em Execução sem movimento.
+  const cruzaram = ex ? ativas.filter((f) => !f.marco && f.tipoTerminal !== "PERDIDO" && ativas.findIndex((a) => a.id === f.id) < ativas.findIndex((a) => a.id === ex.id) && faseIds.indexOf(f.id) > faseIds.indexOf(ex.id)) : [];
   for (const [ordem, id] of faseIds.entries()) {
     await tx.fase.update({ where: { id }, data: { ordem } });
+  }
+  if (cruzaram.length > 0) {
+    const cards = await tx.projeto.findMany({ where: { faseId: { in: cruzaram.map((f) => f.id) }, deletadoEm: null }, select: { id: true } });
+    for (const c of cards) await aoEntrarEmExecucao(tx, { projetoId: c.id, porId: null, em: new Date(), novaEntrada: true });
   }
 }
 
@@ -370,6 +377,14 @@ export async function removerFase(
           })),
         });
         await tx.projeto.updateMany({ where: { faseId, deletadoEm: null }, data: { faseId: destino.id, faseDesde: agora } });
+        // GAB-95: migrar para Execução ou além é entrar nela, sem passar por `registrarMovimento`.
+        if (ex) {
+          const destinoFase = await tx.fase.findUniqueOrThrow({ where: { id: destino.id } });
+          if (destinoExigeHandoff(destinoFase, ex)) {
+            const novaEntrada = fase.isTerminal || !alemDaExecucao(fase, ex);
+            for (const c of cards) await aoEntrarEmExecucao(tx, { projetoId: c.id, porId: por.id, em: new Date(agora.getTime() + 1), novaEntrada });
+          }
+        }
         // Escritor que não tomou o lock pode ter criado card no meio: não arquiva com card vivo dentro.
         if ((await tx.projeto.count({ where: { faseId, deletadoEm: null } })) > 0) throw new ErroDeRegra("FASE_EM_USO");
       }

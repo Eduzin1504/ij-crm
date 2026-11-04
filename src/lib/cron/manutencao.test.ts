@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   apagarSessoesExpiradas: vi.fn(),
   gerarResumosPendentes: vi.fn(),
   aplicarRetencaoResumos: vi.fn(),
+  lembrarCheckinsAtrasados: vi.fn(),
 }));
 
 vi.mock("./trava", () => ({ pegarTrava: m.pegarTrava, soltarTrava: m.soltarTrava }));
@@ -19,6 +20,7 @@ vi.mock("@/lib/whatsapp/retencao", () => ({ apagarJsonLlmVencido: m.apagarJsonLl
 vi.mock("@/lib/importacao/pipefy/servico", () => ({ purgarVencidas: m.purgarVencidas }));
 vi.mock("@/lib/auth/sessao", () => ({ apagarSessoesExpiradas: m.apagarSessoesExpiradas }));
 vi.mock("@/lib/db", () => ({ db: {} }));
+vi.mock("@/lib/avisos/checkin", () => ({ lembrarCheckinsAtrasados: m.lembrarCheckinsAtrasados }));
 vi.mock("@/lib/contexto/resumo", () => ({ gerarResumosPendentes: m.gerarResumosPendentes, aplicarRetencaoResumos: m.aplicarRetencaoResumos }));
 
 const { rodarManutencao, DURACAO_TRAVA_MS, PRAZO_RESUMOS_MS } = await import("./manutencao");
@@ -36,6 +38,7 @@ beforeEach(() => {
   m.apagarSessoesExpiradas.mockResolvedValue(0);
   m.gerarResumosPendentes.mockResolvedValue({ gerados: 2, interrompido: false });
   m.aplicarRetencaoResumos.mockResolvedValue(5);
+  m.lembrarCheckinsAtrasados.mockResolvedValue({ lembretes: 1, refs: [] });
 });
 
 describe("rodarManutencao", () => {

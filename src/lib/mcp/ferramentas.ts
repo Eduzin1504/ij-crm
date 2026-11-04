@@ -20,6 +20,7 @@
  * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
  * Contrato (GAB-99): marcar assinado, com o PDF opcional.
  * Handoff (GAB-93): ler, itens, resumo, GP, PDF do contrato e mover para execução.
+ * Execução (GAB-95): cronograma, entregas e check-in, em ./execucao.ts.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -93,6 +94,7 @@ import { recusaDeCriarNoQuadro } from "@/lib/projetos/acesso-card";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
 import { quadroPadrao } from "@/lib/auth/visibilidade";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
+import { FERRAMENTAS_EXECUCAO } from "./execucao";
 import { camposEditaveis, cardEditavel, checklistHandoffEditavel, propostaVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
@@ -1067,7 +1069,7 @@ const escreverResumoHandoff = ferramenta({
 const designarGpProjeto = ferramenta({
   nome: "designar_gp_projeto",
   titulo: "Designar o GP do projeto",
-  descricao: "Só o GP de projetos: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
+  descricao: "Só o GP de projetos, com o projeto em Handoff ou Execução: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff ou ver_cronograma). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
   escrita: true,
   entrada: { id, gp_id: id },
   executar: async (a, eu) => {
@@ -1160,6 +1162,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   concluirRevisaoMcp,
   // GAB-91: comentários na proposta (src/lib/mcp/comentarios.ts).
   ...FERRAMENTAS_COMENTARIOS,
+  // GAB-95: cronograma e check-in (src/lib/mcp/execucao.ts).
+  ...FERRAMENTAS_EXECUCAO,
 ];
 
 function resultado(r: Resposta): CallToolResult {

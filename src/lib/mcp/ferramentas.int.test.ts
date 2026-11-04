@@ -105,6 +105,12 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       designar_gp_projeto: { id, gp_id: vendedora.id },
       definir_contrato_handoff: { id, anexo_id: "a".repeat(32) },
       mover_para_execucao: { id },
+      marcar_entrega: { id, entrega_id: "e1" },
+      ajustar_data_entrega: { id, entrega_id: "e1", dia: "2026-12-01", motivo: "x" },
+      adicionar_entrega: { id, titulo: "x", dia: "2026-12-01" },
+      copiar_cronograma_proposta: { id },
+      registrar_checkin: { id, status: "VERDE", motivo: "x" },
+      cancelar_entrega: { id, entrega_id: "e1", motivo: "x" },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };
@@ -139,6 +145,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     if (!emHandoff.ok) throw new Error("seed handoff");
     const leituras = [
       ["ler_handoff", { id: emHandoff.id }],
+      ["ver_cronograma", { id: emHandoff.id }],
       ["listar_fases", {}],
       ["listar_responsaveis", {}],
       ["buscar_projetos", {}],

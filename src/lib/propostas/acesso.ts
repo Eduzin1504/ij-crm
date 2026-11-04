@@ -2,9 +2,10 @@
  * Quem vê qual proposta (GAB-98, spec áreas §4.5 e §4.7). A regra é a pura de
  * `auth/visibilidade`; aqui mora o que precisa do banco: saber se a pessoa está
  * ESCALADA. Escalado = responsável do card, dono atual ou ex-dono da caneta
- * (`PropostaCaneta`) ou quem criou a proposta (os avisos do sino vão para quem
- * criou, e o link do aviso precisa abrir). Passar a caneta grava o período, então
- * quem recebe passa a ter acesso na mesma transação.
+ * (`PropostaCaneta`), quem criou a proposta (os avisos do sino vão para quem
+ * criou, e o link do aviso precisa abrir) ou o GP designado do projeto (GAB-95: ele
+ * executa o que foi vendido, e pode ter deixado de ser o responsável). Passar a caneta
+ * grava o período, então quem recebe passa a ter acesso na mesma transação.
  *
  * Sem import de `./propostas`: o serviço usa este módulo para listar.
  */
@@ -13,11 +14,11 @@ import { podeVerProposta, veTodasAsPropostas, type PessoaComId } from "@/lib/aut
 import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 
-export const MENSAGEM_SEM_ACESSO_PROPOSTA = "Você não tem acesso a esta proposta: ela é visível a quem está escalado (responsável do card ou quem teve a caneta), ao GP e à gestão.";
+export const MENSAGEM_SEM_ACESSO_PROPOSTA = "Você não tem acesso a esta proposta: ela é visível a quem está escalado (responsável do card, quem teve a caneta ou o GP do projeto), ao GP e à gestão.";
 
 /** Filtro das propostas em que a pessoa está escalada. */
 function ondeEscalado(usuarioId: string): Prisma.PropostaWhereInput {
-  return { OR: [{ projeto: { responsavelId: usuarioId } }, { canetaComId: usuarioId }, { criadoPorId: usuarioId }, { periodosCaneta: { some: { usuarioId } } }] };
+  return { OR: [{ projeto: { responsavelId: usuarioId } }, { projeto: { handoff: { gpProjetoId: usuarioId } } }, { canetaComId: usuarioId }, { criadoPorId: usuarioId }, { periodosCaneta: { some: { usuarioId } } }] };
 }
 
 /** `where` de `proposta` para uma lista: quem vê todas não filtra; VISUALIZADOR não acha nenhuma. */
@@ -78,6 +79,12 @@ export function timelineSemProposta<T extends EntradaDaTimeline>(timeline: T[]):
   return timeline
     .filter((t) => !entradaDaProposta(t))
     .map((t) => {
+      // GAB-95: a cópia do cronograma fica; a versão da proposta, não.
+      if (t.tipo === "EXECUCAO" && (t.payload as { evento?: unknown } | null)?.evento === "cronograma_copiado") {
+        const semVersao: Record<string, unknown> = { ...(t.payload as object) };
+        delete semVersao.versao;
+        return { ...t, payload: semVersao };
+      }
       const payload = t.payload as { campo?: unknown; antes?: unknown; depois?: unknown } | null;
       if (t.tipo !== "CAMPO_ALTERADO" || payload?.campo !== "motivoPerda") return t;
       const texto = (v: unknown) => (typeof v === "string" ? mascararMotivoInviavel(v) : v);

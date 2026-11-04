@@ -425,6 +425,29 @@ describe("checklist e resumo", () => {
     expect(await salvarResumoHandoff(id, { contexto: "x".repeat(5001) }, s.ana)).toEqual({ ok: false, erro: "RESUMO_LONGO" });
   });
 
+  it("GAB-95: trocar o GP vale também em Execução e subfase depois dela, com a mesma permissão e o aviso", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    await moverParaExecucao(id, s.ana);
+    await db.aviso.deleteMany();
+    expect(await designarGpDoProjeto(id, s.paula.id, s.pedro)).toEqual({ ok: false, erro: "SO_GP_DE_PROJETOS" });
+    expect(await designarGpDoProjeto(id, s.paula.id, s.gil)).toEqual({ ok: false, erro: "SO_GP_DE_PROJETOS" });
+    expect(await designarGpDoProjeto(id, s.ana.id, s.paula)).toEqual({ ok: false, erro: "GP_INVALIDO" });
+    expect(await designarGpDoProjeto(id, s.paula.id, s.paula)).toEqual({ ok: true, mudou: true });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).responsavelId).toBe(s.paula.id);
+    await moverCard(id, s.f("conclusao"), s.paula);
+    expect(await designarGpDoProjeto(id, s.pedro.id, s.paula)).toEqual({ ok: true, mudou: true });
+    expect((await db.aviso.findMany({ where: { tipo: "HANDOFF", projetoId: id } })).map((a) => a.usuarioId)).toEqual([s.pedro.id]);
+    // Pedro saiu na troca feita por Paula: avisado, só no app. Paula saiu trocando ela mesma: sem aviso.
+    const trocados = await db.aviso.findMany({ where: { tipo: "GP_TROCADO", projetoId: id } });
+    expect(trocados.map((a) => [a.usuarioId, a.whatsapp])).toEqual([[s.pedro.id, null]]);
+    expect(trocados[0].titulo).toContain("Paula");
+    await moverCard(id, s.f("finalizado"), s.paula);
+    expect(await designarGpDoProjeto(id, s.paula.id, s.paula)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
+    const venda = await s.novo("Venda");
+    expect(await designarGpDoProjeto(venda, s.pedro.id, s.paula)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
+  });
+
   it("fora da coluna Handoff não edita: em Vendas, em Execução e em card na lixeira", async () => {
     const naVenda = await s.novo("Venda");
     expect(await marcarItemHandoff(naVenda, "contatos", true, s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
@@ -435,7 +458,6 @@ describe("checklist e resumo", () => {
     expect(await obterHandoff(id)).toMatchObject({ emHandoff: false, completo: true });
     expect(await salvarResumoHandoff(id, { riscos: "outro" }, s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
     expect(await marcarItemHandoff(id, "kickoff", false, s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
-    expect(await designarGpDoProjeto(id, s.paula.id, s.paula)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
     expect(await anexarContratoNoHandoff(id, PDF(), s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
     const outro = await s.emHandoff("Outro");
     await excluirCard(outro, s.ana);

@@ -197,6 +197,35 @@ describe("MCP: casos que a matriz não cobre", () => {
     }
   });
 
+  it("toda ferramenta de escrita com `id` recusa quem é de fora da área (nenhuma ficou sem guarda)", async () => {
+    // Regra própria, em que o de fora também age ou que o serviço decide. Ferramenta nova não entra aqui sem motivo.
+    const SEM_AREA: Record<string, string> = {
+      registrar_nota: "comentar vale para todo mundo que escreve",
+      designar_gp_projeto: "só o GP de projetos, no serviço",
+      escrever_resumo_handoff: "é do lado vendas, no serviço",
+    };
+    const comId = FERRAMENTAS.filter((f) => f.escrita && "id" in f.entrada && !(f.nome in SEM_AREA));
+    expect(comId.map((f) => f.nome)).toEqual(expect.arrayContaining(["marcar_entrega", "ajustar_data_entrega", "cancelar_entrega", "adicionar_entrega", "copiar_cronograma_proposta", "registrar_checkin"]));
+    const base = { id: m.cardP.id, entrega_id: "x", dia: "2030-01-10", motivo: "x", titulo: "x", status: "VERDE", campos: { cidade: "x" }, acao: "x", data: "2030-01-10", fase_id: m.fase("execucao").id, campo: "empresa", alvo_id: "", item: "kickoff", feito: true, anexo_id: "x" };
+    for (const f of comId) expect(f.guarda, f.nome).toBeDefined();
+    // Checklist de handoff é etapa conjunta com Vendas: tem guarda própria, e esse vendedor passa nela.
+    const CONJUNTAS = ["marcar_item_handoff", "definir_contrato_handoff"];
+    for (const f of comId.filter((x) => !CONJUNTAS.includes(x.nome))) expect((await roda(f.nome, base, m.p.vendedor)).texto, f.nome).toMatch(FORA);
+  });
+
+  it("GP designado do projeto está escalado na proposta, na leitura e na lista; quem não é segue de fora", async () => {
+    await comProposta();
+    const { filtroPropostasVisiveis } = await import("@/lib/propostas/acesso");
+    const lista = (eu: Persona) => m.db.proposta.count({ where: { projetoId: m.cardV.id, ...filtroPropostasVisiveis(eu) } });
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.membroProjetos)).texto).toMatch(SEM_ACESSO);
+    expect(await lista(m.p.membroProjetos)).toBe(0);
+    await m.db.projetoHandoff.create({ data: { projetoId: m.cardV.id, gpProjetoId: m.p.membroProjetos.id } });
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.membroProjetos)).erro).toBe(false);
+    expect(await lista(m.p.membroProjetos)).toBe(1);
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.vendedor)).texto).toMatch(SEM_ACESSO);
+    expect(await lista(m.p.visualizador)).toBe(0);
+  });
+
   it("comentário por id: responder, resolver e reabrir recusam quem não vê; quem vê, comenta", async () => {
     await comProposta();
     const { comentario } = (await (await import("@/lib/propostas/comentarios")).comentar(m.cardV.id, { texto: "oi" }, m.p.donoV)) as { comentario: { id: string } };

@@ -12,6 +12,7 @@
  *
  * Edição só enquanto o card está em Handoff (quadro Projetos, antes de Execução
  * e fora de terminal). Depois vira registro, e nada do que entrou na trava muda.
+ * Exceção (GAB-95): trocar o GP do projeto vale também em Execução ou subfase depois dela.
  * Toda edição trava a linha do card (FOR UPDATE) e relê a fase; o movimento lê a
  * linha em FOR SHARE, então os dois nunca se cruzam.
  *
@@ -21,7 +22,7 @@
 import type { Papel, Prisma } from "@prisma/client";
 import type { AnexoCriado } from "@/lib/anexos/anexos";
 import { MENSAGEM_ERRO_ANEXO, type ErroAnexo } from "@/lib/anexos/tipos";
-import { avisarGpDesignado } from "@/lib/avisos/handoff";
+import { avisarGpDesignado, avisarGpTrocado } from "@/lib/avisos/handoff";
 import { podeEscrever, QUEM_ATUA } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { anexarPdfDoContrato, definirAnexoDoContrato } from "./contrato-anexo";
@@ -39,7 +40,7 @@ import {
 } from "./handoff-regras";
 import { moverCard } from "./projetos";
 import { PIPELINE_PROJETOS } from "./terminal-regras";
-import { faseDeHandoff, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
+import { faseDeExecucaoAberta, faseDeHandoff, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
 
 type Tx = Prisma.TransactionClient;
 type Ator = { id: string; papel: Papel };
@@ -86,12 +87,14 @@ async function emTransacao<T>(corpo: (tx: Tx) => Promise<T>): Promise<T | { ok: 
   }
 }
 
-/** Trava a linha do card e confere que ele está em Handoff. */
-async function abrirParaEdicao(tx: Tx, projetoId: string) {
+/** Trava a linha do card e confere que ele está em Handoff (`tambemEmExecucao`: ou em Execução aberta). */
+async function abrirParaEdicao(tx: Tx, projetoId: string, opts: { tambemEmExecucao?: boolean } = {}) {
   const linha = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR UPDATE`;
   if (linha.length === 0) throw new Falha("CARD_NAO_ENCONTRADO");
   const card = await tx.projeto.findUniqueOrThrow({ where: { id: projetoId }, select: { responsavelId: true, fase: true, pipeline: { select: { chave: true } } } });
-  if (!faseDeHandoff(card.fase, card.pipeline.chave, await faseExecucao(tx))) throw new Falha("HANDOFF_ENCERRADO");
+  const ex = await faseExecucao(tx);
+  const emExecucao = !!opts.tambemEmExecucao && faseDeExecucaoAberta(card.fase, card.pipeline.chave, ex);
+  if (!emExecucao && !faseDeHandoff(card.fase, card.pipeline.chave, ex)) throw new Falha("HANDOFF_ENCERRADO");
   return card;
 }
 
@@ -120,16 +123,16 @@ export async function listarCandidatosGp(): Promise<{ id: string; nome: string }
 
 // ---------------------------------------------------------------- escrita
 
-/** Designa o GP do projeto: a pessoa vira a responsável pelo Projeto e recebe o aviso. */
+/** Designa o GP do projeto: a pessoa vira a responsável pelo Projeto e recebe o aviso; o GP anterior, se havia, também. */
 export async function designarGpDoProjeto(projetoId: string, gpId: string, por: Ator): Promise<Resultado<{ mudou: boolean }>> {
   const r = await emTransacao(async (tx) => {
-    const card = await abrirParaEdicao(tx, projetoId);
+    const card = await abrirParaEdicao(tx, projetoId, { tambemEmExecucao: true });
     const ator = await lerPessoa(tx, por.id);
     if (!ator?.ativo || !podeDesignarGp(ator)) throw new Falha("SO_GP_DE_PROJETOS");
     const gp = await lerPessoa(tx, gpId);
     if (!gp || !podeSerGpDoProjeto(gp)) throw new Falha("GP_INVALIDO");
     const atual = await tx.projetoHandoff.findUnique({ where: { projetoId }, select: { gpProjetoId: true } });
-    if (atual?.gpProjetoId === gpId && card.responsavelId === gpId) return { ok: true as const, mudou: false, gpNovo: false };
+    if (atual?.gpProjetoId === gpId && card.responsavelId === gpId) return { ok: true as const, mudou: false, gpNovo: false, gpAnteriorId: null, gpNome: gp.nome };
     const agora = new Date();
     await tx.projetoHandoff.upsert({ where: { projetoId }, create: { projetoId, gpProjetoId: gpId }, update: { gpProjetoId: gpId } });
     if (card.responsavelId !== gpId) {
@@ -137,11 +140,13 @@ export async function designarGpDoProjeto(projetoId: string, gpId: string, por: 
       await tx.timeline.create({ data: { projetoId, tipo: "CAMPO_ALTERADO", payload: { campo: "responsavelId", antes: card.responsavelId, depois: gpId }, usuarioId: por.id, em: agora } });
     }
     await tx.timeline.create({ data: { projetoId, tipo: "HANDOFF", payload: { evento: "gp_designado", gpId, gpNome: gp.nome }, usuarioId: por.id, em: new Date(agora.getTime() + 1) } });
-    return { ok: true as const, mudou: true, gpNovo: atual?.gpProjetoId !== gpId };
+    const gpNovo = atual?.gpProjetoId !== gpId;
+    return { ok: true as const, mudou: true, gpNovo, gpAnteriorId: gpNovo ? (atual?.gpProjetoId ?? null) : null, gpNome: gp.nome };
   });
   if (!r.ok) return r;
   // Só devolver a responsabilidade a quem já era o GP não é novidade para a pessoa.
   if (r.gpNovo) await avisarGpDesignado(projetoId, gpId, por.id);
+  if (r.gpAnteriorId) await avisarGpTrocado(projetoId, r.gpAnteriorId, r.gpNome, por.id);
   return { ok: true, mudou: r.mudou };
 }
 

@@ -16,6 +16,7 @@
  *   não volta lá nem depois. GAB-93: quem estava além de Execução ao ser excluído
  *   volta sem conferir o handoff. Quem não estava só vai para Execução ou além
  *   (fase escolhida, ou a própria fase reordenada) com o handoff fechado.
+ *   GAB-95: entrar em Execução assim também copia o cronograma (`execucao-entrada.ts`).
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -33,8 +34,9 @@ import type { Papel, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
 import { destinoCompativel } from "@/lib/fases/regras";
+import { aoEntrarEmExecucao } from "@/lib/projetos/execucao-entrada";
 import { travaDoContrato } from "@/lib/projetos/trava-contrato";
-import { estavaAlemDaExecucao, posicaoNaExclusao, travaDoHandoff } from "@/lib/projetos/trava-handoff";
+import { destinoExigeHandoff, estavaAlemDaExecucao, faseExecucao, posicaoNaExclusao, travaDoHandoff } from "@/lib/projetos/trava-handoff";
 import { removerArquivosDeAnexos } from "./anexos";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar, type FalhaLixeira } from "./regras";
 
@@ -103,7 +105,8 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
       // GAB-99: nem em fase de ganho (ex.: subfase que a Gestão virou ganho com o card na lixeira).
       const trava = await travaDoContrato(tx, { projetoId: id, origem: null, destino });
       if (trava) throw new Falha({ erro: trava.erro });
-      if (!(await estavaAlemDaExecucao(tx, id))) {
+      const jaEstavaEmExecucao = await estavaAlemDaExecucao(tx, id);
+      if (!jaEstavaEmExecucao) {
         const travaHandoff = await travaDoHandoff(tx, { projetoId: id, origem: null, destino });
         if (travaHandoff) throw new Falha({ erro: travaHandoff.erro });
       }
@@ -118,6 +121,14 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
         await tx.timeline.create({
           data: { projetoId: id, tipo: "MOVIMENTACAO", payload: { deFaseId: card.faseId, paraFaseId: destino.id, motivo: "restauracao" }, usuarioId: por.id, em: depois },
         });
+      }
+      // GAB-95: entrar em Execução pela lixeira copia o cronograma (idempotente), e voltar não cobra check-in do tempo
+      // lá. Vale para quem tem data e para quem é acompanhado por ter entrega ativa ou check-in. Quem nunca foi
+      // acompanhado (já em Execução no deploy, sem nada ou só com cancelada) continua sem cobrança.
+      const ex = await faseExecucao(tx);
+      if (ex && destinoExigeHandoff(destino, ex)) {
+        await tx.projeto.updateMany({ where: { id, OR: [{ execucaoDesde: { not: null } }, { entregas: { some: { canceladaEm: null } } }, { checkins: { some: {} } }] }, data: { execucaoDesde: agora } });
+        await aoEntrarEmExecucao(tx, { projetoId: id, porId: por.id, em: new Date(agora.getTime() + 2), novaEntrada: !jaEstavaEmExecucao });
       }
       return destino.id;
     });

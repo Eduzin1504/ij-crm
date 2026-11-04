@@ -63,8 +63,8 @@ export function alemDaExecucao(f: Parameters<typeof alemDoContrato>[0], execucao
   return alemDoContrato(f, execucao);
 }
 
-/** O destino exige o handoff fechado? Puro. */
-function destinoExigeHandoff(destino: Fase, execucao: Fase): boolean {
+/** O destino exige o handoff fechado? Puro. GAB-95: é também o que conta como "estar em Execução" para o cronograma. */
+export function destinoExigeHandoff(destino: Fase, execucao: Fase): boolean {
   if (destino.pipelineId !== execucao.pipelineId || destino.tipoTerminal === "PERDIDO") return false;
   return destino.tipoTerminal === "GANHO" || alemDaExecucao(destino, execucao);
 }
@@ -72,6 +72,11 @@ function destinoExigeHandoff(destino: Fase, execucao: Fase): boolean {
 /** A fase é a de edição do handoff (quadro Projetos, antes de Execução, fora de terminal)? Puro. `execucao` null = quadro sem o marco. */
 export function faseDeHandoff(fase: Fase, pipelineChave: string, execucao: Fase | null): boolean {
   return pipelineChave === PIPELINE_PROJETOS && !fase.isTerminal && !(execucao && alemDaExecucao(fase, execucao));
+}
+
+/** A fase é a de operar a execução (Execução ou subfase depois dela, fora de terminal)? Puro. GAB-95. */
+export function faseDeExecucaoAberta(fase: Fase, pipelineChave: string, execucao: Fase | null): boolean {
+  return pipelineChave === PIPELINE_PROJETOS && !fase.isTerminal && !!execucao && alemDaExecucao(fase, execucao);
 }
 
 /** O que a EXCLUSAO do card grava sobre a posição dele (vazio = não estava além de Execução). */

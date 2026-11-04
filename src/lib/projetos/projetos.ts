@@ -14,7 +14,7 @@
  * Todo acesso filtra `deletadoEm: null`: card soft-deletado não aparece, não
  * move e não edita.
  */
-import type { Fase, Origem, OrigemTransicao, Papel, Prisma, StatusProposta, TipoTerminal, TipoTimeline } from "@prisma/client";
+import type { Fase, Origem, OrigemTransicao, Papel, Prisma, StatusCheckin, StatusProposta, TipoTerminal, TipoTimeline } from "@prisma/client";
 import { podeEscrever, QUEM_ATUA } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
@@ -31,7 +31,9 @@ import { aoEntrarEmTerminal, pipelinesExtrasDoTerminal } from "./terminal";
 import { reabrirPropostaInviavel } from "@/lib/propostas/caneta-banco";
 import { avisarHandoff } from "@/lib/avisos/handoff";
 import { exigirTravaDoContrato } from "./trava-contrato";
-import { exigirTravaDoHandoff } from "./trava-handoff";
+import { aoMoverParaExecucao } from "./execucao-entrada";
+import { colunaParaDia } from "./execucao-semana";
+import { exigirTravaDoHandoff, faseDeExecucaoAberta } from "./trava-handoff";
 import { PIPELINE_VENDAS } from "./terminal-regras";
 import type { DadosTerminal } from "./terminal-regras";
 
@@ -90,6 +92,8 @@ export type CardDoQuadro = {
   motivoPerda: string | null;
   /** GAB-86: badge de status da proposta (null = sem proposta). */
   proposta: { status: StatusProposta } | null;
+  /** GAB-95: o último check-in, para o badge. Vazio = nenhum, ou card fora de Execução aberta. */
+  checkins: { status: StatusCheckin; motivo: string; semana: string }[];
 };
 
 export type Quadro = {
@@ -126,6 +130,7 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
         valorFechado: true,
         motivoPerda: true,
         proposta: { select: { status: true } },
+        checkins: { orderBy: [{ em: "desc" }, { id: "desc" }], take: 1, select: { status: true, motivo: true, semana: true } },
       },
     }),
     // Descrição pode ter 5000 caracteres: o quadro recebe só a prévia, cortada no
@@ -136,6 +141,8 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
       WHERE pipeline_id = ${p.id} AND deletado_em IS NULL AND descricao IS NOT NULL`,
   ]);
   const previaPorId = new Map(previas.map((r) => [r.id, r]));
+  const execucao = p.fases.find((f) => f.marco === "EXECUCAO") ?? null;
+  const fasesAbertas = new Set(p.fases.filter((f) => faseDeExecucaoAberta(f, p.chave, execucao)).map((f) => f.id));
   return {
     pipeline: { id: p.id, chave: p.chave, nome: p.nome },
     fases: p.fases,
@@ -144,6 +151,7 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
       descricaoPrevia: previaPorId.get(c.id)?.previa ?? null,
       descricaoTruncada: previaPorId.get(c.id)?.truncada ?? false,
       empresa: c.empresa ? { nome: nomeExibido(c.empresa) } : null,
+      checkins: fasesAbertas.has(c.faseId) ? c.checkins.map((k) => ({ status: k.status, motivo: k.motivo, semana: colunaParaDia(k.semana) })) : [],
     })),
   };
 }
@@ -271,6 +279,10 @@ export async function registrarMovimento(
   }
   const payload = { deFaseId: origem.id, paraFaseId: destino.id, ...(args.via ? { via: args.via } : {}) };
   await tx.timeline.create({ data: { projetoId: id, tipo: "MOVIMENTACAO", payload, usuarioId: args.porId, em } });
+  // GAB-95: entrou em Execução → cronograma da proposta final vira o previsto (idempotente). O import é histórico.
+  if (args.origemTransicao !== "IMPORT") {
+    await aoMoverParaExecucao(tx, { projetoId: id, origem, destino, porId: args.porId, em: instante() });
+  }
   // GAB-87: card reaberto (saiu de Perdido) → a proposta Inviável volta para o pingue-pongue (Em ajuste, sem caneta).
   // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco estão em `trava-contrato.ts`; aqui nada muda.
   // GAB-93: só em Vendas. Reabrir no quadro Projetos não mexe na proposta, que está congelada.
