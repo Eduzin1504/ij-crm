@@ -699,9 +699,16 @@ Tudo no servidor: página, action, rota de API e MCP, com as regras puras de
 | Painel | todos, como antes |
 | Mover e editar dados do card, excluir card | área dona (`pipeline.chave`), responsável do card, gestor sem área e admin |
 | Criar card | quem é da área do quadro, gestor sem área e admin |
+| Trocar o responsável | o responsável atual, GP do lado dono, gestor da área dona ou sem área, e admin |
+| Restaurar card da lixeira | gestor da área dona ou sem área, e admin (e o responsável, se for gestor) |
+| Handoff: itens, contrato e Mover para Execução | área dona ou responsável. O resumo continua de vendas |
+| `propostaUrl` | ler e gravar só com acesso à proposta |
 | Comentar, criar prazo e anexar em card de outra área | todo mundo que escreve |
 | Proposta (lista, página, versões, diff, PDF, comentários, badge, eventos na Timeline, link) | responsável do card, dono e ex-dono da caneta, quem a criou, GP, gestor com ou sem área e admin. VISUALIZADOR: nenhuma |
 | Calendário e `/semana?vendedor=` | membro: só o próprio. Gestor com área: mesmo `ladoDe`. Gestor sem área e admin: todos. VISUALIZADOR: /403 |
+
+Limitações: anexos seguem lidos por quem vê o card (decisão provisória, §4.7). Aviso antigo de quem perdeu
+o acesso à proposta pode abrir em /403.
 
 Ponto único de cada regra com banco: `src/lib/projetos/acesso-card.ts` (card) e
 `src/lib/propostas/acesso.ts` (proposta). No MCP, a `guarda` de cada ferramenta roda em

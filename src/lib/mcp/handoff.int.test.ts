@@ -110,7 +110,8 @@ describe("MCP do handoff (GAB-93)", () => {
     expect(fim.checklist.contrato_pdf).toMatchObject({ feito: true, anexo: { nome: "assinado.pdf" } });
     expect(fim.checklist.kickoff.feito).toBe(true);
 
-    expect(dados(await chamar("mover_para_execucao", { id }, s.ana))).toMatchObject({ mudou: true });
+    expect(texto(await chamar("mover_para_execucao", { id }, s.ana))).toMatch(/outra área/); // GAB-98: vendas não move card de Projetos sem ser a responsável
+    expect(dados(await chamar("mover_para_execucao", { id }, s.pedro))).toMatchObject({ mudou: true });
     const c = await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } });
     expect(c.fase.marco).toBe("EXECUCAO");
     expect(c.responsavelId).toBe(s.pedro.id);
