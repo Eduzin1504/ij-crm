@@ -1,6 +1,6 @@
 /**
  * Kanban interno do projeto (tarefas do time de projetos). Spec:
- * docs/superpowers/specs/2026-11-04-kanban-interno-projeto-spec.md.
+ * docs/superpowers/specs/2026-11-04-kanban-interno-projeto-design.md.
  *
  * Regras que não podem furar:
  * - Toda operação passa por `podeVerTarefas` (ponto único em `auth/areas.ts`).
