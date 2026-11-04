@@ -1,4 +1,4 @@
--- GAB-93: handoff do Projeto (spec fase 2 §4.8). Aditiva: só tabela, colunas e valor de enum novos.
+-- GAB-93: handoff do Projeto (spec fase 2 §4.8). Tabela, colunas, valor de enum, índice único parcial do contrato e fase Perdido no quadro Projetos; nenhum dado existente é apagado.
 ALTER TYPE "TipoTimeline" ADD VALUE 'HANDOFF';
 
 -- O PDF é o contrato assinado? Marca explícita, sem backfill: nome de arquivo não prova nada.
