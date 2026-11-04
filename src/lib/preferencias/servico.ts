@@ -33,7 +33,7 @@ export async function salvarVisualizacaoKanban(
   return { ok: true };
 }
 
-/** Grava a página inicial (`/` → Minha Semana | Kanban Vendas | Kanban Projetos). */
+/** Grava o que abre dentro da área (Minha Semana | Kanban). */
 export async function salvarPaginaInicial(usuarioId: string, entrada: unknown): Promise<{ ok: true } | { ok: false; erro: ErroPreferencias }> {
   const v = inicioSchema.safeParse(entrada);
   if (!v.success) return { ok: false, erro: "DADOS_INVALIDOS" };

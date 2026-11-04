@@ -133,7 +133,7 @@ export async function salvarPaginaInicialAction(_prev: EstadoPerfil, form: FormD
     const r = await salvarPaginaInicial(eu.id, form.get("inicio"));
     if (!r.ok) return { erro: "Escolha uma das opções." };
     revalidatePath("/perfil");
-    // O logo do rail/topbar aponta para a página inicial (resolvida no layout).
+    // As áreas da gaveta levam à página inicial (resolvida no layout).
     revalidatePath("/", "layout");
     return { ok: true };
   });

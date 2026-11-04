@@ -1,7 +1,7 @@
-import type { Area, Cargo, Papel, Usuario } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel, Usuario } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizarEmail, normalizarTelefoneBr } from "@/lib/normalizacao";
-import { regraDeArea, resolverAreaCargos } from "./areas";
+import { mesmaAreaEntrada, regraDeArea, resolverAreaCargos, resolverAreaEntrada } from "./areas";
 import { conviteEstaValido, gerarConvite, hashToken } from "./convite";
 import { liberarCanetasDe } from "@/lib/propostas/caneta-banco";
 import { podeAtribuirPapel } from "./papeis";
@@ -54,7 +54,7 @@ function ehViolacaoDeUnique(e: unknown, coluna: string): boolean {
  * claro UMA vez — ele não é persistido, só o hash.
  */
 export async function criarConvite(
-  dados: { nome: string; email: string; papel: Papel; telefone?: string | null; area?: Area | null; cargos?: readonly Cargo[] },
+  dados: { nome: string; email: string; papel: Papel; telefone?: string | null; area?: Area | null; cargos?: readonly Cargo[]; areaEntrada?: AreaEntrada | null },
   por: Ator,
 ): Promise<Resultado<{ usuarioId: string; token: string; expiraEm: Date }>> {
   if (!podeAtribuirPapel(por.papel, dados.papel)) return { ok: false, erro: "PAPEL_NAO_PERMITIDO" };
@@ -66,6 +66,8 @@ export async function criarConvite(
   // GAB-82: lado coerente com o papel (vendedor → vendas etc.; ver ./areas).
   const lado = resolverAreaCargos(dados.papel, dados.area ?? null, dados.cargos ?? []);
 
+  const areaEntrada = resolverAreaEntrada(dados.papel, lado.area, dados.areaEntrada ?? null);
+
   const convite = gerarConvite();
   try {
     const u = await db.usuario.create({
@@ -75,6 +77,7 @@ export async function criarConvite(
         papel: dados.papel,
         area: lado.area,
         cargos: lado.cargos,
+        areaEntrada,
         telefoneWhatsapp: tel.telefone,
         senhaHash: null,
         conviteTokenHash: convite.hash,
@@ -82,7 +85,7 @@ export async function criarConvite(
       },
       select: { id: true },
     });
-    console.info(`[auditoria] usuario.convidado usuario=${u.id} por=${por.id} papel=${dados.papel} lado=${formatarLado(lado)}`);
+    console.info(`[auditoria] usuario.convidado usuario=${u.id} por=${por.id} papel=${dados.papel} lado=${formatarLado(lado)} entrada=${areaEntrada ?? "nenhuma"}`);
     return { ok: true, usuarioId: u.id, token: convite.token, expiraEm: convite.expiraEm };
   } catch (e) {
     if (ehViolacaoDeUnique(e, "email")) return { ok: false, erro: "EMAIL_EM_USO" };
@@ -143,10 +146,10 @@ export async function autenticar(email: string, senha: string): Promise<Resultad
 
 export async function atualizarUsuario(
   usuarioId: string,
-  dados: { nome?: string; telefone?: string | null; papel?: Papel; ativo?: boolean; area?: Area | null; cargos?: readonly Cargo[] },
+  dados: { nome?: string; telefone?: string | null; papel?: Papel; ativo?: boolean; area?: Area | null; cargos?: readonly Cargo[]; areaEntrada?: AreaEntrada | null },
   por: Ator,
 ): Promise<Resultado> {
-  const alvo = await db.usuario.findUnique({ where: { id: usuarioId }, select: { id: true, papel: true, ativo: true, area: true, cargos: true } });
+  const alvo = await db.usuario.findUnique({ where: { id: usuarioId }, select: { id: true, papel: true, ativo: true, area: true, cargos: true, areaEntrada: true } });
   if (!alvo) return { ok: false, erro: "USUARIO_NAO_ENCONTRADO" };
   const ehEu = alvo.id === por.id;
 
@@ -168,6 +171,14 @@ export async function atualizarUsuario(
   }
   const ladoMudou = !mesmoLado(lado, { area: alvo.area, cargos: alvo.cargos });
 
+  // GAB-97: a área de entrada é da gestão, e quem entra pela própria área não guarda valor.
+  const mexeEntrada = mexeLado || dados.areaEntrada !== undefined;
+  const entrada = mexeEntrada ? resolverAreaEntrada(papelFinal, lado.area, dados.areaEntrada !== undefined ? dados.areaEntrada : alvo.areaEntrada) : alvo.areaEntrada;
+  // O form mostra Geral quando não há valor: editar só o nome reenvia GERAL e não é mudança.
+  const entradaMudou = !mesmaAreaEntrada(entrada, alvo.areaEntrada);
+  // Quem deixou de usar a coluna fica sem valor, mesmo que ela guardasse GERAL.
+  const gravaEntrada = entradaMudou || (entrada === null && alvo.areaEntrada !== null);
+
   // Exceção (review do PR #47): ADMIN define o próprio lado/cargo — senão o
   // único admin que atua em vendas fica travado (gestor não edita admin).
   // A mudança vai para a auditoria com `por` = o próprio usuário. Papel/ativo
@@ -175,7 +186,7 @@ export async function atualizarUsuario(
   const papelMantido = dados.papel === undefined || dados.papel === alvo.papel;
   const ativoMantido = dados.ativo === undefined || dados.ativo === alvo.ativo;
   const adminNoProprioLado = ehEu && alvo.papel === "ADMIN" && por.papel === "ADMIN" && papelMantido && ativoMantido;
-  const soPerfil = (dados.papel === undefined && dados.ativo === undefined && !ladoMudou) || adminNoProprioLado;
+  const soPerfil = (dados.papel === undefined && dados.ativo === undefined && !ladoMudou && !entradaMudou) || adminNoProprioLado;
   // Qualquer um edita o próprio nome/telefone. Fora isso: mexer em alguém exige
   // poder atribuir o papel ATUAL dele (gestor não toca admin) e, se houver
   // mudança de papel, o papel NOVO também; e ninguém se rebaixa/desativa.
@@ -183,7 +194,7 @@ export async function atualizarUsuario(
     if (!podeAtribuirPapel(por.papel, alvo.papel)) return { ok: false, erro: "PAPEL_NAO_PERMITIDO" };
     if (dados.papel !== undefined && !podeAtribuirPapel(por.papel, dados.papel)) return { ok: false, erro: "PAPEL_NAO_PERMITIDO" };
     // Cargo dá poder (GP age pelo lado): fora o admin (acima), ninguém mexe no próprio lado/cargo.
-    if (ehEu && (dados.ativo === false || (dados.papel !== undefined && dados.papel !== por.papel) || ladoMudou)) {
+    if (ehEu && (dados.ativo === false || (dados.papel !== undefined && dados.papel !== por.papel) || ladoMudou || entradaMudou)) {
       return { ok: false, erro: "NAO_PODE_ALTERAR_A_SI" };
     }
   }
@@ -203,6 +214,7 @@ export async function atualizarUsuario(
           ...(dados.papel !== undefined ? { papel: dados.papel } : {}),
           ...(dados.ativo !== undefined ? { ativo: dados.ativo } : {}),
           ...(ladoMudou ? { area: lado.area, cargos: [...lado.cargos] } : {}),
+          ...(gravaEntrada ? { areaEntrada: entrada } : {}),
         },
       });
       if (r.count === 0) throw new ErroConcorrencia();
@@ -226,6 +238,9 @@ export async function atualizarUsuario(
       `[auditoria] usuario.lado_alterado usuario=${usuarioId} por=${por.id}${ehEu ? " proprio=1" : ""} de=${formatarLado({ area: alvo.area, cargos: alvo.cargos })} para=${formatarLado(lado)}`,
     );
   }
+  if (entradaMudou) {
+    console.info(`[auditoria] usuario.area_entrada_alterada usuario=${usuarioId} por=${por.id}${ehEu ? " proprio=1" : ""} de=${alvo.areaEntrada ?? "nenhuma"} para=${entrada ?? "nenhuma"}`);
+  }
   return { ok: true };
 }
 
@@ -239,6 +254,7 @@ export async function listarUsuarios() {
       papel: true,
       area: true,
       cargos: true,
+      areaEntrada: true,
       telefoneWhatsapp: true,
       ativo: true,
       senhaHash: true,

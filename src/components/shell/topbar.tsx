@@ -5,16 +5,16 @@ import { Button } from "@/components/ui/button";
 import { logoutAction } from "@/lib/auth/actions";
 import { ROTULO_PAPEL } from "@/lib/auth/papeis";
 import type { UsuarioSessao } from "@/lib/auth/sessao";
-import { SimboloIJ } from "@/components/marca/marca";
-import type { DestinoInicio } from "@/lib/preferencias/preferencias";
+import { BotaoGaveta, IndicadorArea } from "./gaveta-ij";
 import { Sino } from "./sino";
 
-export function Topbar({ usuario, inicio }: { usuario: UsuarioSessao; inicio: DestinoInicio }) {
+export function Topbar({ usuario }: { usuario: UsuarioSessao }) {
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
-      <Link href={inicio} className="md:hidden" title="Início">
-        <SimboloIJ tamanho={32} />
-      </Link>
+      <div className="flex items-center gap-2 md:hidden">
+        <BotaoGaveta tamanho={32} className="rounded-lg" />
+        <IndicadorArea />
+      </div>
       <span className="hidden md:block" />
       <div className="flex items-center gap-3">
         <Sino />

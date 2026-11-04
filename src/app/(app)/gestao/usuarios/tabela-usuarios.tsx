@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import type { Area, Cargo, Papel } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel } from "@prisma/client";
 import { KeyRound, Pencil, RefreshCw } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { descreverLado } from "@/lib/auth/areas";
+import { descreverLado, ROTULO_AREA_ENTRADA } from "@/lib/auth/areas";
+import { areaDeEntrada } from "@/lib/auth/visibilidade";
 import { ROTULO_PAPEL, podeAtribuirPapel, podeGerarRedefinicao } from "@/lib/auth/papeis";
 import { alternarAtivoAction, editarUsuarioAction, gerarLinkRedefinicaoAction, reemitirConviteAction, type EstadoConvite } from "./actions";
 import { LinkGerado } from "./convidar-dialog";
@@ -23,6 +24,7 @@ type Usuario = {
   papel: Papel;
   area: Area | null;
   cargos: Cargo[];
+  areaEntrada: AreaEntrada | null;
   telefoneWhatsapp: string | null;
   ativo: boolean;
   convitePendente: boolean;
@@ -128,7 +130,10 @@ export function TabelaUsuarios({ usuarios, ator }: { usuarios: Usuario[]; ator: 
                   {u.telefoneWhatsapp ?? <span className="text-fg-faint">—</span>}
                 </td>
                 <td className="px-4 py-3">{ROTULO_PAPEL[u.papel]}</td>
-                <td className="hidden px-4 py-3 text-fg-soft sm:table-cell">{descreverLado(u)}</td>
+                <td className="hidden px-4 py-3 text-fg-soft sm:table-cell">
+                  {descreverLado(u)}
+                  <div className="text-xs text-fg-faint">entra em {ROTULO_AREA_ENTRADA[areaDeEntrada(u)]}</div>
+                </td>
                 <td className="px-4 py-3">
                   <Switch
                     checked={u.ativo}
@@ -235,10 +240,10 @@ function EditarForm({ usuario, ator, onSalvo }: { usuario: Usuario; ator: Ator; 
         <p className="text-xs text-fg-faint">Deixe vazio para remover. É este número que liga a pessoa às mensagens do grupo.</p>
       </div>
       {!souEu ? (
-        <CamposPapelLado papelAtor={ator.papel} papel={usuario.papel} area={usuario.area} cargos={usuario.cargos} />
+        <CamposPapelLado papelAtor={ator.papel} papel={usuario.papel} area={usuario.area} cargos={usuario.cargos} areaEntrada={usuario.areaEntrada} />
       ) : ator.papel === "ADMIN" ? (
         // Admin define o próprio lado (ex.: admin que atua em vendas); fica na auditoria. Ver usuarios.ts.
-        <CamposPapelLado papelAtor={ator.papel} papel={usuario.papel} area={usuario.area} cargos={usuario.cargos} mostrarPapel={false} />
+        <CamposPapelLado papelAtor={ator.papel} papel={usuario.papel} area={usuario.area} cargos={usuario.cargos} areaEntrada={usuario.areaEntrada} mostrarPapel={false} />
       ) : null}
       {estado?.erro ? (
         <p role="alert" className="text-sm text-danger">

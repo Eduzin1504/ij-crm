@@ -11,7 +11,7 @@ const { exigirPapel } = vi.hoisted(() => ({ exigirPapel: vi.fn() }));
 vi.mock("@/lib/auth/atual", () => ({ exigirPapel }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { alternarAtivoAction, editarUsuarioAction } = await import("./actions");
+const { alternarAtivoAction, criarConviteAction, editarUsuarioAction } = await import("./actions");
 
 const db = dbTeste();
 
@@ -56,5 +56,126 @@ describe("editarUsuarioAction: admin editando a si mesmo", () => {
     exigirPapel.mockResolvedValue({ id: a.id, papel: "ADMIN" });
     expect(await editarUsuarioAction(undefined, form({ usuarioId: a.id, nome: "Admin", ladoNoForm: "1", area: "VENDAS" }))).toEqual({ ok: true });
     expect(await db.usuario.findUniqueOrThrow({ where: { id: a.id }, select: { area: true, cargos: true } })).toEqual({ area: "VENDAS", cargos: [] });
+  });
+});
+
+describe("área de entrada (GAB-97)", () => {
+  const entradaDe = async (id: string) => (await db.usuario.findUniqueOrThrow({ where: { id }, select: { areaEntrada: true } })).areaEntrada;
+
+  async function comAdmin() {
+    const a = await db.usuario.create({ data: { nome: "Admin", email: "admin@ij.test", papel: "ADMIN" } });
+    exigirPapel.mockResolvedValue({ id: a.id, papel: "ADMIN" });
+    return a;
+  }
+
+  it("convite de visualizador grava a área escolhida; de vendedor ignora o valor forjado", async () => {
+    await comAdmin();
+    const base = { ladoNoForm: "1", area: "" };
+    expect(await criarConviteAction(undefined, form({ nome: "Vis", email: "vis@ij.test", papel: "VISUALIZADOR", areaEntrada: "PROJETOS", ...base }))).toHaveProperty("link");
+    expect(await criarConviteAction(undefined, form({ nome: "Ven", email: "ven@ij.test", papel: "VENDEDOR", areaEntrada: "PROJETOS", ...base }))).toHaveProperty("link");
+    const lista = await db.usuario.findMany({ where: { email: { in: ["vis@ij.test", "ven@ij.test"] } }, select: { email: true, areaEntrada: true }, orderBy: { email: "asc" } });
+    expect(lista).toEqual([{ email: "ven@ij.test", areaEntrada: null }, { email: "vis@ij.test", areaEntrada: "PROJETOS" }]);
+  });
+
+  it("edição grava; valor fora da lista é recusado sem mudar nada", async () => {
+    await comAdmin();
+    const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "VENDAS" }))).toEqual({ ok: true });
+    expect(await entradaDe(g.id)).toBe("VENDAS");
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "TABELA" }))).toEqual({ erro: "Dados inválidos." });
+    expect(await entradaDe(g.id)).toBe("VENDAS");
+  });
+
+  it("não mexe em usuario.area nem no lado", async () => {
+    await comAdmin();
+    const v = await db.usuario.create({ data: { nome: "Vis", email: "v@ij.test", papel: "VISUALIZADOR" } });
+    await editarUsuarioAction(undefined, form({ usuarioId: v.id, nome: "Vis", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+    expect(await db.usuario.findUniqueOrThrow({ where: { id: v.id }, select: { area: true, cargos: true, areaEntrada: true } })).toEqual({ area: null, cargos: [], areaEntrada: "PROJETOS" });
+  });
+
+  it("gestor sem área que ganha área perde o valor: passa a entrar na própria", async () => {
+    await comAdmin();
+    const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR", areaEntrada: "PROJETOS" } });
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "VENDAS", areaEntrada: "" }))).toEqual({ ok: true });
+    expect(await entradaDe(g.id)).toBeNull();
+  });
+
+  it("mudar o papel para vendedor zera", async () => {
+    await comAdmin();
+    const v = await db.usuario.create({ data: { nome: "Vis", email: "v@ij.test", papel: "VISUALIZADOR", areaEntrada: "PROJETOS" } });
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: v.id, nome: "Vis", papel: "VENDEDOR", ladoNoForm: "1", area: "VENDAS" }))).toEqual({ ok: true });
+    expect(await entradaDe(v.id)).toBeNull();
+  });
+
+  it("admin define a própria", async () => {
+    const a = await comAdmin();
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: a.id, nome: "Admin", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }))).toEqual({ ok: true });
+    expect(await entradaDe(a.id)).toBe("PROJETOS");
+  });
+
+  it("gestor sem área não muda a própria com FormData forjado; admin é quem define", async () => {
+    const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+    exigirPapel.mockResolvedValue({ id: g.id, papel: "GESTOR" });
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "VENDAS" }))).toEqual({
+      erro: "Você não pode alterar seu próprio papel ou se desativar.",
+    });
+    expect(await entradaDe(g.id)).toBeNull();
+  });
+
+  it("editar nome sem os campos de lado mantém o valor", async () => {
+    await comAdmin();
+    const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR", areaEntrada: "VENDAS" } });
+    expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor Novo" }))).toEqual({ ok: true });
+    expect(await entradaDe(g.id)).toBe("VENDAS");
+  });
+
+  describe("auditoria", () => {
+    const logsDeEntrada = (espiao: { mock: { calls: unknown[][] } }, evento: string) => espiao.mock.calls.map((c) => String(c[0])).filter((l) => l.includes(evento));
+
+    it("editar só o nome reenvia GERAL do form sobre null: sem log, sem gravar e sem barrar", async () => {
+      await comAdmin();
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor Novo", ladoNoForm: "1", area: "", areaEntrada: "GERAL" }))).toEqual({ ok: true });
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([]);
+      expect(await entradaDe(g.id)).toBeNull();
+      info.mockRestore();
+    });
+
+    it("gestor sem área salvando o próprio form com GERAL não é barrado", async () => {
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      exigirPapel.mockResolvedValue({ id: g.id, papel: "GESTOR" });
+      expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "GERAL" }))).toEqual({ ok: true });
+    });
+
+    it("mudança real gera log", async () => {
+      await comAdmin();
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([expect.stringContaining("de=nenhuma para=PROJETOS")]);
+      info.mockRestore();
+    });
+
+    it("quem deixa de usar a coluna fica sem valor, mesmo com GERAL, sem log", async () => {
+      await comAdmin();
+      const v = await db.usuario.create({ data: { nome: "Vis", email: "v@ij.test", papel: "VISUALIZADOR", areaEntrada: "GERAL" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await editarUsuarioAction(undefined, form({ usuarioId: v.id, nome: "Vis", papel: "VENDEDOR", ladoNoForm: "1", area: "VENDAS" }));
+      expect(await entradaDe(v.id)).toBeNull();
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([]);
+      info.mockRestore();
+    });
+
+    it("usuario.convidado traz entrada=", async () => {
+      await comAdmin();
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await criarConviteAction(undefined, form({ nome: "Vis", email: "vis@ij.test", papel: "VISUALIZADOR", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      await criarConviteAction(undefined, form({ nome: "Ven", email: "ven@ij.test", papel: "VENDEDOR", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      const logs = logsDeEntrada(info, "usuario.convidado");
+      expect(logs[0]).toContain("entrada=PROJETOS");
+      expect(logs[1]).toContain("entrada=nenhuma");
+      info.mockRestore();
+    });
   });
 });

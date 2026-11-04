@@ -4,7 +4,6 @@ import {
   VISUALIZACAO_PADRAO,
   comInicio,
   comVisualizacaoKanban,
-  destinoInicio,
   inicioSchema,
   lerPreferencias,
   paginaInicial,
@@ -37,20 +36,19 @@ describe("lerPreferencias", () => {
   });
 });
 
-describe("página inicial (GAB-43)", () => {
+describe("página inicial dentro da área (GAB-97)", () => {
   it("sem preferência → Minha Semana", () => {
     expect(paginaInicial(PREFERENCIAS_PADRAO)).toBe("semana");
-    expect(destinoInicio(PREFERENCIAS_PADRAO)).toBe("/semana");
   });
 
   it.each([
-    ["semana", "/semana"],
-    ["vendas", "/kanban"],
-    ["projetos", "/kanban?quadro=projetos"],
-  ] as const)("%s → %s", (inicio, destino) => {
-    const p = lerPreferencias({ v: 1, kanban: {}, inicio });
-    expect(p.inicio).toBe(inicio);
-    expect(destinoInicio(p)).toBe(destino);
+    ["semana", "semana"],
+    ["kanban", "kanban"],
+    // Valores do GAB-43, ainda gravados no JSON: a área decide o quadro.
+    ["vendas", "kanban"],
+    ["projetos", "kanban"],
+  ] as const)("gravado %s → %s", (inicio, esperado) => {
+    expect(paginaInicial(lerPreferencias({ v: 1, kanban: {}, inicio }))).toBe(esperado);
   });
 
   it("valor inválido em `inicio` vira o padrão sem derrubar o kanban", () => {
@@ -61,12 +59,13 @@ describe("página inicial (GAB-43)", () => {
 
   it("comInicio troca só a página inicial", () => {
     const original = lerPreferencias({ v: 1, kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
-    expect(comInicio(original, "projetos")).toEqual({ v: 1, inicio: "projetos", kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
+    expect(comInicio(original, "kanban")).toEqual({ v: 1, inicio: "kanban", kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
     expect(original.inicio).toBeUndefined();
   });
 
-  it("schema estrito de entrada recusa valor fora da lista", () => {
-    expect(inicioSchema.safeParse("vendas").success).toBe(true);
+  it("schema estrito de entrada só aceita os valores novos", () => {
+    expect(inicioSchema.safeParse("kanban").success).toBe(true);
+    expect(inicioSchema.safeParse("vendas").success).toBe(false);
     expect(inicioSchema.safeParse("/admin").success).toBe(false);
   });
 });
@@ -104,7 +103,7 @@ describe("avisos no WhatsApp (GAB-88)", () => {
   it("valor corrompido não apaga o resto: vira o padrão (ligado)", async () => {
     const { whatsappAvisosLigado } = await import("./preferencias");
     const p = lerPreferencias({ v: 1, kanban: {}, inicio: "vendas", avisos: { whatsapp: "talvez" } });
-    expect(p.inicio).toBe("vendas");
+    expect(p.inicio).toBe("kanban");
     expect(whatsappAvisosLigado(p)).toBe(true);
   });
 });
