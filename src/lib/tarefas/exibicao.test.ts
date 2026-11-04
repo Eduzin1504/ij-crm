@@ -27,6 +27,11 @@ describe("ordenador", () => {
     expect(xs.slice().sort(ordenador({ ordenar: "prioridade", ordemDesc: true })).map((x) => x.numero)).toEqual([1, 3, 2]);
     expect([t(2, { posicao: 5 }), t(1, { posicao: 2 })].sort(ordenador({ ordenar: "status", ordemDesc: false })).map((x) => x.numero)).toEqual([1, 2]);
   });
+  it("responsável: pelo nome, sem responsável por último", () => {
+    const nomes = new Map([["p", "Paula"], ["e", "Eduardo"]]);
+    const ys = [t(1, { responsavelId: "p" }), t(2, { responsavelId: null }), t(3, { responsavelId: "e" })];
+    expect(ys.slice().sort(ordenador({ ordenar: "responsavel", ordemDesc: false }, (id) => nomes.get(id) ?? id)).map((x) => x.numero)).toEqual([3, 1, 2]);
+  });
 });
 
 describe("aplicarExibicao", () => {

@@ -10,7 +10,7 @@ import { PRIORIDADES, fechada, type TarefaLista } from "./modelo";
 export const exibicaoSchema = z.object({
   vista: z.enum(["quadro", "lista"]),
   agrupar: z.enum(["resp", "status", "prio", "etiqueta", "nenhum"]),
-  ordenar: z.enum(["posicao", "prazo", "prioridade", "criado", "titulo", "status"]),
+  ordenar: z.enum(["posicao", "prazo", "prioridade", "responsavel", "criado", "titulo", "status"]),
   ordemDesc: z.boolean(),
   concluidas: z.enum(["todas", "semana", "mes", "nenhuma"]),
   subtarefas: z.enum(["todas", "lista", "nenhuma"]),
@@ -39,7 +39,7 @@ export const EXIBICAO_PADRAO: Exibicao = {
 };
 
 export const ROTULO_AGRUPAR: Record<Agrupar, string> = { resp: "Responsável", status: "Status", prio: "Prioridade", etiqueta: "Etiqueta", nenhum: "Nenhum" };
-export const ROTULO_ORDENAR: Record<Ordenar, string> = { posicao: "Manual", prazo: "Prazo", prioridade: "Prioridade", criado: "Criação", titulo: "Título", status: "Status" };
+export const ROTULO_ORDENAR: Record<Ordenar, string> = { posicao: "Manual", prazo: "Prazo", prioridade: "Prioridade", responsavel: "Responsável", criado: "Criação", titulo: "Título", status: "Status" };
 export const ROTULO_PROPRIEDADE: Record<Propriedade, string> = { id: "ID", status: "Status", prio: "Prioridade", resp: "Responsável", etiquetas: "Etiquetas", prazo: "Prazo", sub: "Subtarefas", criada: "Criada em", pai: "Tarefa pai" };
 
 /** Lê o JSON guardado; qualquer coisa fora do schema vira o padrão (campo a campo não: é um bloco só). */
@@ -51,11 +51,13 @@ export function lerExibicao(bruto: unknown): Exibicao {
 const NIVEL_PRIO: Record<PrioridadeTarefa, number> = Object.fromEntries(PRIORIDADES.map((p, i) => [p.k, i])) as Record<PrioridadeTarefa, number>;
 const NIVEL_STATUS = { BACKLOG: 0, A_FAZER: 1, EM_ANDAMENTO: 2, EM_REVISAO: 3, FEITA: 4, CANCELADA: 5 } as const;
 
-/** Comparador da exibição; empate cai na posição manual. */
-export function ordenador(e: Pick<Exibicao, "ordenar" | "ordemDesc">): (a: TarefaLista, b: TarefaLista) => number {
+/** Comparador da exibição; empate cai na posição manual. `nomeDe` resolve o responsável (sem responsável vai por último). */
+export function ordenador(e: Pick<Exibicao, "ordenar" | "ordemDesc">, nomeDe: (id: string) => string = (id) => id): (a: TarefaLista, b: TarefaLista) => number {
   const s = e.ordemDesc ? -1 : 1;
+  const resp = (t: TarefaLista) => (t.responsavelId ? nomeDe(t.responsavelId) : "\uffff");
   const base: Record<Ordenar, (a: TarefaLista, b: TarefaLista) => number> = {
     posicao: (a, b) => a.posicao - b.posicao,
+    responsavel: (a, b) => resp(a).localeCompare(resp(b), "pt-BR"),
     prazo: (a, b) => (a.prazo ?? "9999").localeCompare(b.prazo ?? "9999"),
     prioridade: (a, b) => NIVEL_PRIO[a.prioridade] - NIVEL_PRIO[b.prioridade],
     criado: (a, b) => b.criadoEmMs - a.criadoEmMs,

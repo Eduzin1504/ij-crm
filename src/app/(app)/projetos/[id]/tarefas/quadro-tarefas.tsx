@@ -84,6 +84,8 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
   const [abertaId, setAbertaId] = useState<string | null>(null);
   const [selecionada, setSelecionada] = useState<string | null>(null);
   const [abertasManual, setAbertasManual] = useState<Set<string>>(new Set());
+  // Recolhidas à mão (qualquer coluna, mesmo com tarefas): só a faixa, até clicar de novo ou soltar um card nela.
+  const [fechadasManual, setFechadasManual] = useState<Set<string>>(new Set());
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<MenuAberto>(null);
   const [atalho, setAtalho] = useState<Atalho>(null);
@@ -132,7 +134,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
   const pessoaPorId = useMemo(() => new Map(pessoas.map((p) => [p.id, p])), [pessoas]);
   const etiquetas = useMemo(() => [...new Set([...etiquetasServidor, ...tarefas.flatMap((t) => t.etiquetas)])].sort((a, b) => a.localeCompare(b, "pt-BR")), [etiquetasServidor, tarefas]);
   const visiveis = useMemo(() => filtrarTarefas(aplicarExibicao(tarefas, exibicao, agoraMs), filtros, hoje), [tarefas, exibicao, filtros, agoraMs, hoje]);
-  const ord = useMemo(() => ordenador(exibicao), [exibicao]);
+  const ord = useMemo(() => ordenador(exibicao, (id) => pessoaPorId.get(id)?.nome ?? id), [exibicao, pessoaPorId]);
   const agruparPor = exibicao.agrupar === "nenhum" ? "status" : exibicao.agrupar;
   const grupos = useMemo(() => agrupar(visiveis, pessoas, agruparPor, ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => ({ ...l, tarefas: [...l.tarefas].sort(ord) })), [visiveis, pessoas, agruparPor, ord]);
   const aberta = abertaId ? (porId.get(abertaId) ?? null) : null;
@@ -153,6 +155,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     alvoArrasto: arrastando ? alvo : null,
     mostrarVazias: exibicao.vazios,
   });
+  for (const chave of fechadasManual) if (!(arrastando && alvo === chave)) abertas.delete(chave);
 
   function aplicar(id: string, patch: PatchLocal) {
     setTarefas((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -236,13 +239,23 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     }
   }
 
-  const alternarColuna = (chave: string) =>
-    setAbertasManual((a) => {
-      const n = new Set(a);
-      if (n.has(chave)) n.delete(chave);
-      else n.add(chave);
+  /** Clique na faixa abre; clique em "recolher" fecha. Toda coluna é encolhível, com ou sem tarefas. */
+  const abrirColuna = (chave: string) => {
+    setFechadasManual((f) => {
+      const n = new Set(f);
+      n.delete(chave);
       return n;
     });
+    setAbertasManual((a) => new Set(a).add(chave));
+  };
+  const recolherColuna = (chave: string) => {
+    setAbertasManual((a) => {
+      const n = new Set(a);
+      n.delete(chave);
+      return n;
+    });
+    setFechadasManual((f) => new Set(f).add(chave));
+  };
   const alternarGrupo = (chave: string) =>
     setFechados((f) => {
       const n = new Set(f);
@@ -359,15 +372,14 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
             <div className="flex min-h-0 flex-1 snap-x snap-mandatory gap-3 md:snap-none">
               {grupos.map((g) => {
                 const colapsada = !abertas.has(g.chave);
-                const recolhivel = (agruparPor === "status" && RECOLHIDA_POR_PADRAO.has(g.chave) && !exibicao.recolhidos) || (!exibicao.vazios && g.tarefas.length === 0);
                 return colapsada ? (
                   <ColunaColapsada
                     key={g.chave}
                     grupo={g}
                     agruparPor={agruparPor}
-                    onExpandir={() => alternarColuna(g.chave)}
+                    onExpandir={() => abrirColuna(g.chave)}
                     onNovo={() => {
-                      alternarColuna(g.chave);
+                      abrirColuna(g.chave);
                       setCriarEm({ coluna: g.chave, pre: preDe(g) });
                     }}
                   />
@@ -385,7 +397,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
                     selecionada={selecionada}
                     onAbrir={setAbertaId}
                     onSelecionar={setSelecionada}
-                    onRecolher={recolhivel && !arrastando && abertasManual.has(g.chave) ? () => alternarColuna(g.chave) : undefined}
+                    onRecolher={arrastando ? undefined : () => recolherColuna(g.chave)}
                     onNovo={() => setCriarEm({ coluna: g.chave, pre: preDe(g) })}
                     criando={criarEm?.coluna === g.chave ? <NovaTarefa projetoId={projetoId} pre={criarEm.pre} onFim={aoCriar} onErro={setErro} /> : null}
                   />
