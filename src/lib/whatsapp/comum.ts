@@ -44,6 +44,8 @@ export type Desfecho =
       /** Campos/vínculos que mudaram, na ordem em que foram gravados. */
       alterados: string[];
       sugestoes: Sugestao[];
+      /** GAB-93: a mensagem ganhou o card e ele foi para o Handoff. */
+      foiParaHandoff?: true;
     } & ResumoAtualizado)
   | { tipo: "PENDENTE"; motivo: MotivoPendente };
 

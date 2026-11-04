@@ -23,6 +23,7 @@ import {
 } from "./regras";
 import { ordemDeMarcosValida } from "./marcos";
 import { alemDoContrato, contarCardsSemPropostaAceita, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
+import { alemDaExecucao, contarCardsComHandoffPendente, faseExecucao } from "@/lib/projetos/trava-handoff";
 import type { PipelineComFases } from "./tipos";
 
 export type { ErroFase, AcaoRemocao } from "./regras";
@@ -243,6 +244,17 @@ async function aplicarOrdem(tx: Tx, pipelineId: string, faseIds: string[]) {
       if (eraAntes && ficaDepois && (await contarCardsSemPropostaAceita(tx, f.id)) > 0) throw new ErroDeRegra("FASE_CRUZA_CONTRATO");
     }
   }
+  // GAB-93: idem para a subfase que passa para depois de Execução (handoff incompleto).
+  const ex = ativas.find((f) => f.marco === "EXECUCAO");
+  if (ex) {
+    const antes = ativas.map((f) => f.id);
+    for (const f of ativas) {
+      if (f.marco || f.tipoTerminal === "PERDIDO") continue;
+      const eraAntes = antes.indexOf(f.id) < antes.indexOf(ex.id);
+      const ficaDepois = faseIds.indexOf(f.id) > faseIds.indexOf(ex.id);
+      if (eraAntes && ficaDepois && (await contarCardsComHandoffPendente(tx, f.id)) > 0) throw new ErroDeRegra("FASE_CRUZA_EXECUCAO");
+    }
+  }
   for (const [ordem, id] of faseIds.entries()) {
     await tx.fase.update({ where: { id }, data: { ordem } });
   }
@@ -332,6 +344,14 @@ export async function removerFase(
           const destinoFase = await tx.fase.findUniqueOrThrow({ where: { id: destino.id } });
           if (alemDoContrato(destinoFase, mc) && !alemDoContrato(fase, mc) && (await contarCardsSemPropostaAceita(tx, faseId)) > 0) {
             throw new ErroDeRegra("DESTINO_EXIGE_PROPOSTA");
+          }
+        }
+        // GAB-93: idem para Execução (handoff incompleto).
+        const ex = await faseExecucao(tx);
+        if (ex) {
+          const destinoFase = await tx.fase.findUniqueOrThrow({ where: { id: destino.id } });
+          if (alemDaExecucao(destinoFase, ex) && !alemDaExecucao(fase, ex) && (await contarCardsComHandoffPendente(tx, faseId)) > 0) {
+            throw new ErroDeRegra("DESTINO_EXIGE_HANDOFF");
           }
         }
         const agora = new Date();

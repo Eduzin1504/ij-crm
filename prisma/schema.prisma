@@ -104,6 +104,7 @@ enum TipoTimeline {
   PRAZO        // prazo do card criado/concluído (GAB-51); payload.evento = "criado" | "concluido"
   ANEXO        // GAB-84: payload.evento = "adicionado" | "excluido" | "restaurado" | "apagado"; payload.anexoId, payload.nome
   PROPOSTA     // GAB-86: proposta do Projeto; payload.evento = "criada" | "versao_salva" (+ numero, nota). A caneta (GAB-87) acrescenta eventos.
+  HANDOFF      // GAB-93: payload.evento = "gp_designado" | "item_marcado" | "item_desmarcado" | "resumo_salvo" | "contrato_definido"
 }
 
 // GAB-84: tipo do anexo, detectado pelos BYTES no servidor (src/lib/anexos/tipos.ts).
@@ -201,6 +202,8 @@ model Usuario {
   anexos            Anexo[]          @relation("anexoAutor")
   anexosExcluidos   Anexo[]          @relation("anexoExcluidoPor")
   avisos            Aviso[]
+  handoffsComoGp    ProjetoHandoff[] @relation("handoffGp")
+  handoffsResumo    ProjetoHandoff[] @relation("handoffResumoPor")
   comentariosProposta   PropostaComentario[] @relation("comentarioAutor")
   comentariosResolvidos PropostaComentario[] @relation("comentarioResolvidoPor")
 
@@ -435,6 +438,9 @@ model Projeto {
   /// GAB-89: card que já existia no deploy da trava (marcado pela migration 20261101200000)
   /// ou veio do import do Pipefy: livre da trava de Montando contrato (proposta aceita).
   isentoTravaContrato   Boolean    @default(false) @map("isento_trava_contrato")
+  /// GAB-93: card que já estava no quadro Projetos no deploy (migration 20261104150000) ou veio do
+  /// import do Pipefy: livre da trava de Execução (checklist + resumo de handoff).
+  isentoTravaHandoff    Boolean    @default(false) @map("isento_trava_handoff")
   faseDesde             DateTime   @default(now()) @map("fase_desde")
   criadoVia             CriadoVia  @map("criado_via")
   // v1 (GAB-32): card de projetos gerado pelo ganho desta venda. GAB-81: o ganho não cria mais
@@ -476,6 +482,7 @@ model Projeto {
   avisos                Aviso[]
   anexos                Anexo[]
   proposta              Proposta?
+  handoff               ProjetoHandoff?
 
   @@index([pipelineId, faseId])
   @@index([responsavelId])
@@ -790,6 +797,9 @@ model Anexo {
   /// Texto extraído (PDF digital, .docx, .md, .txt). Null quando `semTexto`.
   texto         String?
   semTexto      Boolean   @map("sem_texto")
+  /// GAB-93: este PDF É o contrato assinado do Projeto (marcado pelo fluxo de contrato assinado ou
+  /// pelo checklist de handoff; nunca deduzido do nome). No máximo um por Projeto, pelo serviço.
+  contratoAssinado Boolean @default(false) @map("contrato_assinado")
   autorId       String    @map("autor_id")
   criadoEm      DateTime  @default(now()) @map("criado_em")
   deletadoEm    DateTime? @map("deletado_em")
@@ -858,6 +868,33 @@ model Proposta {
   @@index([status])
   @@index([canetaComId])
   @@map("proposta")
+}
+
+/// Handoff do Projeto (GAB-93, spec fase 2 §4.8): GP designado, itens manuais do checklist e o resumo de
+/// vendas. 1:1, criado na primeira edição; sem linha = nada preenchido. Proposta congelada e PDF do
+/// contrato não moram aqui: são lidos da proposta e do anexo (`projetos/trava-handoff.ts`).
+model ProjetoHandoff {
+  projetoId        String    @id @map("oportunidade_id")
+  gpProjetoId      String?   @map("gp_projeto_id")
+  /// Item manual do checklist: quando foi marcado (null = pendente). Quem marcou fica na Timeline.
+  contatosEm       DateTime? @map("contatos_em")
+  kickoffEm        DateTime? @map("kickoff_em")
+  acessosEm        DateTime? @map("acessos_em")
+  resumoContexto   String    @default("") @map("resumo_contexto")
+  resumoCombinados String    @default("") @map("resumo_combinados")
+  resumoRiscos     String    @default("") @map("resumo_riscos")
+  resumoValoriza   String    @default("") @map("resumo_valoriza")
+  resumoPorId      String?   @map("resumo_por_id")
+  resumoEm         DateTime? @map("resumo_em")
+  atualizadoEm     DateTime  @updatedAt @map("atualizado_em")
+
+  projeto   Projeto  @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  gpProjeto Usuario? @relation("handoffGp", fields: [gpProjetoId], references: [id], onDelete: SetNull)
+  resumoPor Usuario? @relation("handoffResumoPor", fields: [resumoPorId], references: [id], onDelete: SetNull)
+
+  @@index([gpProjetoId])
+  @@index([resumoPorId])
+  @@map("projeto_handoff")
 }
 
 /// Versão da proposta: "Salvar versão" (v1, v2…). IMUTÁVEL — append-only como a

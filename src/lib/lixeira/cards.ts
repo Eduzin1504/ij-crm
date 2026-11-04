@@ -13,7 +13,8 @@
  *   terminal: o tipo não muda, os dados de fechamento continuam válidos.
  *   GAB-89: o destino (escolhido ou a própria fase) respeita a trava de
  *   Montando contrato (`trava-contrato.ts`): sem proposta aceita (ou isenção),
- *   não volta lá nem depois.
+ *   não volta lá nem depois. GAB-93: idem para a trava de Execução
+ *   (`trava-handoff.ts`), para o destino escolhido ou a própria fase.
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -32,6 +33,7 @@ import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
 import { destinoCompativel } from "@/lib/fases/regras";
 import { travaDoContrato } from "@/lib/projetos/trava-contrato";
+import { travaDoHandoff } from "@/lib/projetos/trava-handoff";
 import { removerArquivosDeAnexos } from "./anexos";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar, type FalhaLixeira } from "./regras";
 
@@ -100,6 +102,8 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
       // GAB-99: nem em fase de ganho (ex.: subfase que a Gestão virou ganho com o card na lixeira).
       const trava = await travaDoContrato(tx, { projetoId: id, origem: null, destino });
       if (trava) throw new Falha({ erro: trava.erro });
+      const travaHandoff = await travaDoHandoff(tx, { projetoId: id, origem: null, destino });
+      if (travaHandoff) throw new Falha({ erro: travaHandoff.erro });
 
       const agora = new Date();
       const depois = new Date(agora.getTime() + 1); // MOVIMENTACAO depois da RESTAURACAO na Timeline

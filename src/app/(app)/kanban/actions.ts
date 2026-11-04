@@ -5,7 +5,7 @@ import { z } from "zod";
 import { exigirEscrita, exigirUsuario } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import { descricaoSchema, ehCampoEditavel, interpretarCampo } from "@/lib/projetos/campos";
-import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
+import { MENSAGEM_ERRO_PROJETO, textoDoErroProjeto } from "@/lib/projetos/erros";
 import { adicionarNota, criarCard, editarCard, moverCard } from "@/lib/projetos/projetos";
 import type { DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { salvarVisualizacaoKanban } from "@/lib/preferencias/servico";
@@ -55,7 +55,7 @@ export async function moverCardAction(cardId: string, paraFaseId: string, dados?
     const d = dadosTerminal.optional().safeParse(dados);
     if (!d.success) return { erro: "Dados inválidos." };
     const r = await moverCard(cardId, paraFaseId, ator, { dadosTerminal: d.data });
-    if (!r.ok) return { erro: MENSAGEM[r.erro] };
+    if (!r.ok) return { erro: textoDoErroProjeto(r) };
     revalidar(cardId);
     return { ok: true };
   });

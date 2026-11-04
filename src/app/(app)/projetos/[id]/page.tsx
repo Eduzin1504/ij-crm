@@ -5,6 +5,9 @@ import { DiasNaFase } from "@/components/kanban/aging";
 import { Avatar } from "@/components/kanban/avatar";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { listarAnexos } from "@/lib/anexos/anexos";
+import { pessoaDaCaneta } from "@/lib/propostas/propostas";
+import { listarCandidatosGp, obterHandoff } from "@/lib/projetos/handoff";
+import { podeDesignarGp, podeEscreverResumo } from "@/lib/projetos/handoff-regras";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { listarPipelines } from "@/lib/fases/fases";
 import { diaEmFuso, diasNaFase, estadoProximaAcao, nivelAging } from "@/lib/projetos/aging";
@@ -12,6 +15,7 @@ import { ROTULO_ORIGEM, UFS } from "@/lib/projetos/campos";
 import { formatarDataHora, formatarDinheiro, formatarDia } from "@/lib/projetos/formatar";
 import { idDoCardQueAbsorveu, listarResponsaveis, nomesDeUsuarios, obterCard } from "@/lib/projetos/projetos";
 import { AnexosDoProjeto } from "./anexos";
+import { HandoffDoProjeto } from "./handoff";
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
 import { MoverFase } from "./mover-fase";
@@ -54,13 +58,19 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   }
   const agora = new Date();
   const hoje = diaEmFuso(agora);
-  const [pipelines, responsaveis, nomes, prazos, anexos] = await Promise.all([
+  const [pipelines, responsaveis, nomes, prazos, anexos, handoff, pessoa] = await Promise.all([
     listarPipelines({ incluirArquivadas: true }),
     listarResponsaveis(),
     nomesDeUsuarios(idsUsuarios),
     listarPrazosDoCard(card.id, ator, hoje),
     listarAnexos(card.id),
+    obterHandoff(card.id),
+    pessoaDaCaneta(ator.id),
   ]);
+  // GAB-93: fora da coluna Handoff o bloco é só registro, e some em card isento sem nada preenchido.
+  const verHandoff = handoff && (handoff.emHandoff || !handoff.isento || handoff.gp || handoff.resumoEm);
+  const designa = !!pessoa && pessoa.ativo && podeDesignarGp(pessoa);
+  const candidatosGp = handoff?.emHandoff && designa ? await listarCandidatosGp() : [];
   const todasFases = pipelines.flatMap((p) => p.fases);
   const nomesFases = new Map(todasFases.map((f) => [f.id, f.nome]));
   const fasesDoQuadro = (pipelines.find((p) => p.id === card.pipelineId)?.fases ?? []).filter((f) => f.arquivadaEm === null || f.id === card.faseId);
@@ -130,6 +140,18 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
       </header>
 
       <ResultadoTerminal card={card} />
+
+      {verHandoff ? (
+        <HandoffDoProjeto
+          cardId={card.id}
+          handoff={handoff}
+          somenteLeitura={leitura}
+          podeDesignar={designa}
+          podeResumo={!!pessoa && pessoa.ativo && podeEscreverResumo(pessoa)}
+          candidatosGp={candidatosGp}
+          pdfs={anexos.filter((a) => a.tipo === "PDF").map((a) => ({ id: a.id, nome: a.nome }))}
+        />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-6">
