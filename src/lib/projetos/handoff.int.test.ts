@@ -438,6 +438,10 @@ describe("checklist e resumo", () => {
     await moverCard(id, s.f("conclusao"), s.paula);
     expect(await designarGpDoProjeto(id, s.pedro.id, s.paula)).toEqual({ ok: true, mudou: true });
     expect((await db.aviso.findMany({ where: { tipo: "HANDOFF", projetoId: id } })).map((a) => a.usuarioId)).toEqual([s.pedro.id]);
+    // Pedro saiu na troca feita por Paula: avisado, só no app. Paula saiu trocando ela mesma: sem aviso.
+    const trocados = await db.aviso.findMany({ where: { tipo: "GP_TROCADO", projetoId: id } });
+    expect(trocados.map((a) => [a.usuarioId, a.whatsapp])).toEqual([[s.pedro.id, null]]);
+    expect(trocados[0].titulo).toContain("Paula");
     await moverCard(id, s.f("finalizado"), s.paula);
     expect(await designarGpDoProjeto(id, s.paula.id, s.paula)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
     const venda = await s.novo("Venda");

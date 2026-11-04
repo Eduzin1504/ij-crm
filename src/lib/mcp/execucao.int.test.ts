@@ -128,6 +128,19 @@ describe("ferramentas de execução (GAB-95)", () => {
     expect(vista).not.toContain("versao");
   });
 
+  it("o GP designado conta como escalado: vê valor e versão e copia; ao ser trocado, perde", async () => {
+    const ex = await db.fase.findUniqueOrThrow({ where: { marco: "EXECUCAO" } });
+    await db.projeto.update({ where: { id: s.id }, data: { faseId: ex.id } });
+    await db.projetoHandoff.create({ data: { projetoId: s.id, gpProjetoId: s.paula.id } });
+    expect(dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.paula)).copiaveis).toBe(1);
+    expect(dados(await executarFerramenta("copiar_cronograma_proposta", { id: s.id }, s.paula))).toEqual({ entregas: 1 });
+    expect(dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.paula)).entregas[0].proposta_versao).toBe(1);
+    expect((await executarFerramenta("ler_proposta", { projeto_id: s.id }, s.paula)).isError).toBeUndefined();
+    await db.projetoHandoff.update({ where: { projetoId: s.id }, data: { gpProjetoId: s.pedro.id } });
+    expect(dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.paula)).entregas[0].proposta_versao).toBeNull();
+    expect((await executarFerramenta("ler_proposta", { projeto_id: s.id }, s.paula)).isError).toBe(true);
+  });
+
   it("cancelar_entrega: fora do cronograma ativo, na Timeline via MCP; não volta", async () => {
     await executarFerramenta("mover_para_execucao", { id: s.id }, s.pedro);
     const v = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.pedro));

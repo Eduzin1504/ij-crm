@@ -211,7 +211,8 @@ describe("cópia da proposta final", () => {
     };
     await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: "", estruturado, autorId: s.ana.id } });
     expect((await obterCronograma(id))?.copiaveis).toBe(3);
-    await moverCard(id, s.f("conclusao"), s.gp);
+    await moverCard(id, s.f("handoff"), s.gp);
+    await moverCard(id, s.f("em_execucao"), s.gp);
     expect((await s.entregas(id)).map((e) => [e.titulo, e.valor?.toFixed(2) ?? null])).toEqual([
       ["Valor ruim", null],
       ["Valor grande", null],
@@ -237,6 +238,29 @@ describe("cópia da proposta final", () => {
     expect((await obterCronograma(id))?.copiaveis).toBe(0);
     const sem = await s.card({ fase: "em_execucao" });
     expect(await copiarCronogramaDaProposta(sem, s.gp)).toEqual({ ok: false, erro: "PROPOSTA_SEM_CRONOGRAMA" });
+  });
+
+  it("andar entre subfases não copia; o botão continua valendo; sair e voltar é nova entrada", async () => {
+    const id = await s.card({ proposta: true, fase: "em_execucao" });
+    expect(await moverCard(id, s.f("conclusao"), s.gp)).toMatchObject({ ok: true });
+    expect(await s.entregas(id)).toHaveLength(0);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).execucaoDesde).toBeNull();
+    expect((await obterCronograma(id))?.copiaveis).toBe(2);
+    expect(await copiarCronogramaDaProposta(id, s.gp)).toEqual({ ok: true, entregas: 2 });
+
+    const outro = await s.card({ proposta: true, fase: "em_execucao" });
+    await moverCard(outro, s.f("handoff"), s.gp);
+    expect(await s.entregas(outro)).toHaveLength(0);
+    await moverCard(outro, s.f("em_execucao"), s.gp);
+    expect(await s.entregas(outro)).toHaveLength(2);
+  });
+
+  it("lixeira: quem já estava em Execução, sem cronograma, volta sem copiar; o botão resolve", async () => {
+    const id = await s.card({ proposta: true, fase: "em_execucao" });
+    await excluirCard(id, s.gp);
+    expect(await restaurarCard(id, s.gil)).toMatchObject({ ok: true });
+    expect(await s.entregas(id)).toHaveLength(0);
+    expect((await obterCronograma(id))?.copiaveis).toBe(2);
   });
 });
 
@@ -534,14 +558,19 @@ describe("lembrete de check-in", () => {
     const comCheckin = await s.card({ fase: "em_execucao" });
     await registrarCheckin(comCheckin, { status: "VERDE", motivo: "ok" }, s.gp, ANTES);
     const nunca = await s.card({ fase: "em_execucao" });
+    const soCancelada = await s.card({ fase: "em_execucao" });
+    const c = await adicionarEntrega(soCancelada, { titulo: "Engano", dia: "2026-12-01" }, s.gp);
+    if (!c.ok) throw new Error(c.erro);
+    await cancelarEntrega(soCancelada, c.entregaId, { motivo: "Engano" }, s.gp);
     const comData = await s.card({ fase: "em_execucao", execucaoDesde: ANTES });
-    for (const id of [comEntrega, comCheckin, nunca, comData]) {
+    for (const id of [comEntrega, comCheckin, nunca, soCancelada, comData]) {
       await excluirCard(id, s.gp);
       expect(await restaurarCard(id, s.gil)).toMatchObject({ ok: true });
     }
     const desde = async (id: string) => (await db.projeto.findUniqueOrThrow({ where: { id } })).execucaoDesde;
     for (const id of [comEntrega, comCheckin, comData]) expect((await desde(id))?.getTime()).toBeGreaterThan(ANTES.getTime());
     expect(await desde(nunca)).toBeNull();
+    expect(await desde(soCancelada)).toBeNull();
     // Restaurados agora: a semana cobrada logo depois é a da restauração ou anterior, que não conta.
     const proximaSegunda = new Date(Date.now() + 7 * 24 * 3600_000);
     expect(await lembrarCheckinsAtrasados(proximaSegunda)).toEqual({ lembretes: 0, refs: [] });

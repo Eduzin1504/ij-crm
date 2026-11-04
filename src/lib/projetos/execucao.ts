@@ -142,6 +142,8 @@ export type VisaoCronograma = {
   emExecucao: boolean;
   /** Id e nome de quem responde pela execução. */
   gp: { id: string; nome: string };
+  /** Responsável do card agora: pode ter mudado depois da designação. */
+  responsavelId: string;
   /** GP designado no handoff? false = é o responsável, sem GP válido. */
   gpDesignado: boolean;
   isento: boolean;
@@ -188,6 +190,7 @@ export async function obterCronograma(projetoId: string, agora = new Date()): Pr
   return {
     emExecucao,
     gp: designado && designado.id === gpId ? { id: designado.id, nome: designado.nome } : card.responsavel,
+    responsavelId: card.responsavelId,
     gpDesignado: designado?.id === gpId,
     isento: card.isentoTravaHandoff,
     canceladas: card.entregas.flatMap((e) =>

@@ -22,6 +22,7 @@ const { ExecucaoDoProjeto } = await import("./execucao");
 const BASE: VisaoCronograma = {
   emExecucao: true,
   gp: { id: "u1", nome: "Pedro" },
+  responsavelId: "u1",
   gpDesignado: true,
   isento: false,
   entregas: [
@@ -73,6 +74,18 @@ describe("ExecucaoDoProjeto (GAB-95)", () => {
     fireEvent.change(screen.getByLabelText("Trocar o GP do projeto"), { target: { value: "u2" } });
     fireEvent.click(trocar);
     await waitFor(() => expect(designarGpAction).toHaveBeenCalledWith("c1", "u2"));
+  });
+
+  it("mesma pessoa: libera para formalizar quem não foi designado ou devolver a responsabilidade", () => {
+    const cand = [{ id: "u1", nome: "Pedro" }];
+    const botao = () => screen.getByRole("button", { name: "Trocar GP" }) as HTMLButtonElement;
+    const { rerender } = montar({ podeDesignar: true, candidatosGp: cand });
+    expect(botao().disabled).toBe(true);
+    const ver = (cronograma: VisaoCronograma) => rerender(<ExecucaoDoProjeto cardId="c1" cronograma={cronograma} hoje="2026-11-04" podeOperar podeDesignar candidatosGp={cand} />);
+    ver({ ...BASE, gpDesignado: false });
+    expect(botao().disabled).toBe(false);
+    ver({ ...BASE, responsavelId: "u9" });
+    expect(botao().disabled).toBe(false);
   });
 
   it("cancelar exige motivo; cancelada fica à parte e fora da conta", async () => {

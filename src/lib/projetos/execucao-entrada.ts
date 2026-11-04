@@ -72,11 +72,13 @@ export async function copiarDaPropostaFinal(tx: Tx, a: { projetoId: string; porI
 }
 
 /**
- * O card acaba de ficar em Execução ou além. `novaEntrada`: veio de fora dessa região
- * (e não só andou entre subfases), então o lembrete de check-in conta a partir de agora.
+ * O card acaba de ficar em Execução ou além. `novaEntrada`: veio de fora dessa região, então
+ * copia o cronograma e o lembrete de check-in conta a partir de agora. Andar entre subfases não faz
+ * nada: card já em Execução no deploy só copia pelo botão "Copiar da proposta final".
  */
 export async function aoEntrarEmExecucao(tx: Tx, a: { projetoId: string; porId: string | null; em: Date; novaEntrada: boolean }): Promise<void> {
-  if (a.novaEntrada) await tx.projeto.update({ where: { id: a.projetoId }, data: { execucaoDesde: a.em } });
+  if (!a.novaEntrada) return;
+  await tx.projeto.update({ where: { id: a.projetoId }, data: { execucaoDesde: a.em } });
   await copiarDaPropostaFinal(tx, a);
 }
 

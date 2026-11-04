@@ -11,10 +11,10 @@ export function vaiPorWhatsapp(tipo: TipoAviso): boolean {
   return TIPOS_WHATSAPP.has(tipo);
 }
 
-/** Para onde o aviso leva (caminho interno). Proposta → aba da proposta; handoff e check-in → o projeto. */
+/** Para onde o aviso leva (caminho interno). Proposta → aba da proposta; handoff, check-in e troca de GP → o projeto. */
 export function hrefAviso(a: { tipo: TipoAviso; projetoId: string | null }): string | null {
   if (!a.projetoId) return null;
-  return a.tipo === "HANDOFF" || a.tipo === "CHECKIN_ATRASADO" ? `/projetos/${a.projetoId}` : `/projetos/${a.projetoId}/proposta`;
+  return a.tipo === "HANDOFF" || a.tipo === "CHECKIN_ATRASADO" || a.tipo === "GP_TROCADO" ? `/projetos/${a.projetoId}` : `/projetos/${a.projetoId}/proposta`;
 }
 
 /** `+5511999998888` (formato de `usuario.telefone_whatsapp`) → JID da conversa privada. */

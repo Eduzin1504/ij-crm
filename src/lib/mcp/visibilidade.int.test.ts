@@ -213,6 +213,19 @@ describe("MCP: casos que a matriz não cobre", () => {
     for (const f of comId.filter((x) => !CONJUNTAS.includes(x.nome))) expect((await roda(f.nome, base, m.p.vendedor)).texto, f.nome).toMatch(FORA);
   });
 
+  it("GP designado do projeto está escalado na proposta, na leitura e na lista; quem não é segue de fora", async () => {
+    await comProposta();
+    const { filtroPropostasVisiveis } = await import("@/lib/propostas/acesso");
+    const lista = (eu: Persona) => m.db.proposta.count({ where: { projetoId: m.cardV.id, ...filtroPropostasVisiveis(eu) } });
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.membroProjetos)).texto).toMatch(SEM_ACESSO);
+    expect(await lista(m.p.membroProjetos)).toBe(0);
+    await m.db.projetoHandoff.create({ data: { projetoId: m.cardV.id, gpProjetoId: m.p.membroProjetos.id } });
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.membroProjetos)).erro).toBe(false);
+    expect(await lista(m.p.membroProjetos)).toBe(1);
+    expect((await roda("ler_proposta", { projeto_id: m.cardV.id }, m.p.vendedor)).texto).toMatch(SEM_ACESSO);
+    expect(await lista(m.p.visualizador)).toBe(0);
+  });
+
   it("comentário por id: responder, resolver e reabrir recusam quem não vê; quem vê, comenta", async () => {
     await comProposta();
     const { comentario } = (await (await import("@/lib/propostas/comentarios")).comentar(m.cardV.id, { texto: "oi" }, m.p.donoV)) as { comentario: { id: string } };

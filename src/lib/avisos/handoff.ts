@@ -4,6 +4,7 @@
  *
  * - Ganho (o card chegou ao Handoff): os GPs de projetos, que designam o GP.
  * - GP designado: a pessoa designada.
+ * - GP trocado: quem deixou de ser o GP, só no app (tipo GP_TROCADO).
  * Quem agiu não avisa a si mesmo, como no resto dos avisos.
  */
 import { ehGpDoLado } from "@/lib/auth/areas";
@@ -27,6 +28,18 @@ export async function avisarHandoff(projetoId: string, porId: string): Promise<v
     await emitirAvisos(gps.filter((p) => p.id !== porId).map((p) => ({ usuarioId: p.id, tipo: "HANDOFF" as const, titulo, projetoId })));
   } catch (e) {
     registrarErro("avisos.handoff", e);
+  }
+}
+
+/** O GP anterior fica sabendo, salvo se foi ele quem trocou. `emitirAvisos` ignora quem está inativo. */
+export async function avisarGpTrocado(projetoId: string, anteriorId: string, novoGpNome: string, porId: string): Promise<void> {
+  if (anteriorId === porId) return;
+  try {
+    const projeto = await db.projeto.findUnique({ where: { id: projetoId }, select: { titulo: true } });
+    if (!projeto) return;
+    await emitirAvisos([{ usuarioId: anteriorId, tipo: "GP_TROCADO", titulo: `Você não é mais o GP do projeto "${projeto.titulo}". Agora é ${novoGpNome}.`, projetoId }]);
+  } catch (e) {
+    registrarErro("avisos.handoff.gpTrocado", e);
   }
 }
 

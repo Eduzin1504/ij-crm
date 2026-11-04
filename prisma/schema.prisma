@@ -1095,6 +1095,7 @@ enum TipoAviso {
   PROPOSTA_ACEITA // cliente aceitou (envio)
   HANDOFF         // handoff do projeto
   CHECKIN_ATRASADO // GAB-95: a semana passou sem check-in (só no app)
+  GP_TROCADO       // GAB-95: você deixou de ser o GP do projeto (só no app)
 }
 
 /// O que aconteceu com o WhatsApp privado de um aviso (null no aviso = tipo só do app).

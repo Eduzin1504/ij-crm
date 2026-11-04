@@ -174,7 +174,7 @@ export function ExecucaoDoProjeto({ cardId, cronograma: c, hoje, podeOperar, pod
               </option>
             ))}
           </select>
-          <Button type="button" variant="outline" size="sm" disabled={pendente || gpId === c.gp.id} onClick={() => agir(() => designarGpAction(cardId, gpId), "trocar o GP")}>
+          <Button type="button" variant="outline" size="sm" disabled={pendente || (gpId === c.gp.id && c.gpDesignado && c.responsavelId === c.gp.id)} onClick={() => agir(() => designarGpAction(cardId, gpId), "trocar o GP")}>
             Trocar GP
           </Button>
         </div>

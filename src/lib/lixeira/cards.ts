@@ -16,7 +16,7 @@
  *   não volta lá nem depois. GAB-93: quem estava além de Execução ao ser excluído
  *   volta sem conferir o handoff. Quem não estava só vai para Execução ou além
  *   (fase escolhida, ou a própria fase reordenada) com o handoff fechado.
- *   GAB-95: chegar em Execução assim também garante o cronograma (`execucao-entrada.ts`).
+ *   GAB-95: entrar em Execução assim também copia o cronograma (`execucao-entrada.ts`).
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -122,12 +122,12 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
           data: { projetoId: id, tipo: "MOVIMENTACAO", payload: { deFaseId: card.faseId, paraFaseId: destino.id, motivo: "restauracao" }, usuarioId: por.id, em: depois },
         });
       }
-      // GAB-95: voltar em Execução garante o cronograma (idempotente) e não cobra check-in do tempo na lixeira.
-      // Vale para quem tem data e para quem é acompanhado por ter entrega ou check-in. Quem nunca foi
-      // acompanhado (já em Execução no deploy, sem nada) continua sem cobrança.
+      // GAB-95: entrar em Execução pela lixeira copia o cronograma (idempotente), e voltar não cobra check-in do tempo
+      // lá. Vale para quem tem data e para quem é acompanhado por ter entrega ativa ou check-in. Quem nunca foi
+      // acompanhado (já em Execução no deploy, sem nada ou só com cancelada) continua sem cobrança.
       const ex = await faseExecucao(tx);
       if (ex && destinoExigeHandoff(destino, ex)) {
-        await tx.projeto.updateMany({ where: { id, OR: [{ execucaoDesde: { not: null } }, { entregas: { some: {} } }, { checkins: { some: {} } }] }, data: { execucaoDesde: agora } });
+        await tx.projeto.updateMany({ where: { id, OR: [{ execucaoDesde: { not: null } }, { entregas: { some: { canceladaEm: null } } }, { checkins: { some: {} } }] }, data: { execucaoDesde: agora } });
         await aoEntrarEmExecucao(tx, { projetoId: id, porId: por.id, em: new Date(agora.getTime() + 2), novaEntrada: !jaEstavaEmExecucao });
       }
       return destino.id;
