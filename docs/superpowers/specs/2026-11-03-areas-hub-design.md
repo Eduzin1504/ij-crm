@@ -155,7 +155,10 @@ O kanban interno de cada projeto (só o time de projetos vê) tem spec própria:
 - **Área atual:** as URLs não mudam. `/kanban` usa o quadro; `/projetos/[id]` usa o
   quadro do card (`MarcarQuadroAtivo`). Rotas sem área (Contatos, Empresas, Calendário,
   Painel, Perfil, Gestão) mantêm a última área aberta, guardada em cookie; sem cookie,
-  vale a área da pessoa.
+  vale a área da pessoa. **Ao abrir `/`, a entrada (4.3) prevalece sobre a última área:**
+  o redirect indica a área ao destino (`/semana?area=PROJETOS`, para quem é das duas áreas),
+  e o menu e o cookie passam a segui-la. O parâmetro é validado e só escolhe o menu; quem
+  entra em Geral vai ao Painel e mantém a última área.
 - **Minha Semana:** continua sendo uma rota só, pessoal. Aparece no menu da própria área
   (admin: nas duas), sem filtro novo.
 - **"Parte interna" da proposta:** significa só que cada um vê as propostas da sua área

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Area, AreaEntrada, Papel } from "@prisma/client";
-import { resolverAreaEntrada, usaAreaDeEntrada } from "./areas";
+import { mesmaAreaEntrada, resolverAreaEntrada, usaAreaDeEntrada } from "./areas";
 import {
   areaDeEntrada,
   areaPadrao,
@@ -9,7 +9,7 @@ import {
   ehDaArea,
   itensDaArea,
   itensGerais,
-  lerCookieArea,
+  lerArea,
   podeVerItem,
   podeVerItemEmAlgumaArea,
 } from "./visibilidade";
@@ -113,6 +113,15 @@ describe("área de entrada", () => {
     expect(resolverAreaEntrada("ADMIN", "VENDAS", "PROJETOS")).toBe("PROJETOS");
   });
 
+  it("mesmaAreaEntrada: null e GERAL são a mesma", () => {
+    expect(mesmaAreaEntrada(null, "GERAL")).toBe(true);
+    expect(mesmaAreaEntrada("GERAL", null)).toBe(true);
+    expect(mesmaAreaEntrada(null, null)).toBe(true);
+    expect(mesmaAreaEntrada("VENDAS", "VENDAS")).toBe(true);
+    expect(mesmaAreaEntrada(null, "VENDAS")).toBe(false);
+    expect(mesmaAreaEntrada("PROJETOS", "VENDAS")).toBe(false);
+  });
+
   it("membro e gestor com área: a própria, ignorando a coluna", () => {
     expect(areaDeEntrada(pessoa("VENDEDOR", "VENDAS", "PROJETOS"))).toBe("VENDAS");
     expect(areaDeEntrada(MEMBRO_PROJETOS)).toBe("PROJETOS");
@@ -159,7 +168,9 @@ describe("destinoDeEntrada", () => {
     ["admin sem valor ignora a preferência", ADMIN, "kanban", "/painel"],
     ["admin em Geral", pessoa("ADMIN", null, "GERAL"), "semana", "/painel"],
     ["admin em Projetos", pessoa("ADMIN", null, "PROJETOS"), "kanban", "/kanban?quadro=projetos"],
-    ["gestor sem área em Vendas", pessoa("GESTOR", null, "VENDAS"), "semana", "/semana"],
+    ["gestor sem área em Vendas: a Semana recebe a área", pessoa("GESTOR", null, "VENDAS"), "semana", "/semana?area=VENDAS"],
+    ["admin em Projetos com semana: a Semana recebe a área", pessoa("ADMIN", null, "PROJETOS"), "semana", "/semana?area=PROJETOS"],
+    ["admin com lado em Vendas e entrada em Projetos", pessoa("ADMIN", "VENDAS", "PROJETOS"), "semana", "/semana?area=PROJETOS"],
     ["visualizador sem valor", VISUALIZADOR, "semana", "/painel"],
     ["visualizador em Projetos não tem Semana", pessoa("VISUALIZADOR", null, "PROJETOS"), "semana", "/kanban?quadro=projetos"],
   ] as const)("%s", (_nome, p, inicio, esperado) => {
@@ -167,12 +178,14 @@ describe("destinoDeEntrada", () => {
   });
 });
 
-describe("lerCookieArea", () => {
+describe("lerArea", () => {
   it("só aceita área conhecida", () => {
-    expect(lerCookieArea("VENDAS")).toBe("VENDAS");
-    expect(lerCookieArea("PROJETOS")).toBe("PROJETOS");
-    expect(lerCookieArea("GERAL")).toBeNull();
-    expect(lerCookieArea("x")).toBeNull();
-    expect(lerCookieArea(undefined)).toBeNull();
+    expect(lerArea("VENDAS")).toBe("VENDAS");
+    expect(lerArea("PROJETOS")).toBe("PROJETOS");
+    expect(lerArea("GERAL")).toBeNull();
+    expect(lerArea("x")).toBeNull();
+    expect(lerArea(undefined)).toBeNull();
+    expect(lerArea(null)).toBeNull();
+    expect(lerArea("constructor")).toBeNull();
   });
 });

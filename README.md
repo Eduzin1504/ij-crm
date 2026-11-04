@@ -940,7 +940,8 @@ Spec: `docs/superpowers/specs/2026-11-03-areas-hub-design.md`. As URLs não muda
   servidor é do GAB-98.
 - **Área atual:** `/kanban` pelo quadro, `/projetos/[id]` pelo quadro do card, Tabela e Ranking são de
   Vendas, Minha Semana é da área da pessoa. Nas outras rotas vale a última área aberta (cookie
-  `ij_area`, apagado no login e no logout), e sem cookie a de entrada.
+  `ij_area`, apagado no login e no logout), e sem cookie a de entrada. Ao abrir `/`, a entrada vence
+  a última área: quem é das duas áreas vai a `/semana?area=<ÁREA>`, e o menu e o cookie seguem.
 - **Entrada (`/`):** membro e gestor com área entram na própria. ADMIN, gestor sem área e visualizador
   entram na `usuario.area_entrada`, definida em Gestão de usuários (sem valor = Geral = `/painel`).
   Essa coluna não dá lado na caneta; quem dá é `usuario.area`.

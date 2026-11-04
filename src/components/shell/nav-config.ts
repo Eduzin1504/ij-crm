@@ -28,7 +28,11 @@ export type NavItem = {
 /** Quadro que `/kanban` mostra sem `?quadro=` (ver `kanban/page.tsx`). */
 export const QUADRO_PADRAO = "vendas";
 
-const AREA_DO_QUADRO: Record<string, Area> = { vendas: "VENDAS", projetos: "PROJETOS" };
+// Map, não objeto: o quadro vem da URL, e `?quadro=constructor` acharia um membro herdado do protótipo.
+const AREA_DO_QUADRO: ReadonlyMap<string, Area> = new Map([
+  ["vendas", "VENDAS"],
+  ["projetos", "PROJETOS"],
+]);
 
 const KANBAN: Record<Area, NavItem> = {
   VENDAS: { href: kanbanDaArea("VENDAS"), label: "Kanban de vendas", icon: KanbanSquare, quadro: "vendas" },
@@ -65,15 +69,16 @@ export function itensDaGaveta(p: Pick<PessoaComLado, "papel">): NavItem[] {
 /**
  * Área que a rota define, ou null se não define (§4.7). `/kanban` pelo quadro;
  * `/projetos/[id]` pelo quadro do card; Tabela e Ranking só existem em Vendas;
- * Minha Semana é da área da própria pessoa, exceto de quem é das duas.
+ * Minha Semana é da área da própria pessoa; de quem é das duas, vale a `areaIndicada`
+ * pelo redirect de `/` (`?area=`, já validada), senão a rota não define.
  */
-export function areaDaRota(pathname: string, quadro: string | null, p: PessoaComEntrada): Area | null {
-  if (isActive(pathname, "/kanban")) return AREA_DO_QUADRO[quadro ?? QUADRO_PADRAO] ?? null;
-  if (pathname.startsWith("/projetos/")) return quadro ? (AREA_DO_QUADRO[quadro] ?? null) : null;
+export function areaDaRota(pathname: string, quadro: string | null, p: PessoaComEntrada, areaIndicada: Area | null = null): Area | null {
+  if (isActive(pathname, "/kanban")) return AREA_DO_QUADRO.get(quadro ?? QUADRO_PADRAO) ?? null;
+  if (pathname.startsWith("/projetos/")) return quadro ? (AREA_DO_QUADRO.get(quadro) ?? null) : null;
   if (isActive(pathname, "/tabela") || isActive(pathname, "/ranking")) return "VENDAS";
   if (isActive(pathname, "/semana")) {
     const lado = ladoDe(p);
-    return lado !== null && !(ehDaArea(p, "VENDAS") && ehDaArea(p, "PROJETOS")) ? lado : null;
+    return lado !== null && !(ehDaArea(p, "VENDAS") && ehDaArea(p, "PROJETOS")) ? lado : areaIndicada;
   }
   return null;
 }

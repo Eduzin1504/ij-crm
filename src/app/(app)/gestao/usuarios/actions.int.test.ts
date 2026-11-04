@@ -128,4 +128,54 @@ describe("área de entrada (GAB-97)", () => {
     expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor Novo" }))).toEqual({ ok: true });
     expect(await entradaDe(g.id)).toBe("VENDAS");
   });
+
+  describe("auditoria", () => {
+    const logsDeEntrada = (espiao: { mock: { calls: unknown[][] } }, evento: string) => espiao.mock.calls.map((c) => String(c[0])).filter((l) => l.includes(evento));
+
+    it("editar só o nome reenvia GERAL do form sobre null: sem log, sem gravar e sem barrar", async () => {
+      await comAdmin();
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor Novo", ladoNoForm: "1", area: "", areaEntrada: "GERAL" }))).toEqual({ ok: true });
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([]);
+      expect(await entradaDe(g.id)).toBeNull();
+      info.mockRestore();
+    });
+
+    it("gestor sem área salvando o próprio form com GERAL não é barrado", async () => {
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      exigirPapel.mockResolvedValue({ id: g.id, papel: "GESTOR" });
+      expect(await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "GERAL" }))).toEqual({ ok: true });
+    });
+
+    it("mudança real gera log", async () => {
+      await comAdmin();
+      const g = await db.usuario.create({ data: { nome: "Gestor", email: "g@ij.test", papel: "GESTOR" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await editarUsuarioAction(undefined, form({ usuarioId: g.id, nome: "Gestor", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([expect.stringContaining("de=nenhuma para=PROJETOS")]);
+      info.mockRestore();
+    });
+
+    it("quem deixa de usar a coluna fica sem valor, mesmo com GERAL, sem log", async () => {
+      await comAdmin();
+      const v = await db.usuario.create({ data: { nome: "Vis", email: "v@ij.test", papel: "VISUALIZADOR", areaEntrada: "GERAL" } });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await editarUsuarioAction(undefined, form({ usuarioId: v.id, nome: "Vis", papel: "VENDEDOR", ladoNoForm: "1", area: "VENDAS" }));
+      expect(await entradaDe(v.id)).toBeNull();
+      expect(logsDeEntrada(info, "usuario.area_entrada_alterada")).toEqual([]);
+      info.mockRestore();
+    });
+
+    it("usuario.convidado traz entrada=", async () => {
+      await comAdmin();
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      await criarConviteAction(undefined, form({ nome: "Vis", email: "vis@ij.test", papel: "VISUALIZADOR", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      await criarConviteAction(undefined, form({ nome: "Ven", email: "ven@ij.test", papel: "VENDEDOR", ladoNoForm: "1", area: "", areaEntrada: "PROJETOS" }));
+      const logs = logsDeEntrada(info, "usuario.convidado");
+      expect(logs[0]).toContain("entrada=PROJETOS");
+      expect(logs[1]).toContain("entrada=nenhuma");
+      info.mockRestore();
+    });
+  });
 });

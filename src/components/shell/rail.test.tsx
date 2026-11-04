@@ -99,6 +99,41 @@ describe("Área atual", () => {
     expect(document.cookie).toContain("ij_area=VENDAS");
   });
 
+  it("quadro desconhecido não derruba a página: cai na última área", () => {
+    nav.pathname = "/kanban";
+    nav.busca = "quadro=constructor";
+    render(<Arvore ultimaArea="PROJETOS" />);
+    expect(within(desktop()).getByText("Área atual:").parentElement).toHaveTextContent("Projetos");
+  });
+
+  it("entrada vence cookie antigo: admin em /semana?area=PROJETOS vê Projetos e o cookie é atualizado", () => {
+    document.cookie = "ij_area=VENDAS; path=/";
+    nav.busca = "area=PROJETOS";
+    render(<Arvore papel="ADMIN" area={null} areaEntrada="PROJETOS" ultimaArea="VENDAS" />);
+    expect(within(desktop()).getByText("Área atual:").parentElement).toHaveTextContent("Projetos");
+    expect(within(desktop()).queryByRole("link", { name: "Tabela" })).toBeNull();
+    expect(document.cookie).toContain("ij_area=PROJETOS");
+  });
+
+  it("?area= inválido é ignorado: vale o cookie", () => {
+    nav.busca = "area=constructor";
+    render(<Arvore papel="ADMIN" area={null} ultimaArea="VENDAS" />);
+    expect(within(desktop()).getByText("Área atual:").parentElement).toHaveTextContent("Vendas");
+  });
+
+  it("depois da entrada, escolher outra área na gaveta e ir à Semana sem o parâmetro mantém a escolha", async () => {
+    nav.busca = "area=PROJETOS";
+    const { rerender } = render(<Arvore papel="ADMIN" area={null} areaEntrada="PROJETOS" ultimaArea="VENDAS" />);
+    fireEvent.click(botao());
+    const d = await screen.findByRole("dialog");
+    fireEvent.click(within(d).getByRole("link", { name: "Vendas" }));
+    await waitFor(() => expect(gaveta()).toBeNull());
+    nav.busca = "";
+    rerender(<Arvore papel="ADMIN" area={null} areaEntrada="PROJETOS" ultimaArea="VENDAS" />);
+    await waitFor(() => expect(within(desktop()).getByText("Área atual:").parentElement).toHaveTextContent("Vendas"));
+    expect(document.cookie).toContain("ij_area=VENDAS");
+  });
+
   it("detalhe do card usa o quadro do card, grava em cookie e a área fica ao sair para rota sem área", async () => {
     nav.pathname = "/projetos/abc";
     const { rerender } = render(<Arvore extra={<MarcarQuadroAtivo quadro="projetos" />} />);

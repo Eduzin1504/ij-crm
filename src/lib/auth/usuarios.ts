@@ -1,7 +1,7 @@
 import type { Area, AreaEntrada, Cargo, Papel, Usuario } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizarEmail, normalizarTelefoneBr } from "@/lib/normalizacao";
-import { regraDeArea, resolverAreaCargos, resolverAreaEntrada } from "./areas";
+import { mesmaAreaEntrada, regraDeArea, resolverAreaCargos, resolverAreaEntrada } from "./areas";
 import { conviteEstaValido, gerarConvite, hashToken } from "./convite";
 import { liberarCanetasDe } from "@/lib/propostas/caneta-banco";
 import { podeAtribuirPapel } from "./papeis";
@@ -66,6 +66,8 @@ export async function criarConvite(
   // GAB-82: lado coerente com o papel (vendedor → vendas etc.; ver ./areas).
   const lado = resolverAreaCargos(dados.papel, dados.area ?? null, dados.cargos ?? []);
 
+  const areaEntrada = resolverAreaEntrada(dados.papel, lado.area, dados.areaEntrada ?? null);
+
   const convite = gerarConvite();
   try {
     const u = await db.usuario.create({
@@ -75,7 +77,7 @@ export async function criarConvite(
         papel: dados.papel,
         area: lado.area,
         cargos: lado.cargos,
-        areaEntrada: resolverAreaEntrada(dados.papel, lado.area, dados.areaEntrada ?? null),
+        areaEntrada,
         telefoneWhatsapp: tel.telefone,
         senhaHash: null,
         conviteTokenHash: convite.hash,
@@ -83,7 +85,7 @@ export async function criarConvite(
       },
       select: { id: true },
     });
-    console.info(`[auditoria] usuario.convidado usuario=${u.id} por=${por.id} papel=${dados.papel} lado=${formatarLado(lado)}`);
+    console.info(`[auditoria] usuario.convidado usuario=${u.id} por=${por.id} papel=${dados.papel} lado=${formatarLado(lado)} entrada=${areaEntrada ?? "nenhuma"}`);
     return { ok: true, usuarioId: u.id, token: convite.token, expiraEm: convite.expiraEm };
   } catch (e) {
     if (ehViolacaoDeUnique(e, "email")) return { ok: false, erro: "EMAIL_EM_USO" };
@@ -172,7 +174,10 @@ export async function atualizarUsuario(
   // GAB-97: a área de entrada é da gestão, e quem entra pela própria área não guarda valor.
   const mexeEntrada = mexeLado || dados.areaEntrada !== undefined;
   const entrada = mexeEntrada ? resolverAreaEntrada(papelFinal, lado.area, dados.areaEntrada !== undefined ? dados.areaEntrada : alvo.areaEntrada) : alvo.areaEntrada;
-  const entradaMudou = entrada !== alvo.areaEntrada;
+  // O form mostra Geral quando não há valor: editar só o nome reenvia GERAL e não é mudança.
+  const entradaMudou = !mesmaAreaEntrada(entrada, alvo.areaEntrada);
+  // Quem deixou de usar a coluna fica sem valor, mesmo que ela guardasse GERAL.
+  const gravaEntrada = entradaMudou || (entrada === null && alvo.areaEntrada !== null);
 
   // Exceção (review do PR #47): ADMIN define o próprio lado/cargo — senão o
   // único admin que atua em vendas fica travado (gestor não edita admin).
@@ -209,7 +214,7 @@ export async function atualizarUsuario(
           ...(dados.papel !== undefined ? { papel: dados.papel } : {}),
           ...(dados.ativo !== undefined ? { ativo: dados.ativo } : {}),
           ...(ladoMudou ? { area: lado.area, cargos: [...lado.cargos] } : {}),
-          ...(entradaMudou ? { areaEntrada: entrada } : {}),
+          ...(gravaEntrada ? { areaEntrada: entrada } : {}),
         },
       });
       if (r.count === 0) throw new ErroConcorrencia();

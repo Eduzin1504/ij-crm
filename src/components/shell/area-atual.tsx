@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { Area } from "@prisma/client";
-import { areaPadrao, COOKIE_AREA, type PessoaComEntrada } from "@/lib/auth/visibilidade";
+import { areaPadrao, COOKIE_AREA, lerArea, PARAMETRO_AREA, type PessoaComEntrada } from "@/lib/auth/visibilidade";
 import type { PaginaInicial } from "@/lib/preferencias/preferencias";
 import { areaDaRota } from "./nav-config";
 import { useQuadroAtivo } from "./quadro-ativo";
@@ -35,8 +35,9 @@ const Ctx = createContext<Navegacao | null>(null);
 
 /**
  * Área atual e estado da gaveta, para rail, topbar e gaveta (§4.2, §4.7). A rota
- * manda quando define área; senão vale a última aberta, que fica em cookie (o
- * layout lê no servidor, e o primeiro HTML já sai com o menu certo).
+ * manda quando define área (inclusive pelo `?area=` que o redirect de `/` manda à
+ * Minha Semana de quem é das duas áreas); senão vale a última aberta, que fica em
+ * cookie (o layout lê no servidor, e o primeiro HTML já sai com o menu certo).
  */
 export function NavegacaoAreaProvider({
   pessoa,
@@ -50,11 +51,12 @@ export function NavegacaoAreaProvider({
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const parametro = useSearchParams().get("quadro");
+  const busca = useSearchParams();
+  const parametro = busca.get("quadro");
   const declarado = useQuadroAtivo();
   const quadro = declarado ?? parametro;
 
-  const daRota = areaDaRota(pathname, quadro, pessoa);
+  const daRota = areaDaRota(pathname, quadro, pessoa, lerArea(busca.get(PARAMETRO_AREA)));
   const [ultima, setUltima] = useState<Area | null>(daRota ?? ultimaArea);
   // Só quando a rota MUDA: comparar com `ultima` desfaria a escolha na gaveta enquanto a navegação não termina.
   const [rotaAnterior, setRotaAnterior] = useState(daRota);

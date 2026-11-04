@@ -81,15 +81,25 @@ export function destinoDaArea(p: PessoaComLado, area: Area, inicio: PaginaInicia
   return inicio === "semana" && podeVerItem(p, area, "semana") ? "/semana" : kanbanDaArea(area);
 }
 
-/** Destino de `/` e do pós-login (sempre de uma lista fixa). */
-export function destinoDeEntrada(p: PessoaComEntrada, inicio: PaginaInicial): DestinoDeArea | "/painel" {
+/** Parâmetro com que `/` diz a área à Minha Semana, rota que não a define para quem é das duas áreas. */
+export const PARAMETRO_AREA = "area";
+
+/**
+ * Destino de `/` e do pós-login (sempre de uma lista fixa). A entrada vence a última
+ * área aberta (§4.7): quem é das duas áreas vai à Minha Semana com a área indicada,
+ * e o menu e o cookie a seguem. Quem é de uma área só já tem a Semana definida por ela.
+ */
+export function destinoDeEntrada(p: PessoaComEntrada, inicio: PaginaInicial): DestinoDeArea | "/painel" | `/semana?${typeof PARAMETRO_AREA}=${Area}` {
   const entrada = areaDeEntrada(p);
-  return entrada === "GERAL" ? "/painel" : destinoDaArea(p, entrada, inicio);
+  if (entrada === "GERAL") return "/painel";
+  const destino = destinoDaArea(p, entrada, inicio);
+  return destino === "/semana" && usaAreaDeEntrada(p.papel, ladoDe(p)) ? `/semana?${PARAMETRO_AREA}=${entrada}` : destino;
 }
 
 /** Última área aberta (§4.7). Gravado pelo cliente; só escolhe o menu, nunca dá acesso. */
 export const COOKIE_AREA = "ij_area";
 
-export function lerCookieArea(valor: string | undefined): Area | null {
+/** Valida a área vinda de fora (cookie ou `?area=`). Também só escolhe o menu. */
+export function lerArea(valor: string | null | undefined): Area | null {
   return AREAS.find((a) => a === valor) ?? null;
 }

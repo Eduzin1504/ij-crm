@@ -63,6 +63,11 @@ export function resolverAreaEntrada(papel: Papel, area: Area | null, pedida: Are
   return usaAreaDeEntrada(papel, area) ? pedida : null;
 }
 
+/** Sem valor vale Geral: `null` e `GERAL` são a mesma entrada, e passar de um ao outro não é mudança. */
+export function mesmaAreaEntrada(a: AreaEntrada | null, b: AreaEntrada | null): boolean {
+  return (a ?? "GERAL") === (b ?? "GERAL");
+}
+
 export type PessoaComLado = { papel: Papel; area: Area | null; cargos: readonly Cargo[] };
 
 /** De que lado é este usuário (null = nenhum). Defensivo: o papel prevalece sobre a coluna. */

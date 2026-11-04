@@ -47,6 +47,11 @@ describe("areaDaRota", () => {
     expect(areaDaRota("/kanban", "nada", VENDEDOR)).toBeNull();
   });
 
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("?quadro=%s não acha membro herdado do protótipo", (quadro) => {
+    expect(areaDaRota("/kanban", quadro, VENDEDOR)).toBeNull();
+    expect(areaDaRota("/projetos/abc", quadro, VENDEDOR)).toBeNull();
+  });
+
   it("/projetos/[id] pelo quadro do card, inclusive nas páginas da proposta; antes de declarar, não define", () => {
     expect(areaDaRota("/projetos/abc", "projetos", VENDEDOR)).toBe("PROJETOS");
     expect(areaDaRota("/projetos/abc/proposta", "vendas", MEMBRO_PROJETOS)).toBe("VENDAS");
@@ -65,6 +70,14 @@ describe("areaDaRota", () => {
     expect(areaDaRota("/semana", null, ADMIN)).toBeNull();
     expect(areaDaRota("/semana", null, pessoa("ADMIN", "VENDAS"))).toBeNull();
     expect(areaDaRota("/semana", null, pessoa("GESTOR"))).toBeNull();
+  });
+
+  it("?area= indicada por `/` vale só na Semana de quem é das duas áreas", () => {
+    expect(areaDaRota("/semana", null, ADMIN, "PROJETOS")).toBe("PROJETOS");
+    expect(areaDaRota("/semana", null, pessoa("GESTOR"), "VENDAS")).toBe("VENDAS");
+    expect(areaDaRota("/semana", null, VENDEDOR, "PROJETOS")).toBe("VENDAS");
+    expect(areaDaRota("/contatos", null, ADMIN, "PROJETOS")).toBeNull();
+    expect(areaDaRota("/kanban", null, ADMIN, "PROJETOS")).toBe("VENDAS");
   });
 
   it.each(["/contatos", "/empresas/x", "/calendario", "/propostas", "/painel", "/perfil", "/gestao/ranking"])("%s não define área", (rota) => {

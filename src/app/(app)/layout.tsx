@@ -5,7 +5,7 @@ import { AvisoSemCredito } from "@/components/shell/aviso-sem-credito";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { temPapelMinimo } from "@/lib/auth/papeis";
 import { estadoSemCredito } from "@/lib/llm/alerta-credito";
-import { COOKIE_AREA, lerCookieArea } from "@/lib/auth/visibilidade";
+import { COOKIE_AREA, lerArea } from "@/lib/auth/visibilidade";
 import { resolverPaginaInicial } from "@/lib/preferencias/inicio";
 import { obterPreferencias } from "@/lib/preferencias/servico";
 
@@ -17,7 +17,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     temPapelMinimo(usuario.papel, "GESTOR") ? estadoSemCredito() : null,
     resolverPaginaInicial(() => obterPreferencias(usuario.id)),
   ]);
-  const ultimaArea = lerCookieArea((await cookies()).get(COOKIE_AREA)?.value);
+  const ultimaArea = lerArea((await cookies()).get(COOKIE_AREA)?.value);
   return (
     <AppShell usuario={usuario} inicio={inicio} ultimaArea={ultimaArea}>
       {semCredito && <AvisoSemCredito desde={semCredito.desde} ultimoErro={semCredito.ultimoErro} />}
