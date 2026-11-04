@@ -3,7 +3,7 @@
  * Painel de projetos (GAB-96) contra o banco: quem conta, cancelada fora das contas, fase terminal como
  * registro, GP que vale, recorte da caneta por papel, e os mesmos números na tela (serviço) e no MCP.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Area, Cargo, Papel, StatusProposta } from "@prisma/client";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { executarFerramenta, FERRAMENTAS } from "@/lib/mcp/ferramentas";
@@ -397,6 +397,27 @@ describe("MCP: os mesmos números da tela, só leitura", () => {
     const r = await executarFerramenta("listar_projetos_atrasados", { gp_id: "ninguem" }, s.p.gil);
     expect(r.isError).toBe(true);
     expect((r.content[0] as { text: string }).text).toMatch(/não encontrada/);
+  });
+
+  it("ref às 22h de São Paulo: cliente em UTC já está no dia seguinte, e o período atual vale até o último dia", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: sp("2026-11-04T22:00:00") });
+    try {
+      for (const ref of ["2026-11-05", "2026-11-28"]) {
+        const r = await executarFerramenta("consultar_execucao_projetos", { ref }, s.p.gil);
+        expect(r.isError, ref).toBeFalsy();
+        expect(dados(r).periodo, ref).toMatchObject({ primeiroDia: "2026-11-01", ultimoDia: "2026-11-30", atual: true });
+      }
+      const semana = await executarFerramenta("listar_projetos_em_alerta", { periodo: "semana", ref: "2026-11-05" }, s.p.gil);
+      expect(dados(semana).periodo.primeiroDia).toBe("2026-11-02");
+      const recusas: Record<string, unknown>[] = [{ ref: "2030-01-01" }, { ref: "9999-12-31" }, { ref: "2026-12-01" }, { periodo: "semana", ref: "2026-11-28" }];
+      for (const args of recusas) {
+        const r = await executarFerramenta("consultar_execucao_projetos", args, s.p.gil);
+        expect(r.isError, JSON.stringify(args)).toBe(true);
+        expect((r.content[0] as { text: string }).text).toMatch(/ref inválido/);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ref inválido é recusado com mensagem clara; \\0 no id é recusado pelo zod", async () => {

@@ -198,22 +198,23 @@ export function SecaoCaneta({ c, visao }: { c: TempoCaneta; visao: VisaoDaCaneta
           ) : (
             <ol className="mt-3 space-y-2">
               {c.maisParadas.map((m) => (
-                <li key={m.projetoId} className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="min-w-0 truncate">
-                    <Link href={`${linkDoProjeto(m.projetoId)}/proposta`} className="hover:underline">
-                      {m.titulo}
-                    </Link>
-                    <span className="text-fg-mute">
-                      {" · "}
-                      {nome(m.usuario)}
-                      {" · "}
-                      {ROTULO_STATUS_PROPOSTA[m.status]}
+                <li key={m.projetoId} className="text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate">
+                      <Link href={`${linkDoProjeto(m.projetoId)}/proposta`} className="hover:underline">
+                        {m.titulo}
+                      </Link>
+                      <span className="text-fg-mute">
+                        {" · "}
+                        {nome(m.usuario)}
+                        {" · "}
+                        {ROTULO_STATUS_PROPOSTA[m.status]}
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <span className="block font-mono text-xs tabular text-fg-soft">{fmtDias(m.dias)}</span>
-                    <span className="block text-xs text-fg-faint">última edição há {m.ultimaEdicaoDias < 1 ? "menos de 1 dia" : fmtDias(m.ultimaEdicaoDias)}</span>
-                  </span>
+                    <span className="shrink-0 font-mono text-xs tabular text-fg-soft">{fmtDias(m.dias)}</span>
+                  </div>
+                  {/* Em linha própria: ao lado, ela deixava pouco mais de 90 px para o título no celular. */}
+                  <p className="text-xs text-fg-faint">última edição há {m.ultimaEdicaoDias < 1 ? "menos de 1 dia" : fmtDias(m.ultimaEdicaoDias)}</p>
                 </li>
               ))}
             </ol>

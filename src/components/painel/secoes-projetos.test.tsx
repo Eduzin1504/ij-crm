@@ -50,7 +50,12 @@ describe("seções do painel de projetos (GAB-96)", () => {
     const { rerender } = render(<SecaoCaneta c={c} visao="escaladas" />);
     expect(screen.getByText("Só as propostas em que você está escalado.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Site" })).toHaveAttribute("href", "/projetos/p/proposta");
-    expect(screen.getByText("última edição há 1 dia")).toBeInTheDocument();
+    const edicao = screen.getByText("última edição há 1 dia");
+    // Abaixo do título, não ao lado: no celular não sobra largura para os dois.
+    const linhaDoTitulo = screen.getByRole("link", { name: "Site" }).closest("div");
+    expect(linhaDoTitulo).toHaveTextContent("2 dias");
+    expect(linhaDoTitulo).not.toContainElement(edicao);
+    expect(edicao.closest("li")).toContainElement(linhaDoTitulo);
     expect(screen.getByText(/não acompanha o filtro/)).toBeInTheDocument();
     rerender(<SecaoCaneta c={c} visao="todas" />);
     expect(screen.queryByText(/escalado/)).toBeNull();

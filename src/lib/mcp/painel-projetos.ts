@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { DEFINICOES_PROJETOS, VISIBILIDADE_PAINEL_PROJETOS, type IndicadorProjetos } from "@/lib/painel/definicoes";
 import { carregarCanetaPara, carregarExecucaoProjetos, pessoaDoFiltro, type FiltroProjetos } from "@/lib/painel/projetos-servico";
-import { refValida, resolverPeriodo } from "@/lib/ranking/periodo";
+import { refAteOPeriodoAtual, resolverPeriodo } from "@/lib/ranking/periodo";
 import type { Ferramenta, Resposta } from "./ferramentas";
 import { canetaDoPainelVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
@@ -34,7 +34,7 @@ function limitar<T>(lista: readonly T[], limite = LIMITE_LISTA_MCP): { itens: T[
 
 /** Período e pessoa do pedido. Pessoa desconhecida vira erro aqui; na tela, some o filtro. */
 async function lerFiltro(a: ArgsFiltro, id: string | undefined, eu: UsuarioMcp, agora: Date): Promise<{ ok: true; filtro: FiltroProjetos } | { ok: false; resposta: Resposta }> {
-  if (a.ref !== undefined && !refValida(a.ref, agora)) return { ok: false, resposta: { ok: false, erro: "ref inválido: use um dia real (AAAA-MM-DD), de 2000 para cá e que não esteja no futuro." } };
+  if (a.ref !== undefined && !refAteOPeriodoAtual(a.periodo ?? "mes", a.ref, agora)) return { ok: false, resposta: { ok: false, erro: "ref inválido: use um dia real (AAAA-MM-DD), de 2000 para cá e até o fim do período atual." } };
   const gpId = id === "eu" ? eu.id : (id ?? null);
   if (gpId && !(await pessoaDoFiltro(gpId))) return { ok: false, resposta: { ok: false, erro: "Pessoa não encontrada. Use listar_responsaveis para ver os ids." } };
   return { ok: true, filtro: { periodo: resolverPeriodo(a.periodo ?? "mes", a.ref, agora), gpId } };
