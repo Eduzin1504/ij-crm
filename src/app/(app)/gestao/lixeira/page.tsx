@@ -6,6 +6,7 @@ import { AcaoConfirmada } from "@/components/lixeira/acao-confirmada";
 import { Restaurar } from "@/components/lixeira/restaurar";
 import { PageHeader } from "@/components/shell/page-header";
 import { exigirPapel } from "@/lib/auth/atual";
+import { podeEditarCard } from "@/lib/auth/visibilidade";
 import { formatarTamanho, ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
 import { listarAnexosNaLixeira, listarCardsNaLixeira, listarContatosNaLixeira, listarEmpresasNaLixeira } from "@/lib/lixeira/lixeira";
 import { podeApagarDeVez } from "@/lib/lixeira/regras";
@@ -72,7 +73,8 @@ export default async function LixeiraPage({ searchParams }: { searchParams: Prom
         key={c.id}
         acoes={
           <>
-            <Restaurar acao={restaurarCardAction.bind(null, c.id)} opcoesFase={c.opcoesFase} />
+            {/* GAB-98: gestor de outra área vê a lixeira, mas não restaura (a action também recusa). */}
+            {podeEditarCard(ator, { responsavelId: c.responsavelId, quadro: c.pipeline.chave }) ? <Restaurar acao={restaurarCardAction.bind(null, c.id)} opcoesFase={c.opcoesFase} /> : null}
             {admin ? (
               <AcaoConfirmada
                 rotulo="Apagar de vez"

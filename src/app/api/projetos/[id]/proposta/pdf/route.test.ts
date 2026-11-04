@@ -22,8 +22,8 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
     expect(pdfDaProposta).not.toHaveBeenCalled();
   });
 
-  it("logado (até VISUALIZADOR) baixa: attachment com o nome, application/pdf, sem cache", async () => {
-    usuarioAtual.mockResolvedValue({ id: "x", papel: "VISUALIZADOR" });
+  it("quem vê a proposta baixa: attachment com o nome, application/pdf, sem cache", async () => {
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "ADMIN", area: null, cargos: [] });
     pdfDaProposta.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70]), numero: 2, nomeArquivo: "Proposta - Padaria São João - v2.pdf" });
     const r = await GET(req("?versao=2"), ctx());
     expect(r.status).toBe(200);
@@ -35,7 +35,7 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
   });
 
   it("regra → texto em português: versão velha 409, proposta inexistente 404, link torto 400", async () => {
-    usuarioAtual.mockResolvedValue({ id: "x", papel: "VENDEDOR" });
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "ADMIN", area: null, cargos: [] });
     pdfDaProposta.mockResolvedValueOnce({ ok: false, erro: "VERSAO_FINAL_MUDOU" });
     const r = await GET(req("?versao=1"), ctx());
     expect(r.status).toBe(409);
@@ -46,7 +46,7 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
   });
 
   it("limite de gerações simultâneas → 503 com mensagem, ref (a mesma do log) e retry-after", async () => {
-    usuarioAtual.mockResolvedValue({ id: "x", papel: "VENDEDOR" });
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "ADMIN", area: null, cargos: [] });
     pdfDaProposta.mockResolvedValue({ ok: false, erro: "PDF_OCUPADO" });
     const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
     const r = await GET(req(), ctx());
@@ -61,7 +61,7 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
   });
 
   it("erro inesperado → 500 com a ref no corpo e no header (a mesma do log)", async () => {
-    usuarioAtual.mockResolvedValue({ id: "x", papel: "VENDEDOR" });
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "ADMIN", area: null, cargos: [] });
     pdfDaProposta.mockRejectedValue(new Error("fonte sumiu"));
     const r = await GET(req(), ctx());
     expect(r.status).toBe(500);
@@ -69,5 +69,13 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
     expect(ref).toMatch(/^[0-9a-f]{8}$/);
     expect(await r.text()).toContain(ref);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`[api.proposta.pdf] ref=${ref}`));
+  });
+
+  it("GAB-98: quem não vê a proposta → 403, sem gerar", async () => {
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "VISUALIZADOR", area: null, cargos: [] });
+    pdfDaProposta.mockClear();
+    const r = await GET(req(""), ctx());
+    expect(r.status).toBe(403);
+    expect(pdfDaProposta).not.toHaveBeenCalled();
   });
 });

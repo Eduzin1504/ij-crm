@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Area, Cargo, Papel } from "@prisma/client";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { inicioDoDia } from "@/lib/projetos/campos";
 import { criarPrazo, marcarPrazoFeito } from "@/lib/prazos/prazos";
 import { carregarItens, carregarItensDaSemana, resolverVisao } from "./calendario";
 import { resolverPeriodo } from "./periodo";
-import { resolverSemana } from "./semana";
+import { instanteDoPrazo, resolverSemana } from "./semana";
 
 const db = dbTeste();
 const sp = (iso: string) => new Date(`${iso}-03:00`);
@@ -163,18 +164,68 @@ describe("limites da semana (meio-aberto) e fuso da sessão", () => {
   });
 });
 
-describe("resolverVisao", () => {
-  it("padrão = Meu; time; pessoa só se ativa (senão volta para Meu); pessoa = eu vira Meu", async () => {
+describe("resolverVisao (GAB-98: ?ver= e ?pessoa= forjados não furam)", () => {
+  const eu = (id: string, papel: Papel, area: Area | null = null) => ({ id, papel, area, cargos: [] as Cargo[] });
+
+  async function pessoas() {
     const s = await semear();
+    const criar = (nome: string, papel: Papel, area: Area | null = null) => db.usuario.create({ data: { nome, email: `${nome.split(" ")[0].toLowerCase()}@ij.test`, papel, area } });
+    await db.usuario.update({ where: { id: s.ana.id }, data: { papel: "VENDEDOR", area: "VENDAS" } });
+    await db.usuario.update({ where: { id: s.bruno.id }, data: { papel: "VENDEDOR", area: "VENDAS" } });
+    return { s, pam: await criar("Pam Projetos", "PROJETOS", "PROJETOS"), gv: await criar("Gil Vendas", "GESTOR", "VENDAS"), gp: await criar("Gui Projetos", "GESTOR", "PROJETOS"), dir: await criar("Dora Diretora", "GESTOR"), adm: await criar("Alice Admin", "ADMIN"), vera: await criar("Vera Visual", "VISUALIZADOR") };
+  }
+
+  it("membro: só a própria agenda; time e pessoa forjados viram Meu, sem seletor", async () => {
+    const { s, pam } = await pessoas();
+    for (const ator of [eu(s.ana.id, "VENDEDOR", "VENDAS"), eu(pam.id, "PROJETOS", "PROJETOS")]) {
+      for (const params of [{}, { ver: "time" }, { pessoa: s.bruno.id }, { pessoa: pam.id, ver: "time" }]) {
+        const v = await resolverVisao(ator, params);
+        expect(v).toMatchObject({ modo: "meu", pessoa: null, opcoes: [], podeTrocar: false, filtro: { responsavelIds: [ator.id], comPrazosDosCards: true } });
+      }
+    }
+  });
+
+  it("gestor com área: time e pessoas do mesmo lado; de outro lado volta para Meu", async () => {
+    const { s, pam, gv, gp, dir } = await pessoas();
+    const ator = eu(gv.id, "GESTOR", "VENDAS");
+    const time = await resolverVisao(ator, { ver: "time" });
+    expect(time.modo).toBe("time");
+    expect(time.opcoes.map((o) => o.nome)).toEqual(["Ana Vendas", "Bruno Lima", "Gil Vendas"]);
+    expect(time.filtro).toMatchObject({ responsavelIds: expect.arrayContaining([s.ana.id, s.bruno.id, gv.id]) });
+    expect(await resolverVisao(ator, { pessoa: s.bruno.id })).toMatchObject({ modo: "pessoa", pessoa: { id: s.bruno.id } });
+    for (const forjada of [pam.id, gp.id, dir.id, s.ivo.id, "lixo"]) expect((await resolverVisao(ator, { pessoa: forjada })).modo).toBe("meu");
+    expect((await resolverVisao(eu(gp.id, "GESTOR", "PROJETOS"), { pessoa: s.ana.id })).modo).toBe("meu");
+    expect((await resolverVisao(eu(gp.id, "GESTOR", "PROJETOS"), { pessoa: pam.id })).modo).toBe("pessoa");
+  });
+
+  it("gestor sem área e admin: todos; inativo volta para Meu", async () => {
+    const { s, pam, dir, adm, vera } = await pessoas();
+    for (const ator of [eu(dir.id, "GESTOR"), eu(adm.id, "ADMIN")]) {
+      expect(await resolverVisao(ator, { ver: "time" })).toMatchObject({ modo: "time", filtro: "time", podeTrocar: true });
+      expect((await resolverVisao(ator, { pessoa: pam.id })).modo).toBe("pessoa");
+      expect((await resolverVisao(ator, { pessoa: s.ana.id })).modo).toBe("pessoa");
+      expect((await resolverVisao(ator, { pessoa: s.ivo.id })).modo).toBe("meu");
+      expect((await resolverVisao(ator, {})).opcoes.map((o) => o.id)).not.toContain(vera.id);
+    }
+  });
+
+  it("VISUALIZADOR que chegue aqui não vê o time nem ninguém", async () => {
+    const { s, vera } = await pessoas();
+    for (const params of [{}, { ver: "time" }, { pessoa: s.ana.id }]) {
+      expect(await resolverVisao(eu(vera.id, "VISUALIZADOR"), params)).toMatchObject({ modo: "meu", opcoes: [], podeTrocar: false, filtro: { responsavelIds: [vera.id] } });
+    }
+  });
+
+  it("atribuído: o Calendário traz o prazo de outra pessoa no MEU card; a Minha Semana (sem a opção) não", async () => {
+    const s = await semear();
+    const c = await s.card("meu card", null);
+    await db.prazo.create({ data: { titulo: "do outro no meu card", data: instanteDoPrazo("2026-10-29"), responsavelId: s.bruno.id, projetoId: c.id, criadoPorId: s.bruno.id } });
     const ator = { id: s.ana.id, papel: "VENDEDOR" as const };
-    expect((await resolverVisao(ator, {})).modo).toBe("meu");
-    expect((await resolverVisao(ator, { ver: "time" })).modo).toBe("time");
-    const p = await resolverVisao(ator, { pessoa: s.bruno.id });
-    expect(p).toMatchObject({ modo: "pessoa", pessoa: { id: s.bruno.id, nome: "Bruno Lima" } });
-    expect(p.opcoes.map((o) => o.nome)).toEqual(["Ana Vendas", "Bruno Lima"]);
-    expect((await resolverVisao(ator, { pessoa: s.ivo.id })).modo).toBe("meu");
-    expect((await resolverVisao(ator, { pessoa: s.ana.id })).modo).toBe("meu");
-    expect((await resolverVisao(ator, { pessoa: "lixo" })).modo).toBe("meu");
+    const intervalo = { primeiroDia: "2026-10-26", ultimoDia: "2026-11-01", hoje: "2026-10-27" };
+    const cal = await carregarItens({ responsavelIds: [s.ana.id], comPrazosDosCards: true }, intervalo, ator);
+    expect(cal.prazos.map((p) => p.titulo)).toContain("do outro no meu card");
+    const semana = await carregarItens({ responsavelIds: [s.ana.id] }, intervalo, ator);
+    expect(semana.prazos.map((p) => p.titulo)).not.toContain("do outro no meu card");
   });
 });
 

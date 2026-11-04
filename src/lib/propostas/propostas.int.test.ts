@@ -261,16 +261,17 @@ describe("aba Propostas", () => {
     await salvarVersao(projeto.id, { revisao: 0, estruturado: { valor: "5.000,00" } }, ana);
     await criarProposta(outro.id, gil);
 
-    const todas = await listarPropostas();
+    const gestao = { id: gil.id, papel: "ADMIN" as const, area: null, cargos: [] };
+    const todas = await listarPropostas({}, gestao);
     expect(todas.map((p) => p.projeto.titulo).sort()).toEqual(["App do Mercado", "Site da Padaria"]);
     const padaria = todas.find((p) => p.projeto.id === projeto.id)!;
     expect(padaria).toMatchObject({ status: "RASCUNHO", valor: "5000.00", ultimaVersao: { numero: 1 }, projeto: { empresa: "Padaria São João", responsavel: { nome: "Ana" } } });
-    expect((await listarPropostas({ texto: "são joão" })).map((p) => p.projeto.titulo)).toEqual(["Site da Padaria"]);
-    expect((await listarPropostas({ responsavelId: gil.id })).map((p) => p.projeto.titulo)).toEqual(["App do Mercado"]);
-    expect(await listarPropostas({ status: "ENVIADA" })).toEqual([]);
+    expect((await listarPropostas({ texto: "são joão" }, gestao)).map((p) => p.projeto.titulo)).toEqual(["Site da Padaria"]);
+    expect((await listarPropostas({ responsavelId: gil.id }, gestao)).map((p) => p.projeto.titulo)).toEqual(["App do Mercado"]);
+    expect(await listarPropostas({ status: "ENVIADA" }, gestao)).toEqual([]);
 
     await db.projeto.update({ where: { id: outro.id }, data: { deletadoEm: new Date() } });
-    expect((await listarPropostas()).map((p) => p.projeto.titulo)).toEqual(["Site da Padaria"]);
+    expect((await listarPropostas({}, gestao)).map((p) => p.projeto.titulo)).toEqual(["Site da Padaria"]);
   });
 });
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { EstadoVazio } from "@/components/estado-vazio";
 import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
@@ -12,6 +12,7 @@ import { acoesPossiveis, ladoDaCaneta, outroLado, podeEditarProposta } from "@/l
 import { acoesDeEnvio, versaoDoPdf } from "@/lib/propostas/envio";
 import { estruturadoParaEntrada } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { listarComentarios } from "@/lib/propostas/comentarios";
 import { PIPELINE_PROJETOS } from "@/lib/projetos/terminal-regras";
 import { listarPessoasDaCaneta, obterPropostaDoProjeto, pessoaDaCaneta, tempoComCaneta } from "@/lib/propostas/propostas";
@@ -41,13 +42,14 @@ function duracao(ms: number): string {
  * (GAB-87) vê o editor com autosave, a parte estruturada, "Salvar versão" e
  * as ações do pingue-pongue; o resto lê o rascunho atual e as versões —
  * transparência (§4.12) — e vê só as ações que lhe cabem (GP pega, projetos
- * marca inviável…). O servidor confere tudo de novo.
+ * marca inviável…). O servidor confere tudo de novo. Só abre para quem vê a proposta (GAB-98).
  */
 export default async function PropostaPage({ params }: { params: Promise<{ id: string }> }) {
   const eu = await exigirUsuario();
   const { id } = await params;
   const r = await obterPropostaDoProjeto(id);
   if (!r) notFound();
+  if (!(await podeVerPropostaDoProjeto(eu, id))) redirect("/403");
   const { projeto, proposta } = r;
   const pessoa = await pessoaDaCaneta(eu.id);
   // GAB-93: no quadro Projetos (depois do Ganho) a proposta está congelada: só leitura e comentários.

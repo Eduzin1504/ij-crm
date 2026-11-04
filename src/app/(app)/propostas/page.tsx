@@ -3,7 +3,7 @@ import type { StatusProposta } from "@prisma/client";
 import { PageHeader } from "@/components/shell/page-header";
 import { StatusPropostaBadge } from "@/components/propostas/status-proposta";
 import { Button } from "@/components/ui/button";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { formatarDataHora, formatarDinheiro } from "@/lib/projetos/formatar";
 import { listarResponsaveis } from "@/lib/projetos/projetos";
 import { listarPropostas } from "@/lib/propostas/propostas";
@@ -18,24 +18,24 @@ const campo =
   "h-8 rounded-lg border border-input bg-input/30 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /**
- * Aba Propostas (GAB-86): todas as propostas, com status, valor e última
- * versão. Filtros por GET (link compartilhável): status, responsável, texto.
- * Todos leem (transparência); a edição é dentro de cada Projeto.
+ * Aba Propostas (GAB-86): as propostas que a pessoa vê (GAB-98: as em que está
+ * escalada; gestão e GP, todas), com status, valor e última versão. Filtros por GET
+ * (link compartilhável): status, responsável, texto. A edição é dentro de cada Projeto.
  */
 export default async function PropostasPage({ searchParams }: { searchParams: Promise<Busca> }) {
-  const eu = await exigirUsuario();
+  const eu = await exigirItem("propostas");
   const p = await searchParams;
   const statusBruto = um(p.status);
   const status = (STATUS_PROPOSTA as readonly string[]).includes(statusBruto) ? (statusBruto as StatusProposta) : undefined;
   const responsavelBruto = um(p.responsavel);
   const responsavelId = responsavelBruto === "eu" ? eu.id : responsavelBruto.slice(0, 64) || undefined;
   const texto = um(p.q).slice(0, 200);
-  const [propostas, responsaveis] = await Promise.all([listarPropostas({ status, responsavelId, texto }), listarResponsaveis()]);
+  const [propostas, responsaveis] = await Promise.all([listarPropostas({ status, responsavelId, texto }, eu), listarResponsaveis()]);
   const filtrando = Boolean(status || responsavelId || texto.trim());
 
   return (
     <>
-      <PageHeader eyebrow="vendas · propostas" title="Propostas" description="Uma proposta por projeto. Abra o projeto para criar ou editar; aqui você acompanha o status de todas." />
+      <PageHeader eyebrow="vendas · propostas" title="Propostas" description="Uma proposta por projeto. Abra o projeto para criar ou editar; aqui você acompanha o status das que estão com você." />
 
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2" role="search" aria-label="Filtrar propostas">
         <label className="flex flex-col gap-1">
@@ -77,7 +77,7 @@ export default async function PropostasPage({ searchParams }: { searchParams: Pr
 
       {propostas.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border-strong bg-surface/40 p-8 text-center text-sm text-fg-faint">
-          {filtrando ? "Nenhuma proposta com esses filtros." : "Nenhuma proposta ainda. Crie a partir de um projeto (detalhe do card → Proposta)."}
+          {filtrando ? "Nenhuma proposta com esses filtros." : "Nenhuma proposta para você ainda. Quem é responsável pelo card cria a partir do detalhe dele."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">

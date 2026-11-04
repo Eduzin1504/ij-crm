@@ -1,15 +1,16 @@
 import type { Area, AreaEntrada } from "@prisma/client";
 import type { PaginaInicial } from "@/lib/preferencias/preferencias";
-import { AREAS, ladoDe, usaAreaDeEntrada, type PessoaComLado } from "./areas";
-import { temPapelMinimo } from "./papeis";
+import { AREAS, ehGpDoLado, ladoDe, temCargo, usaAreaDeEntrada, type PessoaComLado } from "./areas";
+import { podeEscrever, temPapelMinimo } from "./papeis";
 
 /**
- * Quem vê o quê em cada área (spec áreas §4.2, §4.4 e §4.7). Puro: o menu usa hoje
- * e as páginas, actions e MCP usam no GAB-98, com as mesmas funções. Fala em itens,
- * não em rotas: `href` e ícone ficam em `components/shell/nav-config`.
+ * Quem vê o quê em cada área (spec áreas §4.2, §4.4 a §4.7). Puro: menu, páginas,
+ * actions e MCP usam as mesmas funções. Fala em itens, não em rotas: `href` e ícone
+ * ficam em `components/shell/nav-config`.
  *
- * Só responde "pode ver o item". O conteúdo do item (quais propostas, de quem é a
- * agenda, se é só leitura) é decidido por quem carrega os dados.
+ * `podeVerItem` só responde "pode ver o item". As regras do conteúdo (card, proposta
+ * e agenda) ficam no fim do arquivo; quem lê o banco para aplicá-las é
+ * `lib/projetos/acesso-card`, `lib/propostas/acesso` e `lib/calendario/calendario`.
  */
 
 export type ItemDeArea = "semana" | "kanban" | "propostas" | "tabela" | "ranking" | "contatos" | "empresas" | "calendario";
@@ -102,4 +103,92 @@ export const COOKIE_AREA = "ij_area";
 /** Valida a área vinda de fora (cookie ou `?area=`). Também só escolhe o menu. */
 export function lerArea(valor: string | null | undefined): Area | null {
   return AREAS.find((a) => a === valor) ?? null;
+}
+
+// ---------------------------------------------------------------- GAB-98: card, proposta e agenda (§4.4 a §4.7)
+
+export type PessoaComId = PessoaComLado & { id: string };
+
+/** Área dona do card: a do quadro em que ele está (`pipeline.chave`, §4.7). Quadro sem área = null. */
+export function areaDoQuadro(chave: string): Area | null {
+  return AREAS.find((a) => a.toLowerCase() === chave) ?? null;
+}
+
+/** É da área dona do quadro. Quadro sem área: só quem conta nas duas áreas (ADMIN e GESTOR sem área). */
+function ehDaAreaDoQuadro(p: PessoaComLado, chave: string): boolean {
+  const area = areaDoQuadro(chave);
+  return area ? ehDaArea(p, area) : AREAS.every((a) => ehDaArea(p, a));
+}
+
+/** Card novo: quem escreve e é da área do quadro. Fora dela o Kanban é só leitura (§4.4). */
+export function podeCriarCardNoQuadro(p: PessoaComLado, chave: string): boolean {
+  return podeEscrever(p.papel) && ehDaAreaDoQuadro(p, chave);
+}
+
+/**
+ * Mover de fase e editar dados: a área dona ou o responsável do card, que continua
+ * respondendo por ele depois do Ganho (§4.7). Comentar, criar prazo e anexar não
+ * passam por aqui: valem para todo mundo que escreve (`podeEscrever`).
+ */
+export function podeEditarCard(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
+  if (!podeEscrever(p.papel)) return false;
+  return card.responsavelId === p.id || ehDaAreaDoQuadro(p, card.quadro);
+}
+
+/**
+ * Checklist e PDF do contrato enquanto o card está em Handoff: etapa conjunta de Projetos + Vendas
+ * (§2 e §4.7). Quem edita o card, e quem é de Vendas e escreve. Fora de Handoff o serviço recusa;
+ * Mover para Execução continua em `podeEditarCard`.
+ */
+export function podeEditarChecklistHandoff(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
+  return podeEditarCard(p, card) || (podeEscrever(p.papel) && ehDaArea(p, "VENDAS"));
+}
+
+/**
+ * Trocar o responsável (dá acesso à proposta, então é mais estrito que editar): o responsável
+ * atual, o GP do lado dono, gestor da área dona ou sem área, e admin. A automação fica de fora.
+ */
+export function podeTrocarResponsavel(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
+  if (!podeEscrever(p.papel)) return false;
+  if (card.responsavelId === p.id || p.papel === "ADMIN") return true;
+  if (p.papel === "GESTOR") return ehDaAreaDoQuadro(p, card.quadro);
+  const area = areaDoQuadro(card.quadro);
+  return area !== null && ehGpDoLado(p, area);
+}
+
+/** Quadro de quem não disse qual: o da própria área; sem lado, vendas. */
+export function quadroPadrao(p: PessoaComLado): string {
+  return (ladoDe(p) ?? "VENDAS").toLowerCase();
+}
+
+/** Vê todas as propostas: GESTOR com ou sem área, ADMIN e GP (§4.7). */
+export function veTodasAsPropostas(p: PessoaComLado): boolean {
+  return temPapelMinimo(p.papel, "GESTOR") || temCargo(p, "GP");
+}
+
+/** `escalado` = responsável do card, dono atual ou ex-dono da caneta, ou quem criou a proposta. VISUALIZADOR: nenhuma. */
+export function podeVerProposta(p: PessoaComLado, escalado: boolean): boolean {
+  return veTodasAsPropostas(p) || (escalado && podeEscrever(p.papel));
+}
+
+export type AlcanceDaAgenda = "nenhum" | "proprio" | "area" | "todos";
+
+/** De quem a pessoa vê agenda (§4.6): vale para o Calendário e para `/semana?vendedor=`. */
+export function alcanceDaAgenda(p: PessoaComLado): AlcanceDaAgenda {
+  if (!podeEscrever(p.papel)) return "nenhum";
+  if (!temPapelMinimo(p.papel, "GESTOR")) return "proprio";
+  return p.papel === "ADMIN" || ladoDe(p) === null ? "todos" : "area";
+}
+
+export function veOutrasAgendas(p: PessoaComLado): boolean {
+  const alcance = alcanceDaAgenda(p);
+  return alcance === "area" || alcance === "todos";
+}
+
+/** Gestor com área: pessoas com o mesmo `ladoDe`. ADMIN e GESTOR sem área: todos. Membro: só a própria. */
+export function podeVerAgendaDe(ator: PessoaComId, alvo: PessoaComId): boolean {
+  const alcance = alcanceDaAgenda(ator);
+  if (alcance === "nenhum") return false;
+  if (alvo.id === ator.id || alcance === "todos") return true;
+  return alcance === "area" && ladoDe(alvo) === ladoDe(ator);
 }

@@ -18,6 +18,12 @@ type Props = {
   somenteLeitura: boolean;
   podeDesignar: boolean;
   podeResumo: boolean;
+  /** GAB-98: itens e contrato, etapa conjunta (`podeEditarChecklistHandoff`). */
+  podeEditar?: boolean;
+  /** GAB-98: Mover para Execução é de quem edita o card (área dona ou responsável). */
+  podeMover?: boolean;
+  /** GAB-98: link e versão da proposta só para quem a vê. */
+  veProposta?: boolean;
   candidatosGp: { id: string; nome: string }[];
   /** Ninguém ativo tem o cargo de GP de projetos: ninguém consegue designar. */
   semGpDeProjetos: boolean;
@@ -28,9 +34,10 @@ type Props = {
 const CAMPO = "w-full rounded-lg border border-input bg-input/30 px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /** Bloco "Handoff" do Projeto (GAB-93, spec §4.8). As regras são do servidor; aqui só se mostra o que cabe a quem vê. */
-export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, candidatosGp, semGpDeProjetos, pdfs }: Props) {
+export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, podeEditar = true, podeMover = true, veProposta = true, candidatosGp, semGpDeProjetos, pdfs }: Props) {
   const router = useRouter();
   const editavel = h.emHandoff && !somenteLeitura;
+  const editaItens = editavel && podeEditar;
   const [erro, setErro] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
   const [gpId, setGpId] = useState(h.gp?.id ?? "");
@@ -67,7 +74,7 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
         <h2 className="text-sm font-medium">Handoff</h2>
         <span className="font-mono text-[11px] text-fg-mute uppercase">{h.completo ? "completo" : h.isento ? "dispensado" : "em aberto"}</span>
         <span className="flex-1" />
-        {h.emHandoff && !somenteLeitura ? (
+        {editavel && podeMover ? (
           <Button type="button" size="sm" disabled={pendente || (!h.completo && !h.isento)} onClick={() => agir(() => moverParaExecucaoAction(cardId), "mover para Execução")}>
             Mover para Execução
           </Button>
@@ -113,11 +120,13 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
                 <span>
                   Proposta final congelada{" "}
                   <span className="text-xs text-fg-mute">
-                    {h.proposta.congelada ? `(automático${h.proposta.versao ? `, v${h.proposta.versao}` : ""})` : h.proposta.dispensada ? "(dispensada: card sem proposta aceita no sistema)" : "(automático)"}
+                    {h.proposta.congelada ? `(automático${h.proposta.versao && veProposta ? `, v${h.proposta.versao}` : ""})` : h.proposta.dispensada ? "(dispensada: card sem proposta aceita no sistema)" : "(automático)"}
                   </span>{" "}
-                  <Link href={`/projetos/${cardId}/proposta`} className="text-xs underline decoration-fg-faint underline-offset-2 hover:text-foreground">
-                    ver
-                  </Link>
+                  {veProposta ? (
+                    <Link href={`/projetos/${cardId}/proposta`} className="text-xs underline decoration-fg-faint underline-offset-2 hover:text-foreground">
+                      ver
+                    </Link>
+                  ) : null}
                 </span>
               </li>
               <li className="flex items-start gap-2">
@@ -129,7 +138,7 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
                       {h.contrato.nome}
                     </a>
                   ) : null}
-                  {editavel ? (
+                  {editaItens ? (
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <input ref={arquivo} type="file" accept=".pdf,application/pdf" aria-label="Anexar PDF do contrato" className="sr-only" onChange={aoEscolherPdf} disabled={pendente} />
                       <Button type="button" variant="outline" size="xs" disabled={pendente} onClick={() => arquivo.current?.click()}>
@@ -162,7 +171,7 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
                     id={`handoff-${i}`}
                     type="checkbox"
                     checked={!!h.itens[i]}
-                    disabled={!editavel || pendente}
+                    disabled={!editaItens || pendente}
                     onChange={(e) => {
                       const feito = e.target.checked;
                       agir(() => marcarItemAction(cardId, i, feito), "atualizar o checklist");

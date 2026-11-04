@@ -463,7 +463,7 @@ Camada única em `src/lib/avisos/avisos.ts` (`emitirAvisos`): toda origem de avi
 Serviço em `src/lib/propostas/comentarios.ts` (tela e MCP chamam as mesmas funções), tabela
 `proposta_comentario`.
 
-- **Quem**: qualquer usuário **ativo**, em qualquer etapa, sem a caneta (VISUALIZADOR também, §4.6).
+- **Quem**: quem vê a proposta (ver "Visibilidade por área") e está **ativo**, em qualquer etapa, sem a caneta. VISUALIZADOR não comenta.
   Comentar não edita o texto. Geral ou preso a um trecho; respostas em thread (um nível); resolver e
   reabrir (estado na raiz + evento `comentario_resolvido`/`comentario_reaberto` na Timeline).
 - **Âncora do trecho** (`src/lib/propostas/ancora.ts`): o trecho citado + até 40 caracteres de contexto
@@ -640,7 +640,7 @@ aparece como tal (`src/lib/entidades/vinculo.ts`), nunca como link ativo.
 ## Anexos do Projeto (GAB-84)
 
 No detalhe do Projeto, a seção **Anexos** recebe PDF, Word (.docx), Markdown (.md), texto (.txt)
-e imagens (PNG, JPEG, WebP) até 10 MB. Quem escreve anexa e exclui; VISUALIZADOR só baixa e lê.
+e imagens (PNG, JPEG, WebP) até 10 MB. Quem escreve anexa, de fora da área também; exclui o autor do anexo ou quem edita o card. VISUALIZADOR só baixa e lê.
 Upload pela rota `POST /api/projetos/[id]/anexos` (corpo cru, nome em `X-Nome-Arquivo`, mesmo
 molde do import do Pipefy); o **tipo vem dos bytes** (magic number, `src/lib/anexos/tipos.ts`) e
 a extensão só precisa conferir com eles. No upload o texto é extraído sem LLM
@@ -705,6 +705,34 @@ perdedor: nada é copiado nem apagado; o principal lê o grupo (`idsDoGrupo` em
 `src/lib/merge/merge.ts`), o perdedor some de listas/autocomplete e o link dele redireciona ao
 principal. Um nível só: principal vivo e não mesclado, perdedor vivo, não mesclado e sem
 mesclados nele (sem cadeia, sem ciclo). "Desfazer merge" limpa o ponteiro.
+
+## Visibilidade por área (GAB-98)
+
+Tudo no servidor: página, action, rota de API e MCP, com as regras puras de
+`src/lib/auth/visibilidade.ts`. A automação do WhatsApp (#crm) não é restringida por área.
+
+| Recurso | Quem |
+|---|---|
+| Tabela (e CSV), Ranking e Top 3 | Vendas, gestor de Vendas, gestor sem área e admin. Os outros: /403 |
+| Painel | todos, como antes |
+| Mover e editar dados do card, excluir card | área dona (`pipeline.chave`), responsável do card, gestor sem área e admin |
+| Criar card | quem é da área do quadro, gestor sem área e admin |
+| Trocar o responsável | o responsável atual, GP do lado dono, gestor da área dona ou sem área, e admin |
+| Restaurar card da lixeira | gestor da área dona ou sem área, e admin (e o responsável, se for gestor) |
+| Handoff: itens e PDF do contrato | em Handoff, quem edita o card e quem é de Vendas (etapa conjunta, §4.7). O resumo continua de vendas |
+| Handoff: Mover para Execução | Projetos, responsável, gestor sem área e admin |
+| `propostaUrl` | ler e gravar só com acesso à proposta |
+| Comentar, criar prazo e anexar em card de outra área | todo mundo que escreve |
+| Proposta (lista, página, versões, diff, PDF, comentários, badge, eventos na Timeline, link) | responsável do card, dono e ex-dono da caneta, quem a criou, GP, gestor com ou sem área e admin. VISUALIZADOR: nenhuma |
+| Calendário e `/semana?vendedor=` | membro: só o próprio. Gestor com área: mesmo `ladoDe`. Gestor sem área e admin: todos. VISUALIZADOR: /403 |
+
+Limitações: anexos seguem lidos por quem vê o card (decisão provisória, §4.7). Aviso antigo de quem perdeu
+o acesso à proposta pode abrir em /403.
+
+Ponto único de cada regra com banco: `src/lib/projetos/acesso-card.ts` (card) e
+`src/lib/propostas/acesso.ts` (proposta). No MCP, a `guarda` de cada ferramenta roda em
+`executarFerramenta`. A checagem de área fica fora de `moverCard`, `editarCard` e `aplicarPatch`
+de propósito: são os núcleos que a automação usa.
 
 ## Minha Semana
 
@@ -826,7 +854,7 @@ otimista: o formulário manda o `atualizado_em` que carregou e, se outra pessoa 
 ## Painel de vendas (GAB-94)
 
 `/painel` (todos os papéis): Semana | Mês de São Paulo (`?periodo=semana|mes&ref=YYYY-MM-DD`) e
-filtro por vendedor (`?vendedor=<id>`). **Visibilidade** = a do ranking (`podeVerRanking`): com
+filtro por vendedor (`?vendedor=<id>`). **Visibilidade** = `podeVerPainelCompleto`: com
 "Mostrar ranking aos vendedores" desligado, vendedor e projetos veem os totais do time e só as
 próprias linhas, sem filtro por outra pessoa (o servidor recusa; o MCP responde com erro); gestor,
 admin e visualizador veem tudo. Quatro

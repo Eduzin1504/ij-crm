@@ -5,6 +5,7 @@ import { z } from "zod";
 import { exigirEscrita, exigirUsuario } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import { descricaoSchema, ehCampoEditavel, interpretarCampo } from "@/lib/projetos/campos";
+import { recusaDeCriarNoQuadro, recusaDeEdicaoNoCard } from "@/lib/projetos/acesso-card";
 import { MENSAGEM_ERRO_PROJETO, textoDoErroProjeto } from "@/lib/projetos/erros";
 import { adicionarNota, criarCard, editarCard, moverCard } from "@/lib/projetos/projetos";
 import type { DadosTerminal } from "@/lib/projetos/terminal-regras";
@@ -34,6 +35,8 @@ export async function criarCardAction(pipelineId: string, faseId: string, titulo
     if (!p.success) return { erro: "Dados inválidos." };
     const d = descricaoSchema.safeParse(descricao);
     if (!d.success) return { erro: d.error.issues[0].message };
+    const recusa = await recusaDeCriarNoQuadro({ pipelineId: p.data.pipelineId }, ator);
+    if (recusa) return { erro: recusa };
     const r = await criarCard({ ...p.data, descricao: d.data }, ator);
     if (!r.ok) return { erro: MENSAGEM[r.erro] };
     revalidar();
@@ -54,6 +57,8 @@ export async function moverCardAction(cardId: string, paraFaseId: string, dados?
     if (!id.safeParse(cardId).success || !id.safeParse(paraFaseId).success) return { erro: "Dados inválidos." };
     const d = dadosTerminal.optional().safeParse(dados);
     if (!d.success) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator);
+    if (recusa) return { erro: recusa };
     const r = await moverCard(cardId, paraFaseId, ator, { dadosTerminal: d.data });
     if (!r.ok) return { erro: textoDoErroProjeto(r) };
     revalidar(cardId);
@@ -69,6 +74,8 @@ export async function editarCampoAction(cardId: string, campo: string, bruto: st
     }
     const v = interpretarCampo(campo, bruto);
     if (!v.ok) return { erro: v.erro };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator, { campos: [campo] });
+    if (recusa) return { erro: recusa };
     const r = await editarCard(cardId, { [campo]: v.valor }, ator);
     if (!r.ok) return { erro: MENSAGEM[r.erro] };
     revalidar(cardId);

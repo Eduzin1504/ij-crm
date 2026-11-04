@@ -82,3 +82,30 @@ describe("QuadroKanban: coluna vazia", () => {
     expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 });
+
+describe("QuadroKanban: fora da área dona (GAB-98)", () => {
+  const de = (id: string, responsavelId: string): CardCliente => ({ ...card, id, titulo: `Card ${id}`, responsavelId });
+  const quadro = (props: { daArea?: boolean; somenteLeitura?: boolean }) =>
+    render(<QuadroKanban pipelineId="p1" pipelineChave="vendas" fases={FASES} cards={[de("meu", "eu"), de("alheio", "outra")]} agoraMs={AGORA} responsaveis={[]} meuId="eu" visualizacao={VISUALIZACAO_PADRAO} {...props} />);
+  /** Card que arrasta tem o wrapper do dnd-kit em volta do título. */
+  const arrasta = (titulo: string) => screen.getByText(titulo).closest('[aria-roledescription="card arrastável"]') !== null;
+
+  it("da área: + em cada fase e todo card arrasta", () => {
+    quadro({ daArea: true });
+    expect(screen.getAllByRole("button", { name: /^Novo card em/ }).length).toBeGreaterThan(0);
+    expect(arrasta("Card meu")).toBe(true);
+    expect(arrasta("Card alheio")).toBe(true);
+  });
+
+  it("de fora: sem +, só arrasta o card de que é responsável", () => {
+    quadro({ daArea: false });
+    expect(screen.queryByRole("button", { name: /^Novo card em/ })).toBeNull();
+    expect(arrasta("Card meu")).toBe(true);
+    expect(arrasta("Card alheio")).toBe(false);
+  });
+
+  it("visualizador: nada arrasta, nem o que estivesse no nome dele", () => {
+    quadro({ daArea: false, somenteLeitura: true });
+    expect(arrasta("Card meu")).toBe(false);
+  });
+});

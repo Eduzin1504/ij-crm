@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { exigirEscrita, exigirPapel } from "@/lib/auth/atual";
+import { recusaDeEdicaoNoCard, recusaDeExcluirAnexo } from "@/lib/projetos/acesso-card";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import { apagarAnexoDefinitivo, excluirAnexo, restaurarAnexo } from "@/lib/lixeira/anexos";
 import { apagarCardDefinitivo, excluirCard, restaurarCard, type ResultadoLixeira } from "@/lib/lixeira/cards";
@@ -39,6 +40,8 @@ export async function excluirCardAction(cardId: string, quadro: string): Promise
   return comTratamento("lixeira.excluirCard", async (): Promise<EstadoLixeira> => {
     const ator = await exigirEscrita();
     if (!id.safeParse(cardId).success || !/^[a-z0-9_]{1,64}$/.test(quadro)) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator);
+    if (recusa) return { erro: recusa };
     const r = responder(await excluirCard(cardId, ator));
     if ("ok" in r && r.ok) redirect(`/kanban?quadro=${quadro}`);
     return r;
@@ -49,6 +52,8 @@ export async function restaurarCardAction(cardId: string, faseId: string | null)
   return comTratamento("lixeira.restaurarCard", async (): Promise<EstadoLixeira> => {
     const ator = await exigirPapel("GESTOR");
     if (!id.safeParse(cardId).success || (faseId !== null && !id.safeParse(faseId).success)) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator, { naLixeira: true });
+    if (recusa) return { erro: recusa };
     return responder(await restaurarCard(cardId, ator, { faseId }));
   });
 }
@@ -66,6 +71,8 @@ export async function excluirAnexoAction(anexoId: string): Promise<EstadoLixeira
   return comTratamento("lixeira.excluirAnexo", async (): Promise<EstadoLixeira> => {
     const ator = await exigirEscrita();
     if (!id.safeParse(anexoId).success) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeExcluirAnexo(anexoId, ator);
+    if (recusa) return { erro: recusa };
     return responder(await excluirAnexo(anexoId, ator));
   });
 }

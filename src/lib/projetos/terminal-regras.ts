@@ -60,6 +60,21 @@ export function dialogoTerminal(pipelineChave: string, tipo: TipoTerminal | null
   return null;
 }
 
+/**
+ * Sair de Perdido com a perda vinda de proposta inviável (o rótulo de `marcarInviavel`):
+ * o movimento devolve a proposta para Em ajuste (`reabrirPropostaInviavel`). Pede confirmação.
+ */
+export function reabreInviavel(origem: { tipoTerminal: TipoTerminal | null } | undefined, destino: { tipoTerminal: TipoTerminal | null }, motivoPerda: string | null): boolean {
+  return origem?.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO" && /^Outro: Proposta inviável(:|$)/.test(motivoPerda ?? "");
+}
+
+/** Texto do aviso: quem não vê a proposta não sabe o que muda nela, então é orientado a falar com o responsável. */
+export function textoReabrirInviavel(veProposta: boolean, responsavelNome: string): string {
+  return veProposta
+    ? "A proposta foi marcada inviável. Reabrir o card devolve a proposta para Em ajuste, sem ninguém com a caneta, e limpa o motivo de inviável."
+    : `Este card foi perdido por uma proposta marcada inviável, e reabrir muda essa proposta. Fale com ${responsavelNome}, responsável pelo card, antes de reabrir.`;
+}
+
 /** Os dados do fechamento vêm como objeto (pode ser `{}`); ausente = ninguém passou pelo diálogo. */
 function ehObjeto(dados: unknown): dados is Record<string, unknown> {
   return typeof dados === "object" && dados !== null && !Array.isArray(dados);

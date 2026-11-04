@@ -2,7 +2,7 @@
  * GET /tabela/csv — exporta a Tabela (GAB-35) com os mesmos filtros e ordem
  * da URL da tela (página ignorada: vão todas as linhas), em streaming.
  *
- * Qualquer usuário logado (vendedor vê tudo). Erro antes do primeiro byte →
+ * Quem vê a Tabela (`exigirItem`, a mesma regra da tela). Erro antes do primeiro byte →
  * 500 com `ref` (causa só no log). Erro no meio do streaming não pode mais
  * virar 500 (o status 200 já saiu): a última linha do arquivo vira
  * "EXPORTAÇÃO INCOMPLETA: erro no servidor (ref: …)". Limitação aceita para
@@ -11,7 +11,7 @@
  * checá-la.
  */
 import { unstable_rethrow } from "next/navigation";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { mensagemInesperada, registrarErro } from "@/lib/erros/registrar";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { lerEstado } from "@/lib/tabela/params";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 const CONTEXTO = "tabela/csv";
 
 export async function GET(req: Request): Promise<Response> {
-  await exigirUsuario();
+  await exigirItem("tabela");
   const agora = new Date();
   const { filtros, ordem } = lerEstado(new URL(req.url).searchParams);
   const pedacos = exportarCsv(filtros, ordem, agora);

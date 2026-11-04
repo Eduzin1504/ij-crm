@@ -9,7 +9,7 @@ import { ListaRanking } from "@/components/ranking/lista-ranking";
 import { MeusPontos } from "@/components/ranking/meus-pontos";
 import { Podio } from "@/components/ranking/podio";
 import { TabelaMetricas, type LinhaMetricas } from "@/components/ranking/tabela-metricas";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { comTratamento, ehInesperado } from "@/lib/erros/registrar";
 import type { Metricas, Participante } from "@/lib/ranking/calculo";
 import { resolverPeriodo, type TipoPeriodo } from "@/lib/ranking/periodo";
@@ -46,7 +46,7 @@ const SETA = "inline-flex size-8 items-center justify-center rounded-lg border b
 
 /** Ranking de vendas (GAB-44): pódio, classificação, destaques, métricas e feed. */
 export default async function RankingPage({ searchParams }: { searchParams: Promise<Busca> }) {
-  const ator = await exigirUsuario();
+  const ator = await exigirItem("ranking");
   const busca = await searchParams;
   const tipo: TipoPeriodo = um(busca.periodo) === "mes" ? "mes" : "semana";
   const agora = new Date();
@@ -117,8 +117,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
         <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
           <ListaRanking linhas={ranking.linhas} euId={ator.id} />
           <aside className="space-y-6">
-            {/* VISUALIZADOR não pontua (nem está no ranking): sem "Meus pontos". */}
-            {ator.papel === "VISUALIZADOR" ? null : <MeusPontos eu={eu} pesos={visao.config.pesos} posicao={eu?.posicao} />}
+            <MeusPontos eu={eu} pesos={visao.config.pesos} posicao={eu?.posicao} />
             <FeedRanking itens={visao.feed} vazio="Nenhum ganho nem avanço de fase nos últimos 7 dias." />
           </aside>
         </div>

@@ -26,6 +26,7 @@ export function GradeSemana({
   hoje,
   layout = "rolagem",
   mostrarResponsavelNoPrazo = false,
+  donoDaAgenda = null,
   extraDaAcao,
   urgenteId = null,
 }: {
@@ -33,6 +34,8 @@ export function GradeSemana({
   hoje: string;
   layout?: "rolagem" | "empilhar";
   mostrarResponsavelNoPrazo?: boolean;
+  /** De quem é a agenda: o prazo de outra pessoa (no card dela) mostra o avatar. */
+  donoDaAgenda?: string | null;
   /** Ex.: "marcar feita" na Minha Semana. */
   extraDaAcao?: (a: AcaoItem) => ReactNode;
   /** Card "Mais urgente" da Minha Semana: marcado no mini-card. */
@@ -102,7 +105,7 @@ export function GradeSemana({
                   {prazos.length ? (
                     <div className="space-y-0.5">
                       {prazos.map((p) => (
-                        <LinhaChegada key={p.id} prazo={p} onAbrir={abrir} mostrarResponsavel={mostrarResponsavelNoPrazo} />
+                        <LinhaChegada key={p.id} prazo={p} onAbrir={abrir} mostrarResponsavel={mostrarResponsavelNoPrazo || (donoDaAgenda !== null && p.responsavel.id !== donoDaAgenda)} />
                       ))}
                     </div>
                   ) : null}
