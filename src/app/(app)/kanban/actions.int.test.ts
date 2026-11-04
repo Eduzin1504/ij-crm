@@ -160,7 +160,7 @@ describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () =
     const outra = await db.fase.create({ data: { pipelineId: p.id, chave: "execucao", nome: "Execução", ordem: 1 } });
     const pedro = await db.usuario.create({ data: { nome: "Pedro Projetos", email: "pedro@ij.test", papel: "PROJETOS", area: "PROJETOS" } });
     const c = await db.projeto.create({ data: { titulo: "Padaria", pipelineId: p.id, faseId: fase.id, responsavelId: u.id, criadoVia: "UI" } });
-    exigirUsuario.mockResolvedValue({ id: pedro.id, papel: "PROJETOS" });
+    exigirUsuario.mockResolvedValue({ id: pedro.id, papel: "PROJETOS", area: "PROJETOS", cargos: [] });
 
     expect(await criarCardAction(p.id, fase.id, "Do time de projetos")).toMatchObject({ ok: true });
     expect(await editarCampoAction(c.id, "titulo", "Padaria Nova")).toEqual({ ok: true });
@@ -169,7 +169,7 @@ describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () =
     expect((await listarResponsaveis()).map((r) => r.id).sort()).toEqual([u.id, pedro.id].sort());
     // GAB-98: assumir o card é com o responsável atual, o GP do lado dono ou a gestão.
     expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toMatchObject({ erro: expect.stringContaining("responsável") });
-    exigirUsuario.mockResolvedValue({ id: u.id, papel: "VENDEDOR" });
+    exigirUsuario.mockResolvedValue({ id: u.id, papel: "VENDEDOR", area: "VENDAS", cargos: [] });
     expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toEqual({ ok: true });
 
     const card = await db.projeto.findUniqueOrThrow({ where: { id: c.id } });

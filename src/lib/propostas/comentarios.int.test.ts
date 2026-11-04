@@ -76,13 +76,15 @@ describe("comentar (§4.6): qualquer usuário ativo, sem a caneta", () => {
   });
 
   it("só usuários ativos; projeto na lixeira ou sem proposta → recusa", async () => {
-    const { projeto, paula, ana } = await semear();
+    const { projeto, paula, ana, vera } = await semear();
     await db.usuario.update({ where: { id: paula.id }, data: { ativo: false } });
     expect(await comentar(projeto.id, { texto: "oi" }, paula)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
     const outro = await db.projeto.create({ data: { pipelineId: projeto.pipelineId, faseId: projeto.faseId, titulo: "Sem proposta", responsavelId: ana.id, criadoVia: "UI" } });
     expect(await comentar(outro.id, { texto: "oi" }, ana)).toEqual({ ok: false, erro: "PROPOSTA_NAO_ENCONTRADA" });
     await db.projeto.update({ where: { id: projeto.id }, data: { deletadoEm: new Date() } });
-    expect(await comentar(projeto.id, { texto: "oi" }, ana)).toEqual({ ok: false, erro: "PROJETO_NAO_ENCONTRADO" });
+    // Quem vê todas descobre que sumiu; quem depende do card não descobre nada (GAB-98).
+    expect(await comentar(projeto.id, { texto: "oi" }, vera)).toEqual({ ok: false, erro: "PROJETO_NAO_ENCONTRADO" });
+    expect(await comentar(projeto.id, { texto: "oi" }, ana)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
     expect(await listarComentarios(projeto.id)).toBeNull();
   });
 

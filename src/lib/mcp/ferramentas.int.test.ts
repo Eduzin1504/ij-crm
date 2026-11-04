@@ -497,7 +497,7 @@ describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
     await executarFerramenta("devolver_proposta", { projeto_id: id, revisao: 0, para_id: projetos.id }, vendedora);
     expect(dados(await executarFerramenta("marcar_proposta_inviavel", { projeto_id: id, motivo: "Escopo fora do que entregamos" }, projetos))).toMatchObject({ status: "Inviável", canetaCom: null });
     const p = await db.projeto.findUniqueOrThrow({ where: { id } });
-    expect(p).toMatchObject({ faseId: fase(vendas, "perdido").id, motivoPerda: "Outro: Proposta inviável: Escopo fora do que entregamos" });
+    expect(p).toMatchObject({ faseId: fase(vendas, "perdido").id, motivoPerda: "Outro: Proposta inviável" });
     expect(await db.timeline.count({ where: { projetoId: id, tipo: "MOVIMENTACAO", viaMcp: true } })).toBe(1);
   });
 });
