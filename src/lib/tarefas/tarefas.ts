@@ -13,12 +13,12 @@
  * - Aviso no sino para quem recebe a tarefa, depois do commit; nunca para quem
  *   atribui a si mesmo.
  */
-import type { StatusTarefa } from "@prisma/client";
+import type { PrioridadeTarefa, StatusTarefa } from "@prisma/client";
 import { podeVerTarefas, type PessoaComLado } from "@/lib/auth/areas";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { diaDoPrazo, instanteDoPrazo } from "@/lib/calendario/semana";
 import { db } from "@/lib/db";
-import { STATUS_TAREFA, TITULO_MAX, DESCRICAO_MAX, fechada, type TarefaLista, type PessoaTarefa, type ProjetoTarefas } from "./modelo";
+import { STATUS_TAREFA, TITULO_MAX, DESCRICAO_MAX, PRIORIDADES, fechada, normalizarEtiquetas, type TarefaLista, type PessoaTarefa, type ProjetoTarefas } from "./modelo";
 
 export type Ator = PessoaComLado & { id: string; nome: string };
 
@@ -34,7 +34,7 @@ export const MENSAGEM_ERRO_TAREFA: Record<ErroTarefa, string> = {
 
 export type Resultado<T> = ({ ok: true } & T) | { ok: false; erro: ErroTarefa };
 
-export { STATUS_TAREFA, TITULO_MAX, DESCRICAO_MAX, fechada, type TarefaLista, type PessoaTarefa, type ProjetoTarefas } from "./modelo";
+export { STATUS_TAREFA, TITULO_MAX, DESCRICAO_MAX, PRIORIDADES, fechada, normalizarEtiquetas, type TarefaLista, type PessoaTarefa, type ProjetoTarefas } from "./modelo";
 
 const PIPELINE_PROJETOS = "projetos";
 
@@ -103,7 +103,7 @@ async function avisarAtribuicao(
   await emitirAvisos([{ usuarioId: depois, tipo: "TAREFA_ATRIBUIDA", titulo: `${ator.nome} te atribuiu #${tarefa.numero} ${titulo} em ${projeto.titulo}`, projetoId: projeto.id }]);
 }
 
-export async function listarQuadro(projetoId: string, ator: PessoaComLado): Promise<Resultado<{ projeto: ProjetoTarefas; tarefas: TarefaLista[]; pessoas: PessoaTarefa[] }>> {
+export async function listarQuadro(projetoId: string, ator: PessoaComLado): Promise<Resultado<{ projeto: ProjetoTarefas; tarefas: TarefaLista[]; pessoas: PessoaTarefa[]; /** Etiquetas já usadas no projeto (sugestão, sem tela de administração). */ etiquetas: string[] }>> {
   if (!podeVerTarefas(ator)) return { ok: false, erro: "SEM_PERMISSAO" };
   const projeto = await projetoComTarefas(projetoId);
   if (!projeto) return { ok: false, erro: "PROJETO_NAO_ENCONTRADO" };
@@ -124,7 +124,8 @@ export async function listarQuadro(projetoId: string, ator: PessoaComLado): Prom
     criadoEmMs: t.criadoEm.getTime(),
   }));
   const pessoas = await listarPessoas(tarefas.map((t) => t.responsavelId).filter((id): id is string => id !== null));
-  return { ok: true, projeto, tarefas, pessoas };
+  const etiquetas = [...new Set(tarefas.flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  return { ok: true, projeto, tarefas, pessoas, etiquetas };
 }
 
 /** Ativos que passam na regra + responsáveis inativos de tarefas vivas (continuam visíveis e reatribuíveis). */
@@ -139,7 +140,7 @@ async function listarPessoas(responsaveis: string[]): Promise<PessoaTarefa[]> {
     .map((u) => ({ id: u.id, nome: u.nome, fotoEm: u.foto?.atualizadoEm.getTime() ?? null, ativo: u.ativo }));
 }
 
-export type NovaTarefa = { titulo: string; status?: StatusTarefa; responsavelId?: string | null; prazo?: string | null; paiId?: string | null };
+export type NovaTarefa = { titulo: string; status?: StatusTarefa; prioridade?: PrioridadeTarefa; responsavelId?: string | null; prazo?: string | null; etiquetas?: string[]; paiId?: string | null };
 
 export async function criarTarefa(projetoId: string, dados: NovaTarefa, ator: Ator): Promise<Resultado<{ id: string; numero: number }>> {
   if (!podeVerTarefas(ator)) return { ok: false, erro: "SEM_PERMISSAO" };
@@ -148,6 +149,9 @@ export async function criarTarefa(projetoId: string, dados: NovaTarefa, ator: At
     const prazo = interpretarPrazo(dados.prazo) ?? null;
     const status = dados.status ?? "A_FAZER";
     if (!STATUS_TAREFA.includes(status)) throw new ErroDeRegra("DADOS_INVALIDOS");
+    const prioridade = dados.prioridade ?? "SEM_PRIORIDADE";
+    if (!PRIORIDADES.some((p) => p.k === prioridade)) throw new ErroDeRegra("DADOS_INVALIDOS");
+    const etiquetas = normalizarEtiquetas(dados.etiquetas ?? []);
     const criada = await db.$transaction(async (tx) => {
       const projeto = await travarProjeto(tx, projetoId);
       if (dados.responsavelId) await conferirResponsavel(tx, dados.responsavelId);
@@ -167,6 +171,8 @@ export async function criarTarefa(projetoId: string, dados: NovaTarefa, ator: At
           numero: (maxNumero._max.numero ?? 0) + 1,
           titulo,
           status,
+          prioridade,
+          etiquetas,
           posicao: (maxPosicao._max.posicao ?? 0) + 1,
           responsavelId: dados.responsavelId ?? null,
           prazo,
@@ -185,12 +191,12 @@ export async function criarTarefa(projetoId: string, dados: NovaTarefa, ator: At
   }
 }
 
-export type PatchTarefa = Partial<{ titulo: string; descricao: string | null; status: StatusTarefa; responsavelId: string | null; prazo: string | null }>;
+export type PatchTarefa = Partial<{ titulo: string; descricao: string | null; status: StatusTarefa; prioridade: PrioridadeTarefa; responsavelId: string | null; prazo: string | null; etiquetas: string[] }>;
 
 export async function editarTarefa(projetoId: string, tarefaId: string, patch: PatchTarefa, ator: Ator): Promise<Resultado<object>> {
   if (!podeVerTarefas(ator)) return { ok: false, erro: "SEM_PERMISSAO" };
   try {
-    const dados: { titulo?: string; descricao?: string | null; status?: StatusTarefa; responsavelId?: string | null; prazo?: Date | null; concluidaEm?: Date | null } = {};
+    const dados: { titulo?: string; descricao?: string | null; status?: StatusTarefa; prioridade?: PrioridadeTarefa; responsavelId?: string | null; prazo?: Date | null; etiquetas?: string[]; concluidaEm?: Date | null } = {};
     if (patch.titulo !== undefined) dados.titulo = interpretarTitulo(patch.titulo);
     if (patch.descricao !== undefined) {
       const d = patch.descricao?.trim() ?? "";
@@ -201,6 +207,11 @@ export async function editarTarefa(projetoId: string, tarefaId: string, patch: P
       if (!STATUS_TAREFA.includes(patch.status)) throw new ErroDeRegra("DADOS_INVALIDOS");
       dados.status = patch.status;
     }
+    if (patch.prioridade !== undefined) {
+      if (!PRIORIDADES.some((p) => p.k === patch.prioridade)) throw new ErroDeRegra("DADOS_INVALIDOS");
+      dados.prioridade = patch.prioridade;
+    }
+    if (patch.etiquetas !== undefined) dados.etiquetas = normalizarEtiquetas(patch.etiquetas);
     if (patch.responsavelId !== undefined) dados.responsavelId = patch.responsavelId || null;
     const prazo = interpretarPrazo(patch.prazo);
     if (prazo !== undefined) dados.prazo = prazo;

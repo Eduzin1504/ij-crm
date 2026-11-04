@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorResponsavel, posicaoEntre, SEM_RESPONSAVEL } from "./quadro";
+import { agrupar, agruparPorResponsavel, posicaoEntre, SEM_RESPONSAVEL } from "./quadro";
+import { ROTULO_STATUS } from "./quadro";
+import { ROTULO_PRIORIDADE } from "./modelo";
 
 const pessoas = [
   { id: "p", nome: "Paula", fotoEm: null, ativo: true },
@@ -40,5 +42,20 @@ describe("posicaoEntre", () => {
     expect(posicaoEntre(3, null)).toBe(4);
     expect(posicaoEntre(null, 1)).toBe(0);
     expect(posicaoEntre(null, null)).toBe(1);
+  });
+});
+
+describe("agrupar", () => {
+  const xs = [
+    { id: "1", responsavelId: "p", status: "A_FAZER" as const, prioridade: "ALTA" as const, etiquetas: ["backend", "infra"] },
+    { id: "2", responsavelId: null, status: "FEITA" as const, prioridade: "SEM_PRIORIDADE" as const, etiquetas: [] },
+  ];
+  it("por status e prioridade lista todos os valores (vazios inclusive); por etiqueta usa a primeira; nenhum é um grupo só", () => {
+    const porStatus = agrupar(xs, pessoas, "status", ROTULO_STATUS, ROTULO_PRIORIDADE);
+    expect(porStatus.map((l) => [l.nome, l.tarefas.length])).toEqual([["Backlog", 0], ["A fazer", 1], ["Em andamento", 0], ["Em revisão", 0], ["Feita", 1], ["Cancelada", 0]]);
+    expect(agrupar(xs, pessoas, "prio", ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => l.nome)).toEqual(["Urgente", "Alta", "Média", "Baixa", "Sem prioridade"]);
+    expect(agrupar(xs, pessoas, "etiqueta", ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => [l.chave, l.tarefas.map((t) => t.id)])).toEqual([["backend", ["1"]], ["none", ["2"]]]);
+    expect(agrupar(xs, pessoas, "nenhum", ROTULO_STATUS, ROTULO_PRIORIDADE)).toHaveLength(1);
+    expect(agrupar(xs, pessoas, "resp", ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => l.chave)).toEqual(["p", SEM_RESPONSAVEL]);
   });
 });

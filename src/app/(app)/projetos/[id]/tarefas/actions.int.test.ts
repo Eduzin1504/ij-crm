@@ -11,7 +11,9 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", async (orig) => ({ ...(await orig<typeof import("next/navigation")>()), redirect }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { criarTarefaAction, editarTarefaAction, excluirTarefaAction, moverTarefaAction } from "./actions";
+import { criarTarefaAction, editarTarefaAction, excluirTarefaAction, moverTarefaAction, salvarExibicaoTarefasAction } from "./actions";
+import { EXIBICAO_PADRAO } from "@/lib/tarefas/exibicao";
+import { lerPreferencias } from "@/lib/preferencias/preferencias";
 
 const db = dbTeste();
 const proibido = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/403;307;" });
@@ -79,5 +81,16 @@ describe("actions do kanban interno", () => {
     expect(await excluirTarefaAction(projeto.id, criada.id)).toEqual({ ok: true });
     expect((await db.tarefa.findUniqueOrThrow({ where: { id: criada.id } })).deletadoEm).toBeInstanceOf(Date);
     expect(await db.timeline.count()).toBe(0);
+  });
+});
+
+describe("exibição por pessoa", () => {
+  it("salva o bloco validado nas preferências do usuário da sessão; inválido é recusado", async () => {
+    const { paula } = await semear();
+    exigirUsuario.mockResolvedValue(paula);
+    expect(await salvarExibicaoTarefasAction({ ...EXIBICAO_PADRAO, vista: "lista", dens: "compacta" })).toEqual({ ok: true });
+    const u = await db.usuario.findUniqueOrThrow({ where: { id: paula.id } });
+    expect(lerPreferencias(u.preferencias).tarefas).toMatchObject({ vista: "lista", dens: "compacta" });
+    expect(await salvarExibicaoTarefasAction({ vista: "mapa" })).toEqual({ erro: "Dados inválidos." });
   });
 });

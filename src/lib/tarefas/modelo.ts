@@ -1,13 +1,34 @@
 /** Tipos e constantes puras do kanban interno: sem banco, importáveis pelo cliente. */
-import type { StatusTarefa } from "@prisma/client";
+import type { PrioridadeTarefa, StatusTarefa } from "@prisma/client";
 
 export const STATUS_TAREFA: readonly StatusTarefa[] = ["BACKLOG", "A_FAZER", "EM_ANDAMENTO", "EM_REVISAO", "FEITA", "CANCELADA"];
+/** Da mais alta para a mais baixa (ordem de triagem); "sem prioridade" por último. */
+export const PRIORIDADES: readonly { k: PrioridadeTarefa; nome: string }[] = [
+  { k: "URGENTE", nome: "Urgente" },
+  { k: "ALTA", nome: "Alta" },
+  { k: "MEDIA", nome: "Média" },
+  { k: "BAIXA", nome: "Baixa" },
+  { k: "SEM_PRIORIDADE", nome: "Sem prioridade" },
+];
+export const ROTULO_PRIORIDADE: Record<PrioridadeTarefa, string> = Object.fromEntries(PRIORIDADES.map((p) => [p.k, p.nome])) as Record<PrioridadeTarefa, string>;
 export const TITULO_MAX = 500;
 export const DESCRICAO_MAX = 10_000;
+export const ETIQUETA_MAX = 30;
+export const ETIQUETAS_MAX = 20;
 
 /** FEITA e CANCELADA: tarefa fechada (preenche `concluidaEm`). */
 export function fechada(status: StatusTarefa): boolean {
   return status === "FEITA" || status === "CANCELADA";
+}
+
+/** Etiqueta é texto livre: minúscula, sem espaço duplicado, sem repetição. Vazia/longa demais sai. */
+export function normalizarEtiquetas(brutas: readonly string[]): string[] {
+  const saida: string[] = [];
+  for (const b of brutas) {
+    const e = b.trim().replace(/\s+/g, " ").toLowerCase();
+    if (e && e.length <= ETIQUETA_MAX && !saida.includes(e)) saida.push(e);
+  }
+  return saida.slice(0, ETIQUETAS_MAX);
 }
 
 export type TarefaLista = {
@@ -16,7 +37,7 @@ export type TarefaLista = {
   titulo: string;
   descricao: string | null;
   status: StatusTarefa;
-  prioridade: string;
+  prioridade: PrioridadeTarefa;
   posicao: number;
   responsavelId: string | null;
   /** `YYYY-MM-DD` ou null (coluna DATE). */

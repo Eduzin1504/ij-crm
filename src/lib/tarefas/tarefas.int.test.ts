@@ -227,3 +227,18 @@ describe("responsável e avisos", () => {
     expect(await editarTarefa(projeto.id, t.id, { responsavelId: paula.id }, paula)).toEqual({ ok: true });
   });
 });
+
+describe("prioridade e etiquetas (etapa 2)", () => {
+  it("cria e edita com prioridade; etiquetas normalizadas, sem repetição; quadro devolve as etiquetas em uso", async () => {
+    const { projeto, paula } = await semear();
+    const t = await criarTarefa(projeto.id, { titulo: "X", prioridade: "ALTA", etiquetas: [" Backend ", "backend", "Infra  Prod", ""] }, paula);
+    if (!t.ok) throw new Error();
+    expect(await tarefa(t.id)).toMatchObject({ prioridade: "ALTA", etiquetas: ["backend", "infra prod"] });
+    expect(await editarTarefa(projeto.id, t.id, { prioridade: "URGENTE", etiquetas: ["qa"] }, paula)).toEqual({ ok: true });
+    expect(await tarefa(t.id)).toMatchObject({ prioridade: "URGENTE", etiquetas: ["qa"] });
+    await criarTarefa(projeto.id, { titulo: "Y", etiquetas: ["backend"] }, paula);
+    const q = await listarQuadro(projeto.id, paula);
+    expect(q.ok && q.etiquetas).toEqual(["backend", "qa"]);
+    expect(await editarTarefa(projeto.id, t.id, { prioridade: "INVENTADA" as never }, paula)).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
+  });
+});

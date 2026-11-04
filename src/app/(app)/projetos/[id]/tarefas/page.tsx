@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
+import { obterPreferencias } from "@/lib/preferencias/servico";
 import { diaEmFuso } from "@/lib/projetos/aging";
+import { EXIBICAO_PADRAO } from "@/lib/tarefas/exibicao";
 import { exigirTarefas } from "@/lib/tarefas/acesso";
 import { listarQuadro } from "@/lib/tarefas/tarefas";
 import { QuadroTarefas } from "./quadro-tarefas";
@@ -18,12 +20,13 @@ export const metadata = { title: "Tarefas do projeto" };
 export default async function TarefasPage({ params }: { params: Promise<{ id: string }> }) {
   const ator = await exigirTarefas();
   const { id } = await params;
-  const q = await listarQuadro(id, ator);
+  const [q, prefs] = await Promise.all([listarQuadro(id, ator), obterPreferencias(ator.id)]);
   if (!q.ok) {
     if (q.erro === "PROJETO_NAO_ENCONTRADO") notFound();
     redirect("/403");
   }
-  const hoje = diaEmFuso(new Date());
+  const agora = new Date();
+  const hoje = diaEmFuso(agora);
 
   return (
     <div className="flex h-[calc(100dvh-10.5rem)] min-h-[28rem] flex-col md:h-[calc(100dvh-7.5rem)]">
@@ -32,7 +35,7 @@ export default async function TarefasPage({ params }: { params: Promise<{ id: st
         <ArrowLeft className="size-3.5" /> {q.projeto.titulo}
       </Link>
       <PageHeader eyebrow="projetos · tarefas do time" title={q.projeto.titulo} description="O que cada pessoa do time está fazendo neste projeto. Só o time de projetos vê este quadro." />
-      <QuadroTarefas key={q.projeto.id} projetoId={q.projeto.id} tarefas={q.tarefas} pessoas={q.pessoas} hoje={hoje} />
+      <QuadroTarefas key={q.projeto.id} projetoId={q.projeto.id} tarefas={q.tarefas} pessoas={q.pessoas} etiquetas={q.etiquetas} exibicaoInicial={prefs.tarefas ?? EXIBICAO_PADRAO} hoje={hoje} agoraMs={agora.getTime()} />
     </div>
   );
 }
