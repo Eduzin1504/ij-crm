@@ -3,22 +3,24 @@
 import { useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-/** Filtro do painel por vendedor (`?vendedor=`); "Todo o time" tira o filtro e mantém o período. */
-/** `periodo`: os parâmetros do período atual (`periodo`, `ref`), mantidos na troca. */
-export function FiltroVendedor({ atualId, opcoes, periodo }: { atualId: string | null; opcoes: { id: string; nome: string }[]; periodo: Record<string, string> }) {
+/**
+ * Filtro do painel por pessoa (`?vendedor=`, ou `?gp=` no painel de projetos); "Todo o time" tira o filtro e mantém o período.
+ * `periodo`: os parâmetros do período atual (`periodo`, `ref`), mantidos na troca.
+ */
+export function FiltroVendedor({ atualId, opcoes, periodo, parametro = "vendedor", rotulo = "vendedor" }: { atualId: string | null; opcoes: { id: string; nome: string }[]; periodo: Record<string, string>; parametro?: string; rotulo?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const [pendente, startTransition] = useTransition();
   return (
     <label className="flex items-center gap-2 text-sm text-fg-mute">
-      <span className="eyebrow">vendedor</span>
+      <span className="eyebrow">{rotulo}</span>
       <select
         value={atualId ?? ""}
         disabled={pendente}
         onChange={(e) => {
           const q = new URLSearchParams(periodo);
-          if (e.target.value) q.set("vendedor", e.target.value);
-          else q.delete("vendedor");
+          if (e.target.value) q.set(parametro, e.target.value);
+          else q.delete(parametro);
           const s = q.toString();
           startTransition(() => router.push(s ? `${pathname}?${s}` : pathname));
         }}

@@ -8,18 +8,21 @@ import { cn } from "cn";
 import type { Acompanhamento, Conversao, Engajamento, Pessoa, Satisfacao } from "@/lib/painel/calculo";
 import { DEFINICOES_PAINEL } from "@/lib/painel/definicoes";
 import type { IndicadorProposta } from "@/lib/painel/proposta";
-import type { Indicador } from "@/lib/painel/servico";
 import { fmtDias, fmtDinheiro, fmtInteiro, fmtPercentual, TRACO } from "@/lib/ranking/formatar";
 
 const NOTA = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmtNota = (n: number | null) => (n === null ? TRACO : NOTA.format(n));
 const fmtDiasInteiros = (d: number | null) => (d === null ? TRACO : fmtDias(Math.round(d * 10) / 10));
-const nome = (p: Pessoa) => (p.ativo ? p.nome : `${p.nome} (inativo)`);
+export const nome = (p: Pessoa) => (p.ativo ? p.nome : `${p.nome} (inativo)`);
 
-function Kpi({ rotulo, valor, dica, tom }: { rotulo: string; valor: string; dica?: string; tom?: "alerta" | "mudo" }) {
+/** `ponto`: a cor funcional fica só no ponto (spec v1 §4.5.1). */
+export function Kpi({ rotulo, valor, dica, tom, ponto }: { rotulo: string; valor: string; dica?: string; tom?: "alerta" | "mudo"; ponto?: "danger" | "warn" }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="eyebrow">{rotulo}</p>
+      <p className="eyebrow flex items-center gap-1.5">
+        {ponto ? <span aria-hidden className={cn("size-2 shrink-0 rounded-full", ponto === "danger" ? "bg-danger" : "bg-warn")} /> : null}
+        {rotulo}
+      </p>
       <p className={cn("mt-2 font-mono text-xl font-semibold tabular", tom === "alerta" && "text-danger", tom === "mudo" && "text-base font-normal text-fg-mute")}>{valor}</p>
       {dica ? <p className="mt-1 text-xs text-fg-faint">{dica}</p> : null}
     </div>
@@ -31,7 +34,7 @@ function KpiProposta({ rotulo, ind, fmt }: { rotulo: string; ind: IndicadorPropo
 }
 
 /** Barra horizontal simples; `fracao` em [0, 1]. */
-function Barra({ fracao, tom = "primario", rotulo }: { fracao: number | null; tom?: "primario" | "sucesso" | "perigo"; rotulo: string }) {
+export function Barra({ fracao, tom = "primario", rotulo }: { fracao: number | null; tom?: "primario" | "sucesso" | "perigo"; rotulo: string }) {
   const pct = fracao === null ? 0 : Math.max(0, Math.min(1, fracao)) * 100;
   return (
     <div role="img" aria-label={rotulo} className="h-2 w-full min-w-16 overflow-hidden rounded-full bg-surface-strong">
@@ -62,7 +65,7 @@ function Legenda({ itens }: { itens: { rotulo: string; classe: string }[] }) {
   );
 }
 
-function Tabela({ cabecalho, children, minimo = "40rem" }: { cabecalho: { rotulo: string; numerica?: boolean; titulo?: string }[]; children: ReactNode; minimo?: string }) {
+export function Tabela({ cabecalho, children, minimo = "40rem" }: { cabecalho: { rotulo: string; numerica?: boolean; titulo?: string }[]; children: ReactNode; minimo?: string }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface">
       <table className="w-full text-sm" style={{ minWidth: minimo }}>
@@ -81,14 +84,14 @@ function Tabela({ cabecalho, children, minimo = "40rem" }: { cabecalho: { rotulo
   );
 }
 
-const TD = "px-3 py-2";
-const TDN = "px-3 py-2 text-right font-mono tabular";
+export const TD = "px-3 py-2";
+export const TDN = "px-3 py-2 text-right font-mono tabular";
 
-function Secao({ titulo, pergunta, indicador, children }: { titulo: string; pergunta: string; indicador: Indicador; children: ReactNode }) {
+export function Secao({ titulo, pergunta, id, definicoes, children }: { titulo: string; pergunta: string; id: string; definicoes: readonly string[]; children: ReactNode }) {
   return (
-    <section aria-labelledby={`painel-${indicador}`} className="space-y-4">
+    <section aria-labelledby={`painel-${id}`} className="space-y-4">
       <div>
-        <h2 id={`painel-${indicador}`} className="eyebrow">
+        <h2 id={`painel-${id}`} className="eyebrow">
           {titulo}
         </h2>
         <p className="mt-1 text-lg font-medium">{pergunta}</p>
@@ -97,7 +100,7 @@ function Secao({ titulo, pergunta, indicador, children }: { titulo: string; perg
       <details className="text-xs text-fg-faint">
         <summary className="cursor-pointer hover:text-fg-mute">Como é calculado</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          {DEFINICOES_PAINEL[indicador].map((d) => (
+          {definicoes.map((d) => (
             <li key={d}>{d}</li>
           ))}
         </ul>
@@ -108,7 +111,7 @@ function Secao({ titulo, pergunta, indicador, children }: { titulo: string; perg
 
 export function SecaoConversao({ c }: { c: Conversao }) {
   return (
-    <Secao titulo="conversão" pergunta="Estamos convertendo?" indicador="conversao">
+    <Secao titulo="conversão" pergunta="Estamos convertendo?" id="conversao" definicoes={DEFINICOES_PAINEL.conversao}>
       <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Kpi rotulo="Ganhos" valor={fmtInteiro(c.ganhos)} />
         <Kpi rotulo="Perdidos" valor={fmtInteiro(c.perdidos)} />
@@ -166,7 +169,7 @@ const CANAIS = [
 export function SecaoEngajamento({ e }: { e: Engajamento }) {
   const max = Math.max(0, ...e.porVendedor.map((l) => l.interacoes));
   return (
-    <Secao titulo="engajamento" pergunta="O time está engajado?" indicador="engajamento">
+    <Secao titulo="engajamento" pergunta="O time está engajado?" id="engajamento" definicoes={DEFINICOES_PAINEL.engajamento}>
       <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <Kpi rotulo="Interações" valor={fmtInteiro(e.time.interacoes)} />
         <Kpi rotulo="WhatsApp #crm" valor={fmtInteiro(e.time.whatsapp)} />
@@ -210,7 +213,7 @@ export function SecaoEngajamento({ e }: { e: Engajamento }) {
 /** `soMeus`: visão restrita (ranking oculto) — a lista de parados é só dos cards da pessoa. */
 export function SecaoAcompanhamento({ a, soMeus = false }: { a: Acompanhamento; soMeus?: boolean }) {
   return (
-    <Secao titulo="acompanhamento · agora" pergunta="Os leads estão sendo acompanhados?" indicador="acompanhamento">
+    <Secao titulo="acompanhamento · agora" pergunta="Os leads estão sendo acompanhados?" id="acompanhamento" definicoes={DEFINICOES_PAINEL.acompanhamento}>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi rotulo="Abertos em Vendas" valor={fmtInteiro(a.abertos)} />
         <Kpi rotulo="Sem próxima ação" valor={fmtInteiro(a.semProximaAcao)} tom={a.semProximaAcao > 0 ? "alerta" : undefined} />
@@ -276,7 +279,7 @@ const SENTIMENTOS = [
 export function SecaoSatisfacao({ s }: { s: Satisfacao }) {
   const totalSent = s.time.positivos + s.time.neutros + s.time.negativos;
   return (
-    <Secao titulo="satisfação" pergunta="Os leads gostaram do contato?" indicador="satisfacao">
+    <Secao titulo="satisfação" pergunta="Os leads gostaram do contato?" id="satisfacao" definicoes={DEFINICOES_PAINEL.satisfacao}>
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi rotulo="Nota média (1–5)" valor={fmtNota(s.time.notaMedia)} dica={`${fmtInteiro(s.time.notas)} ${s.time.notas === 1 ? "nota" : "notas"}`} />
         <div className="rounded-xl border border-border bg-surface p-4 sm:col-span-2">
