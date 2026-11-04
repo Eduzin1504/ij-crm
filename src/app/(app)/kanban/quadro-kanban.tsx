@@ -53,6 +53,8 @@ type Props = {
   visualizacao: VisualizacaoKanban;
   /** VISUALIZADOR (decidido no servidor): sem arrasto e sem "+". As actions recusam de qualquer jeito. */
   somenteLeitura?: boolean;
+  /** GAB-98: a pessoa é da área dona do quadro. Fora dela: sem "+", e só arrasta os cards de que é responsável. */
+  daArea?: boolean;
 };
 
 const idColuna = (faseId: string) => `fase:${faseId}`;
@@ -60,7 +62,9 @@ const idColuna = (faseId: string) => `fase:${faseId}`;
 /** Abrir/recolher coluna à mão salva depois de uma pausa (vários cliques = um request). */
 const ATRASO_SALVAR_COLUNAS_MS = 800;
 
-export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs, responsaveis, meuId, pipelineChave, visualizacao, somenteLeitura = false }: Props) {
+export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs, responsaveis, meuId, pipelineChave, visualizacao, somenteLeitura = false, daArea = true }: Props) {
+  const podeCriar = !somenteLeitura && daArea;
+  const podeArrastar = (c: CardCliente) => !somenteLeitura && (daArea || c.responsavelId === meuId);
   // Estado otimista: parte do servidor e é re-sincronizado quando chegam props novas (revalidate).
   const [base, setBase] = useState(cardsServidor);
   const [cards, setCards] = useState(cardsServidor);
@@ -287,7 +291,7 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
                   </Button>
                 ),
               }
-            : { titulo: "Este quadro ainda não tem cards", texto: somenteLeitura ? "Nada para ver aqui por enquanto." : "Use o + de uma fase para criar o primeiro." })}
+            : { titulo: "Este quadro ainda não tem cards", texto: !podeCriar ? "Nada para ver aqui por enquanto." : "Use o + de uma fase para criar o primeiro." })}
         />
       ) : null}
       <DndContext
@@ -321,7 +325,7 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
                 total={daFase.length}
                 onExpandir={() => alternarExpandida(f.id)}
                 onNovo={
-                  f.isTerminal || somenteLeitura
+                  f.isTerminal || !podeCriar
                     ? undefined
                     : () => {
                         setCriarEm(f.id);
@@ -336,7 +340,8 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
                 cards={daFase}
                 agoraMs={agoraMs}
                 pipelineId={pipelineId}
-                somenteLeitura={somenteLeitura}
+                somenteLeitura={!podeCriar}
+                podeArrastar={podeArrastar}
                 criandoInicial={criarEm === f.id}
                 onCriado={(id) => {
                   setCriarEm(null);
@@ -373,6 +378,7 @@ function Coluna({
   agoraMs,
   pipelineId,
   somenteLeitura,
+  podeArrastar,
   criandoInicial,
   onCriado,
   onRecolher,
@@ -382,6 +388,7 @@ function Coluna({
   agoraMs: number;
   pipelineId: string;
   somenteLeitura: boolean;
+  podeArrastar: (c: CardCliente) => boolean;
   criandoInicial: boolean;
   /** Fim do formulário de novo card; `id` quando criou. */
   onCriado: (id?: string) => void;
@@ -426,7 +433,7 @@ function Coluna({
         {criando ? <NovoCard pipelineId={pipelineId} faseId={fase.id} onFim={fimCriar} /> : null}
         <SortableContext id={idColuna(fase.id)} items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
           {cards.map((c) =>
-            somenteLeitura ? <CardVisual key={c.id} card={c} fase={fase} agoraMs={agoraMs} /> : <CardArrastavel key={c.id} card={c} fase={fase} agoraMs={agoraMs} />,
+            podeArrastar(c) ? <CardArrastavel key={c.id} card={c} fase={fase} agoraMs={agoraMs} /> : <CardVisual key={c.id} card={c} fase={fase} agoraMs={agoraMs} />,
           )}
         </SortableContext>
         {/* Sem mascote: só o aviso do quadro todo vazio tem (um, não um por coluna). */}

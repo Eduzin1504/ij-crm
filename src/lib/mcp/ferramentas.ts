@@ -5,7 +5,8 @@
  *
  * Permissão = a da tela: ferramenta de escrita recusa VISUALIZADOR antes de
  * chamar o serviço (como `exigirEscrita` nas actions), e o serviço ainda
- * confere o papel (`SEM_PERMISSAO`). Ficam SÓ na tela: deleção definitiva,
+ * confere o papel (`SEM_PERMISSAO`). Área do card e acesso à proposta (GAB-98):
+ * `guarda` de cada ferramenta, na porta única. Ficam SÓ na tela: deleção definitiva,
  * merge de contatos e configuração técnica (não há ferramenta para elas).
  *
  * Tudo roda dentro de `comViaMcp`: a Timeline gravada sai marcada "via MCP".
@@ -74,7 +75,10 @@ import {
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
+import { recusaDeCriarNoQuadro } from "@/lib/projetos/acesso-card";
+import { entradaDaProposta, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
+import { cardEditavel, propostaVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -94,6 +98,11 @@ export type Ferramenta<F extends Forma = Forma> = {
    * lido): só tira o `readOnlyHint` do anúncio MCP; a permissão segue `escrita`.
    */
   muda?: boolean;
+  /**
+   * GAB-98: permissão que depende do dado (área do card, proposta), conferida na porta
+   * única depois dos argumentos. `string` = recusa, e o serviço nem é chamado.
+   */
+  guarda?: (args: z.infer<z.ZodObject<F>>, eu: UsuarioMcp) => Promise<string | null>;
   entrada: F;
   executar: (args: z.infer<z.ZodObject<F>>, eu: UsuarioMcp) => Promise<Resposta>;
 };
@@ -213,8 +222,11 @@ const lerProjeto = ferramenta({
     const fases = await mapaDeFases();
     const nomeFase = (v: unknown) => (typeof v === "string" ? (fases.get(v)?.nome ?? "fase removida") : undefined);
     const n = a.timeline ?? TIMELINE_PADRAO;
+    // GAB-98: quem não vê a proposta também não vê os eventos dela nem o link.
+    const veProposta = await podeVerPropostaDoProjeto(eu, c.id);
+    const timeline = veProposta ? c.timeline : c.timeline.filter((t) => !entradaDaProposta(t));
     // `slice(-0)` seria a lista inteira: 0 pede nenhuma entrada.
-    const recentes = n === 0 ? [] : c.timeline.slice(-n).reverse();
+    const recentes = n === 0 ? [] : timeline.slice(-n).reverse();
     return ok({
       id: c.id,
       titulo: c.titulo,
@@ -229,7 +241,7 @@ const lerProjeto = ferramenta({
         dor: c.dor,
         descricao: c.descricao,
         orcamentoPrevisto: c.orcamentoPrevisto?.toFixed(2) ?? null,
-        propostaUrl: c.propostaUrl,
+        propostaUrl: veProposta ? c.propostaUrl : null,
         cidade: c.cidade,
         estado: c.estado,
         revisar: c.revisar,
@@ -272,6 +284,7 @@ const criarProjeto = ferramenta({
   descricao:
     "Cria um projeto (card) com você como responsável, como o + do Kanban. Sem fase_id, entra na primeira fase aberta do quadro. Não cria direto em fase de ganho/perdido (crie e depois mova).",
   escrita: true,
+  guarda: (a, eu) => recusaDeCriarNoQuadro({ chave: a.quadro ?? PIPELINE_VENDAS }, eu),
   entrada: {
     titulo: z.string().min(1).max(1000),
     quadro: quadro.optional().describe("padrão vendas"),
@@ -317,6 +330,7 @@ const atualizarProjeto = ferramenta({
   descricao:
     "Altera campos do projeto, no mesmo formato da tela: texto vazio limpa o campo. origem: COLD_CALL|RD|INDICACAO|EVENTO|OUTRO; orcamentoPrevisto em reais no formato BR (12.500,00); estado: sigla da UF; proximaAcaoEm: AAAA-MM-DD; responsavelId: id de listar_responsaveis; revisar: true|false. Cada mudança vai para a Timeline.",
   escrita: true,
+  guarda: cardEditavel,
   entrada: { id, campos: z.object(camposEntrada).strict() },
   executar: async (a, eu) => aplicarCampos(a.id, a.campos, eu),
 });
@@ -326,6 +340,7 @@ const definirProximaAcao = ferramenta({
   titulo: "Definir próxima ação",
   descricao: "Define (ou limpa, com os dois vazios) a próxima ação do projeto e a data dela (AAAA-MM-DD).",
   escrita: true,
+  guarda: cardEditavel,
   entrada: { id, acao: z.string().max(1000), data: z.string().max(20) },
   executar: async (a, eu) => aplicarCampos(a.id, { proximaAcao: a.acao, proximaAcaoEm: a.data }, eu),
 });
@@ -336,6 +351,7 @@ const moverProjeto = ferramenta({
   descricao:
     "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card; Ganho só a partir de Montando contrato — prefira marcar_contrato_assinado). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
   escrita: true,
+  guarda: cardEditavel,
   entrada: {
     id,
     fase_id: id,
@@ -390,6 +406,7 @@ const vincularEmpresaContato = ferramenta({
   titulo: "Vincular empresa ou contato ao projeto",
   descricao: "Vincula ao projeto uma Empresa ou um Contato existente (id de buscar_empresas_contatos). alvo_id vazio desvincula. A troca vai para a Timeline.",
   escrita: true,
+  guarda: cardEditavel,
   entrada: { id, campo: z.enum(["empresa", "contato"]), alvo_id: z.string().max(64).describe('id da empresa/contato; "" desvincula') },
   executar: async (a, eu) => {
     const r = await vincularAoCard(a.id, a.campo, a.alvo_id.trim() || null, eu);
@@ -565,6 +582,7 @@ const lerProposta = ferramenta({
   descricao:
     "Lê a proposta do projeto (uma por projeto): status, o texto do rascunho em Markdown, a parte estruturada (valor, prazo em dias, escopo resumido, cronograma de entregas), a lista de versões salvas e a `revisao` atual — guarde-a: editar_proposta e salvar_versao_proposta pedem a revisão que você leu (se alguém mexeu depois, você recebe conflito em vez de sobrescrever). Diz também se você pode editar.",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
   executar: async (a, eu) => {
     const r = await obterPropostaDoProjeto(a.projeto_id);
@@ -633,6 +651,7 @@ const editarPropostaMcp = ferramenta({
   descricao:
     "Altera o RASCUNHO da proposta (não cria versão). Mande `revisao` (de ler_proposta) e o que mudar: `markdown` substitui o texto inteiro; valor (reais, 12.500,00), prazo_dias (inteiro), escopo_resumo e entregas (lista completa do cronograma, na ordem: titulo, dia AAAA-MM-DD, valor opcional) substituem só esses campos. Texto vazio limpa o campo. Se alguém alterou depois da sua leitura, volta conflito e nada é gravado: leia de novo e reaplique.",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: {
     projeto_id: projetoId,
     revisao: z.number().int().min(0),
@@ -668,6 +687,7 @@ const salvarVersaoMcp = ferramenta({
   titulo: "Salvar versão da proposta",
   descricao: `Salva o rascunho atual como nova versão imutável (v1, v2…), com nota opcional (até ${NOTA_VERSAO_MAX} caracteres). Peça a \`revisao\` que você leu: a versão é do conteúdo que você viu. Vai para a Timeline.`,
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), nota: z.string().max(2000).optional() },
   executar: async (a, eu) => {
     const r = await salvarVersao(a.projeto_id, { revisao: a.revisao, nota: a.nota }, eu);
@@ -681,6 +701,7 @@ const listarVersoesMcp = ferramenta({
   titulo: "Listar versões da proposta",
   descricao: "Lista as versões salvas da proposta (mais nova primeiro): número, nota, autor, data e se foi via MCP.",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
   executar: async (a) => {
     const r = await obterPropostaDoProjeto(a.projeto_id);
@@ -695,6 +716,7 @@ const lerVersaoMcp = ferramenta({
   titulo: "Ler versão da proposta",
   descricao: "Lê uma versão salva da proposta (imutável): o Markdown e a parte estruturada daquele momento, com nota, autor e data.",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, numero: z.number().int().min(1) },
   executar: async (a) => {
     const v = await obterVersao(a.projeto_id, a.numero);
@@ -727,6 +749,7 @@ const passarCanetaMcp = ferramenta({
   titulo: "Passar a caneta da proposta",
   descricao: "Passa a caneta (quem edita a proposta) para outra pessoa do MESMO lado (vendas→vendas, projetos→projetos). Só quem está com a caneta passa. Não salva versão. Para mandar ao outro lado use devolver_proposta.",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, para_id: paraId },
   executar: async (a, eu) => {
     const r = await passarCaneta(a.projeto_id, a.para_id, eu);
@@ -739,6 +762,7 @@ const devolverMcp = ferramenta({
   titulo: "Devolver a proposta ao outro lado",
   descricao: `Devolve a proposta para alguém do OUTRO lado avaliar (vendas ↔ projetos): salva o rascunho atual como versão (nota opcional, até ${NOTA_VERSAO_MAX} caracteres) e passa a caneta. Mande a \`revisao\` de ler_proposta (conflito = alguém mexeu depois). Se nada mudou desde a versão que veio do outro lado, use concordar_proposta.`,
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), para_id: paraId, nota: z.string().max(2000).optional() },
   executar: async (a, eu) => {
     const r = await devolverProposta(a.projeto_id, { revisao: a.revisao, paraId: a.para_id, nota: a.nota }, eu);
@@ -752,6 +776,7 @@ const concordarMcp = ferramenta({
   descricao:
     "Concorda com a última versão, que veio do OUTRO lado, sem editar: há consenso e a proposta fica Pronta para envio (a caneta fica com vendas, que envia). Só vale se a última versão é do outro lado e o rascunho não foi mexido depois dela. Mande a `revisao` de ler_proposta.",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, revisao: z.number().int().min(0) },
   executar: async (a, eu) => {
     const r = await concordarProposta(a.projeto_id, a.revisao, eu);
@@ -764,6 +789,7 @@ const pegarCanetaMcp = ferramenta({
   titulo: "Pegar a caneta da proposta (GP)",
   descricao: "Só para o GP do lado que está com a caneta: pega a caneta para destravar (quem estava com ela sumiu, ou ninguém está). Fica na Timeline.",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
   executar: async (a, eu) => {
     const r = await pegarCaneta(a.projeto_id, eu);
@@ -776,6 +802,7 @@ const reabrirMcp = ferramenta({
   titulo: "Reabrir proposta pronta para envio",
   descricao: "Proposta Pronta para envio → Em ajuste (vendas quer mudar algo antes de enviar). Só quem está com a caneta. Depois de mudar, ela precisa passar por projetos de novo (devolver_proposta).",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
   executar: async (a, eu) => {
     const r = await reabrirProposta(a.projeto_id, eu);
@@ -788,6 +815,7 @@ const inviavelMcp = ferramenta({
   titulo: "Marcar proposta como inviável",
   descricao: `Projetos diz que a proposta é inviável, com motivo (até ${MOTIVO_INVIAVEL_MAX} caracteres): a proposta sai do pingue-pongue e o projeto vai para Perdido no quadro de Vendas. Só o GP de projetos ou quem está com a caneta do lado de projetos. Não tem volta pelo MCP: confirme com a pessoa antes.`,
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, motivo: z.string().max(2000) },
   executar: async (a, eu) => {
     const r = await marcarInviavel(a.projeto_id, a.motivo, eu);
@@ -803,6 +831,7 @@ const gerarPdfMcp = ferramenta({
   descricao:
     "Link de download do PDF da proposta: a versão final (texto + valor, prazo, escopo e cronograma) no template da IJ. Existe a partir de Pronta para envio (depois do envio, é a versão enviada). O link abre no navegador com o login do CRM. O sistema não envia nada ao cliente: a pessoa baixa e manda pelo canal que quiser, depois marca com marcar_proposta_enviada.",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
   executar: async (a) => {
     const r = await versaoFinalDaProposta(a.projeto_id);
@@ -817,6 +846,7 @@ const marcarEnviadaMcp = ferramenta({
   descricao:
     "Vendas marca que mandou a proposta (Pronta para envio) ao cliente — o sistema não envia e-mail. Só quem está com a caneta (vendas) ou o GP de vendas. Mande `versao` (de gerar_pdf_proposta) para garantir que é a do PDF que foi mandado.",
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, versao: z.number().int().min(1).optional() },
   executar: async (a, eu) => {
     const r = await marcarEnviada(a.projeto_id, eu, { versao: a.versao });
@@ -829,6 +859,7 @@ const registrarRespostaMcp = ferramenta({
   titulo: "Registrar a resposta do cliente à proposta",
   descricao: `Resposta do cliente a uma proposta Enviada (vendas: quem está com a caneta ou o GP de vendas). "aceita" → o projeto vai para Montando contrato. "recusada" → motivo_perda obrigatório (chave de listar_fases; "outro" exige detalhe_perda) e o projeto vai para Perdido. "revisao_pedida" → a caneta volta para você, com o pedido (opcional, até ${PEDIDO_REVISAO_MAX} caracteres); edite e use concluir_revisao_proposta (se escopo/prazo/valor não mudaram) ou devolver_proposta para projetos. Confirme com a pessoa antes: aceite e recusa movem o card.`,
   escrita: true,
+  guarda: propostaVisivel,
   entrada: {
     projeto_id: projetoId,
     resposta: z.enum(["aceita", "recusada", "revisao_pedida"]),
@@ -848,6 +879,7 @@ const concluirRevisaoMcp = ferramenta({
   titulo: "Concluir a revisão pedida pelo cliente",
   descricao: `Revisão pedida pelo cliente → Pronta para envio de novo, sem passar por projetos: só se valor, prazo, escopo e entregas são os mesmos da versão enviada (senão é recusado: use devolver_proposta). Salva o rascunho atual como versão (nota opcional, até ${NOTA_VERSAO_MAX} caracteres) se o texto mudou. Mande a \`revisao\` de ler_proposta.`,
   escrita: true,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, revisao: z.number().int().min(0), nota: z.string().max(2000).optional() },
   executar: async (a, eu) => {
     const r = await concluirRevisao(a.projeto_id, { revisao: a.revisao, nota: a.nota }, eu);
@@ -861,6 +893,7 @@ const verDiffMcp = ferramenta({
   descricao:
     "Diff entre duas versões da proposta: texto (linhas com '- ' saiu, '+ ' entrou, '  ' igual) e campos da parte estruturada que mudaram. Sem `de`/`para`: da última versão que o SEU lado entregou até a última (o que voltou para você).",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: projetoId, de: z.number().int().min(1).optional(), para: z.number().int().min(1).optional() },
   executar: async (a, eu) => {
     const d = await diffDaProposta(a.projeto_id, { de: a.de, para: a.para, quem: eu.id });
@@ -929,6 +962,7 @@ const marcarContratoAssinadoMcp = ferramenta({
   descricao:
     "Contrato assinado: leva o projeto em Montando contrato (ou numa subfase depois dele) para Ganho e dali ao Handoff do quadro projetos, registrando a data e o valor fechado. Fora disso é recusado, nem gestor força. valor_fechado no formato 12.500,00; ausente ou vazio mantém o valor já guardado no projeto, e sem nenhum valor o ganho sai com um aviso na resposta. pdf_base64 (opcional, PDF de até 7,8 MB; maior que isso, anexe pela tela) anexa o PDF assinado ao projeto; pdf_nome é o nome do arquivo e só vale com pdf_base64.",
   escrita: true,
+  guarda: cardEditavel,
   entrada: {
     id,
     valor_fechado: z.string().max(50).optional(),
@@ -996,7 +1030,7 @@ function resultado(r: Resposta): CallToolResult {
 
 /**
  * Porta única de execução (o servidor MCP e os testes passam por aqui):
- * valida argumentos, aplica a permissão do papel e marca "via MCP".
+ * valida argumentos, aplica a permissão do papel e a guarda da ferramenta, e marca "via MCP".
  */
 export async function executarFerramenta(nome: string, args: unknown, eu: UsuarioMcp): Promise<CallToolResult> {
   const f = FERRAMENTAS.find((x) => x.nome === nome);
@@ -1008,7 +1042,12 @@ export async function executarFerramenta(nome: string, args: unknown, eu: Usuari
     return resultado(erro(`Argumento inválido${i.path.length ? ` em ${i.path.join(".")}` : ""}: ${i.message}`));
   }
   try {
-    return resultado(await comViaMcp(() => f.executar(p.data, eu)));
+    return resultado(
+      await comViaMcp(async () => {
+        const recusa = await f.guarda?.(p.data, eu);
+        return recusa ? erro(recusa) : f.executar(p.data, eu);
+      }),
+    );
   } catch (e) {
     const ref = registrarErro(`mcp.${nome}`, e);
     return resultado(erro(mensagemInesperada(ref)));

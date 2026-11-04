@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirEscrita } from "@/lib/auth/atual";
+import type { PessoaComId } from "@/lib/auth/visibilidade";
+import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import type { ConflitoCliente } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
@@ -55,6 +57,12 @@ function falhaParaTela(f: Falha): RespostaProposta {
   };
 }
 
+/** GAB-98: quem não vê a proposta nem chega à regra da caneta (que contaria o status). */
+async function semAcesso(projetoId: string, ator: PessoaComId): Promise<{ erro: string } | null> {
+  if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
+  return (await podeVerPropostaDoProjeto(ator, projetoId)) ? null : { erro: MENSAGEM_SEM_ACESSO_PROPOSTA };
+}
+
 function revalidar(projetoId: string) {
   revalidatePath(`/projetos/${projetoId}`);
   revalidatePath(`/projetos/${projetoId}/proposta`);
@@ -77,6 +85,8 @@ export async function criarPropostaAction(projetoId: string): Promise<RespostaPr
 export async function salvarTextoAction(projetoId: string, revisao: number, documento: unknown): Promise<RespostaProposta> {
   return comTratamento("proposta.salvarTexto", async (): Promise<RespostaProposta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success) return { erro: "Dados inválidos." };
     const r = await salvarRascunho(projetoId, { revisao, conteudo: { documento } }, ator);
     if (!r.ok) return falhaParaTela(r);
@@ -87,6 +97,8 @@ export async function salvarTextoAction(projetoId: string, revisao: number, docu
 export async function salvarEstruturadoAction(projetoId: string, revisao: number, estruturado: unknown): Promise<RespostaProposta> {
   return comTratamento("proposta.salvarEstruturado", async (): Promise<RespostaProposta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success) return { erro: "Dados inválidos." };
     const r = await salvarRascunho(projetoId, { revisao, estruturado }, ator);
     if (!r.ok) return falhaParaTela(r);
@@ -103,6 +115,8 @@ export async function salvarVersaoAction(
 ): Promise<RespostaProposta> {
   return comTratamento("proposta.salvarVersao", async (): Promise<RespostaProposta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success || (dados.nota !== undefined && typeof dados.nota !== "string")) {
       return { erro: "Dados inválidos." };
     }
@@ -133,6 +147,8 @@ const textoCurto = z.string().max(4000);
 export async function passarCanetaAction(projetoId: string, paraId: string): Promise<RespostaCaneta> {
   return comTratamento("proposta.passarCaneta", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !id.safeParse(paraId).success) return { erro: "Escolha para quem passar a caneta." };
     const r = await passarCaneta(projetoId, paraId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -149,6 +165,8 @@ export async function devolverAction(
 ): Promise<RespostaCaneta> {
   return comTratamento("proposta.devolver", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success || (dados.nota !== undefined && typeof dados.nota !== "string")) {
       return { erro: "Dados inválidos." };
     }
@@ -173,6 +191,8 @@ export async function devolverAction(
 export async function concordarAction(projetoId: string, revisao: number): Promise<RespostaCaneta> {
   return comTratamento("proposta.concordar", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success) return { erro: "Dados inválidos." };
     const r = await concordarProposta(projetoId, revisao, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -184,6 +204,8 @@ export async function concordarAction(projetoId: string, revisao: number): Promi
 export async function pegarCanetaAction(projetoId: string): Promise<RespostaCaneta> {
   return comTratamento("proposta.pegarCaneta", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
     const r = await pegarCaneta(projetoId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -195,6 +217,8 @@ export async function pegarCanetaAction(projetoId: string): Promise<RespostaCane
 export async function reabrirAction(projetoId: string): Promise<RespostaCaneta> {
   return comTratamento("proposta.reabrir", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
     const r = await reabrirProposta(projetoId, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -206,6 +230,8 @@ export async function reabrirAction(projetoId: string): Promise<RespostaCaneta> 
 export async function marcarInviavelAction(projetoId: string, motivo: string): Promise<RespostaCaneta> {
   return comTratamento("proposta.inviavel", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !textoCurto.safeParse(motivo).success) return { erro: "Dados inválidos." };
     const r = await marcarInviavel(projetoId, motivo, ator);
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -220,6 +246,8 @@ export async function marcarInviavelAction(projetoId: string, motivo: string): P
 export async function marcarEnviadaAction(projetoId: string, versao: number): Promise<RespostaCaneta> {
   return comTratamento("proposta.enviada", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !z.number().int().min(1).safeParse(versao).success) return { erro: "Dados inválidos." };
     const r = await marcarEnviada(projetoId, ator, { versao });
     if (!r.ok) return falhaParaTela(r) as RespostaCaneta;
@@ -239,6 +267,8 @@ const respostaSchema = z.object({
 export async function registrarRespostaAction(projetoId: string, dados: unknown): Promise<RespostaCaneta> {
   return comTratamento("proposta.resposta", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     const d = respostaSchema.safeParse(dados);
     if (!id.safeParse(projetoId).success || !d.success) return { erro: "Dados inválidos." };
     const r = await registrarResposta(projetoId, d.data, ator);
@@ -257,6 +287,8 @@ export async function concluirRevisaoAction(
 ): Promise<RespostaCaneta> {
   return comTratamento("proposta.concluirRevisao", async (): Promise<RespostaCaneta> => {
     const ator = await exigirEscrita();
+    const bloqueio = await semAcesso(projetoId, ator);
+    if (bloqueio) return bloqueio;
     if (!id.safeParse(projetoId).success || !revisaoSchema.safeParse(revisao).success || (dados.nota !== undefined && typeof dados.nota !== "string")) {
       return { erro: "Dados inválidos." };
     }

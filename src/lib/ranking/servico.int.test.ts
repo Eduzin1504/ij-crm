@@ -7,7 +7,7 @@ import { criarCard, moverCard } from "@/lib/projetos/projetos";
 import { obterConfiguracao } from "@/lib/configuracao/servico";
 import { CONFIG_RANKING, CONFIG_RANKING_PADRAO } from "./config";
 import { resolverPeriodo } from "./periodo";
-import { carregarDados, carregarRanking, carregarTop3, listarParticipantes, obterConfigRanking, podeVerRanking, salvarConfigRanking } from "./servico";
+import { carregarDados, carregarRanking, carregarTop3, listarParticipantes, obterConfigRanking, podeVerPainelCompleto, podeVerRanking, salvarConfigRanking } from "./servico";
 
 const db = dbTeste();
 
@@ -204,26 +204,24 @@ describe("visibilidade e configuração", () => {
     expect((await carregarTop3(s.gil, agora)).modo).toBe("completo");
   });
 
-  it("VISUALIZADOR vê o ranking completo mesmo escondido dos vendedores, sem linha própria; não mexe nos pesos", async () => {
+  it("GAB-98: o Ranking não é do VISUALIZADOR, o Painel completo continua; ele não tem linha própria nem mexe nos pesos", async () => {
     const s = await semear();
     const vera = await db.usuario.create({ data: { nome: "Vera Visualizadora", email: "vera@ij.test", papel: "VISUALIZADOR" } });
     const a = await novoCard(s, s.ana, "da Ana");
     await ok(moverCard(a, fase(s, "em_negociacao"), s.ana));
     await ok(salvarConfigRanking({ ...CONFIG_RANKING_PADRAO, mostrarAosVendedores: false }, s.gil, null));
     const config = await obterConfigRanking();
-    expect(podeVerRanking(vera, config)).toBe(true);
+    expect(podeVerRanking(vera, config)).toBe(false);
     expect(podeVerRanking(s.ana, config)).toBe(false);
+    expect(podeVerRanking(s.gil, config)).toBe(true);
+    expect(podeVerPainelCompleto(vera, config)).toBe(true);
+    expect(podeVerPainelCompleto(s.ana, config)).toBe(false);
+    expect(podeVerPainelCompleto(s.gil, config)).toBe(true);
 
     const agora = new Date();
     const v = await carregarRanking(vera, resolverPeriodo("semana", undefined, agora), agora);
-    if (v.modo !== "completo") throw new Error("modo");
-    expect(v.eu).toBeNull();
-    expect(v.ranking.linhas.map((l) => l.usuario.nome)).toEqual(expect.arrayContaining(["Ana Vendas", "Bruno Lima"]));
-    expect(v.ranking.linhas.some((l) => l.usuario.id === vera.id)).toBe(false);
-    expect(v.feed.some((i) => i.usuario.id === s.ana.id)).toBe(true);
-
-    const top = await carregarTop3(vera, agora);
-    expect(top).toMatchObject({ modo: "completo", eu: null });
+    expect(v).toMatchObject({ modo: "proprio", eu: null, feed: [] });
+    expect(await carregarTop3(vera, agora)).toEqual({ modo: "proprio", eu: null });
 
     expect(await salvarConfigRanking(CONFIG_RANKING_PADRAO, vera, null)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
   });

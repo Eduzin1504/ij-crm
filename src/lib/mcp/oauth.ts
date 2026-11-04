@@ -16,7 +16,7 @@
  * caem no DCR, que funciona em todas as superfícies.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { Papel } from "@prisma/client";
+import type { Area, Cargo, Papel } from "@prisma/client";
 import { db } from "@/lib/db";
 import { registrarErro } from "@/lib/erros/registrar";
 import { recursoMcp, urlBase } from "./url";
@@ -373,17 +373,17 @@ export async function revogarToken(token: string): Promise<void> {
 
 // ---------------------------------------------------------------- recurso (/api/mcp)
 
-export type UsuarioMcp = { id: string; nome: string; papel: Papel };
+export type UsuarioMcp = { id: string; nome: string; papel: Papel; area: Area | null; cargos: Cargo[] };
 
 /**
  * Bearer → usuário. Token vencido, revogado ou de usuário inativo → null (401).
- * O papel é lido a cada request: mudou na Gestão, vale na hora no MCP também.
+ * Papel, área e cargos (GAB-98: visibilidade por área) são lidos a cada request: mudou na Gestão, vale na hora no MCP também.
  */
 export async function autenticarAcesso(token: string, agora: Date = new Date()): Promise<{ usuario: UsuarioMcp; conexaoId: string } | null> {
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   const c = await db.mcpConexao.findUnique({
     where: { acessoHash: hashToken(token) },
-    select: { id: true, acessoExpiraEm: true, ultimoUsoEm: true, usuario: { select: { id: true, nome: true, papel: true, ativo: true } } },
+    select: { id: true, acessoExpiraEm: true, ultimoUsoEm: true, usuario: { select: { id: true, nome: true, papel: true, area: true, cargos: true, ativo: true } } },
   });
   if (!c || c.acessoExpiraEm.getTime() <= agora.getTime() || !c.usuario.ativo) return null;
   const limite = new Date(agora.getTime() - TOQUE_MINUTOS * 60_000);
@@ -394,8 +394,8 @@ export async function autenticarAcesso(token: string, agora: Date = new Date()):
       registrarErro("mcp.oauth.tocarConexao", e);
     }
   }
-  const { id, nome, papel } = c.usuario;
-  return { usuario: { id, nome, papel }, conexaoId: c.id };
+  const { id, nome, papel, area, cargos } = c.usuario;
+  return { usuario: { id, nome, papel, area, cargos }, conexaoId: c.id };
 }
 
 // ---------------------------------------------------------------- perfil

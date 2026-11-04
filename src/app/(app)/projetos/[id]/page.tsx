@@ -24,6 +24,8 @@ import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
+import { podeEditarCard } from "@/lib/auth/visibilidade";
+import { entradaDaProposta, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { listarPrazosDoCard } from "@/lib/prazos/prazos";
 import { PrazosProvider } from "../../_calendario/editor-prazo";
 import { PrazosDoCard } from "./prazos-card";
@@ -33,7 +35,7 @@ export const metadata = { title: "Card" };
 
 export default async function CardPage({ params }: { params: Promise<{ id: string }> }) {
   const ator = await exigirUsuario();
-  // VISUALIZADOR vê tudo, sem controles de escrita (as actions recusam no servidor de qualquer jeito).
+  // VISUALIZADOR lê o card, sem controles de escrita (as actions recusam no servidor de qualquer jeito).
   const leitura = !podeEscrever(ator.papel);
   const { id } = await params;
   const card = await obterCard(id);
@@ -44,8 +46,14 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
     notFound();
   }
 
+  // GAB-98: mover e editar dados são da área dona e do responsável; quem é de fora comenta, cria prazo e anexa.
+  const soLeituraDados = !podeEditarCard(ator, { responsavelId: card.responsavelId, quadro: card.pipeline.chave });
+  // A proposta só para quem a vê: seção, link e os eventos dela na Timeline.
+  const veProposta = await podeVerPropostaDoProjeto(ator, card.id);
+  const timeline = veProposta ? card.timeline : card.timeline.filter((t) => !entradaDaProposta(t));
+
   const idsUsuarios = new Set<string>([card.responsavelId]);
-  for (const t of card.timeline) {
+  for (const t of timeline) {
     const p = t.payload as Record<string, unknown> | null;
     if (p && p.campo === "responsavelId") {
       if (typeof p.antes === "string") idsUsuarios.add(p.antes);
@@ -109,7 +117,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           {card.pipeline.chave} · {card.fase.nome}
           {card.fase.arquivadaEm ? " (arquivada)" : ""}
         </p>
-        <CampoInline somenteLeitura={leitura} cardId={card.id} campo="titulo" rotulo="Título" valor={card.titulo} className="[&_button]:text-xl [&_button]:font-semibold [&>p]:text-xl [&>p]:font-semibold [&>label]:sr-only" />
+        <CampoInline somenteLeitura={soLeituraDados} cardId={card.id} campo="titulo" rotulo="Título" valor={card.titulo} className="[&_button]:text-xl [&_button]:font-semibold [&>p]:text-xl [&>p]:font-semibold [&>label]:sr-only" />
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-mute">
           <DiasNaFase dias={dias} nivel={nivel} />
           <span className="inline-flex items-center gap-2">
@@ -125,7 +133,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             </span>
           ) : null}
           <span className="font-mono text-[11px] text-fg-faint">criado {formatarDataHora(card.criadoEm)}</span>
-          {leitura ? null : <ExcluirCard cardId={card.id} titulo={card.titulo} quadro={card.pipeline.chave} />}
+          {soLeituraDados ? null : <ExcluirCard cardId={card.id} titulo={card.titulo} quadro={card.pipeline.chave} />}
         </div>
       </header>
 
@@ -137,7 +145,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             <h2 className="mb-4 text-sm font-medium">Dados</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <MoverFase
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 ganhoId={ganhoParaAssinar}
                 cardId={card.id}
                 titulo={card.titulo}
@@ -155,7 +163,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 }))}
               />
               <CampoInline
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 cardId={card.id}
                 campo="responsavelId"
                 rotulo="Responsável"
@@ -164,7 +172,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 opcoes={opcoesResp.map((r) => ({ valor: r.id, rotulo: r.nome }))}
               />
               <CampoInline
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 cardId={card.id}
                 campo="origem"
                 rotulo="Origem"
@@ -173,7 +181,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 opcoes={[{ valor: "", rotulo: "—" }, ...Object.entries(ROTULO_ORIGEM).map(([valor, rotulo]) => ({ valor, rotulo }))]}
               />
               <CampoInline
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 cardId={card.id}
                 campo="orcamentoPrevisto"
                 rotulo="Orçamento previsto"
@@ -181,9 +189,9 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 valor={orcamento ? orcamento.replace(".", ",") : ""}
                 exibicao={orcamento ? formatarDinheiro(orcamento) : undefined}
               />
-              <CampoInline somenteLeitura={leitura} cardId={card.id} campo="cidade" rotulo="Cidade" valor={card.cidade ?? ""} />
+              <CampoInline somenteLeitura={soLeituraDados} cardId={card.id} campo="cidade" rotulo="Cidade" valor={card.cidade ?? ""} />
               <CampoInline
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 cardId={card.id}
                 campo="estado"
                 rotulo="Estado"
@@ -191,11 +199,11 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 valor={card.estado ?? ""}
                 opcoes={[{ valor: "", rotulo: "—" }, ...UFS.map((uf) => ({ valor: uf, rotulo: uf }))]}
               />
-              <CampoInline somenteLeitura={leitura} cardId={card.id} campo="propostaUrl" rotulo="Proposta (link)" tipo="url" valor={card.propostaUrl ?? ""} className="sm:col-span-2" />
-              <CampoInline somenteLeitura={leitura} cardId={card.id} campo="dor" rotulo="Dor" tipo="textarea" valor={card.dor ?? ""} className="sm:col-span-2" />
-              <CampoInline somenteLeitura={leitura} cardId={card.id} campo="proximaAcao" rotulo="Próxima ação" valor={card.proximaAcao ?? ""} />
+              {veProposta ? <CampoInline somenteLeitura={soLeituraDados} cardId={card.id} campo="propostaUrl" rotulo="Proposta (link)" tipo="url" valor={card.propostaUrl ?? ""} className="sm:col-span-2" /> : null}
+              <CampoInline somenteLeitura={soLeituraDados} cardId={card.id} campo="dor" rotulo="Dor" tipo="textarea" valor={card.dor ?? ""} className="sm:col-span-2" />
+              <CampoInline somenteLeitura={soLeituraDados} cardId={card.id} campo="proximaAcao" rotulo="Próxima ação" valor={card.proximaAcao ?? ""} />
               <CampoInline
-                somenteLeitura={leitura}
+                somenteLeitura={soLeituraDados}
                 cardId={card.id}
                 campo="proximaAcaoEm"
                 rotulo="Data da próxima ação"
@@ -204,12 +212,12 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 exibicao={diaAcao ? formatarDia(diaAcao) : undefined}
               />
               <div className="sm:col-span-2">
-                <RevisarSwitch cardId={card.id} valor={card.revisar} somenteLeitura={leitura} />
+                <RevisarSwitch cardId={card.id} valor={card.revisar} somenteLeitura={soLeituraDados} />
               </div>
             </div>
           </section>
 
-          <section className="rounded-xl border border-border bg-surface p-4">
+          {veProposta ? <section className="rounded-xl border border-border bg-surface p-4">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-medium">Proposta</h2>
               {card.proposta ? <StatusPropostaBadge status={card.proposta.status} /> : null}
@@ -225,11 +233,11 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                   : "Só rascunho, nenhuma versão salva ainda."
                 : "Ainda sem proposta (uma por projeto)."}
             </p>
-          </section>
+          </section> : null}
 
-          <DescricaoCard cardId={card.id} valor={card.descricao} somenteLeitura={leitura} />
+          <DescricaoCard cardId={card.id} valor={card.descricao} somenteLeitura={soLeituraDados} />
 
-          <AnexosDoProjeto cardId={card.id} anexos={anexos} somenteLeitura={leitura} />
+          <AnexosDoProjeto cardId={card.id} anexos={anexos} somenteLeitura={leitura} excluiDeTodos={!soLeituraDados} euId={ator.id} />
 
           <PrazosProvider
             eu={{ id: ator.id, nome: ator.nome }}
@@ -241,7 +249,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             <PrazosDoCard cardId={card.id} prazos={prazos} hoje={hoje} />
           </PrazosProvider>
 
-          <Vinculos cardId={card.id} somenteLeitura={leitura} />
+          <Vinculos cardId={card.id} somenteLeitura={soLeituraDados} />
 
           {leitura ? null : (
             <section className="rounded-xl border border-border bg-surface p-4">
@@ -256,7 +264,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             <h2 className="text-sm font-medium">Timeline</h2>
             {avaliacao ? <ResumoAvaliacaoContato resumo={avaliacao} /> : null}
           </div>
-          <Timeline entradas={card.timeline} fases={nomesFases} nomes={nomes} relacionados={relacionados} mesmoCard={mesmoCard} />
+          <Timeline entradas={timeline} fases={nomesFases} nomes={nomes} relacionados={relacionados} mesmoCard={mesmoCard} />
         </section>
       </div>
     </>

@@ -203,6 +203,25 @@ describe("ponta a ponta: criar → atualizar → mover → reply-corrigir", () =
   });
 });
 
+describe("GAB-98: a automação não é restringida por área", () => {
+  it("membro de Projetos cria, atualiza e move card de Vendas pelo #crm, como antes", async () => {
+    ligarEnvio();
+    await dbT.usuario.update({ where: { id: joao.id }, data: { papel: "PROJETOS", area: "PROJETOS" } });
+    const c = await enviar("#crm falei com o Gustavo da Sensata Ltda", () => saida({ contato: { nome: "Gustavo" }, empresa: { nome: "Sensata Ltda" } }));
+    expect(c.r).toMatchObject({ tipo: "PROCESSADA" });
+    const id = (c.r as { projetoId: string }).projetoId;
+    await dbT.projeto.update({ where: { id }, data: { responsavelId: maria.id } });
+    const mv = await enviar(
+      "#crm Gustavo topou, vai pra reunião diagnóstica quinta",
+      () => saida({ intencao: "ATUALIZAR", oportunidade_id: id, contato: { nome: "Gustavo" }, fase_chave: "reuniao_diagnostica", campos: { proxima_acao: "reunião", proxima_acao_em: "quinta" } }),
+      { recebidaEm: new Date(RECEBIDA_EM.getTime() + MIN) },
+    );
+    expect(mv.r).toMatchObject({ tipo: "PROCESSADA", projetoId: id });
+    const card = await dbT.projeto.findUniqueOrThrow({ where: { id }, select: { proximaAcao: true, fase: { select: { chave: true } }, pipeline: { select: { chave: true } } } });
+    expect(card).toMatchObject({ proximaAcao: "reunião", fase: { chave: "reuniao_diagnostica" }, pipeline: { chave: "vendas" } });
+  });
+});
+
 describe("mensagens picadas", () => {
   it("3 mensagens em 2 min ('falei com o Gustavo' / 'é da Economia Sensata' / 'mando proposta sexta') → o mesmo card", async () => {
     const t0 = RECEBIDA_EM.getTime();

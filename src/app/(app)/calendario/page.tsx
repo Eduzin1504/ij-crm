@@ -1,6 +1,6 @@
 import { ErroCarregamento } from "@/components/erro-carregamento";
 import { Legenda } from "@/components/calendario/legenda";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { temPapelMinimo } from "@/lib/auth/papeis";
 import { carregarItens, resolverVisao } from "@/lib/calendario/calendario";
 import { paramsDoPeriodo, periodoDaBusca, type Periodo } from "@/lib/calendario/periodo";
@@ -27,7 +27,7 @@ const um = (v: string | string[] | undefined) => (typeof v === "string" ? v : un
  * dias: grade mensal compacta.
  */
 export default async function CalendarioPage({ searchParams }: { searchParams: Promise<Busca> }) {
-  const ator = await exigirUsuario();
+  const ator = await exigirItem("calendario");
   const busca = await searchParams;
   const agora = new Date();
   const periodo = periodoDaBusca({ periodo: um(busca.periodo), data: um(busca.data), semana: um(busca.semana) }, agora);
@@ -69,7 +69,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SeletorPeriodo atual={periodo.periodo} href={(p) => href(p, null)} />
-            <SeletorVisao modo={visao.modo} pessoaId={visao.pessoa?.id ?? null} eu={ator.id} opcoes={visao.opcoes} periodo={paramsDoPeriodo(periodo.periodo, periodo.ref)} />
+            {visao.podeTrocar ? <SeletorVisao modo={visao.modo} pessoaId={visao.pessoa?.id ?? null} eu={ator.id} opcoes={visao.opcoes} periodo={paramsDoPeriodo(periodo.periodo, periodo.ref)} /> : null}
             <NavPeriodo periodo={periodo} href={(ref) => href(periodo.periodo, ref)} />
             <BotaoNovoPrazo dia={periodo.atual ? periodo.hoje : periodo.primeiroDia} />
           </div>

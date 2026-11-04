@@ -40,7 +40,7 @@ async function semear() {
   await db.pipeline.create({ data: { chave: "projetos", nome: "Projetos", ordem: 1, fases: { create: [{ chave: "handoff", nome: "Handoff", ordem: 0, marco: "HANDOFF" }] } } });
   const pessoa = async (nome: string, papel: Papel): Promise<UsuarioMcp> => {
     const u = await db.usuario.create({ data: { nome, email: `${nome.toLowerCase()}@ij.test`, papel } });
-    return { id: u.id, nome: u.nome, papel: u.papel };
+    return { id: u.id, nome: u.nome, papel: u.papel, area: u.area, cargos: u.cargos };
   };
   return {
     vendas,
@@ -117,7 +117,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     expect(c.faseId).toBe(fase(vendas, "primeiro_contato").id);
   });
 
-  it("VISUALIZADOR lê (como na tela): toda ferramenta de leitura, inclusive anexos", async () => {
+  it("VISUALIZADOR lê (como na tela): toda ferramenta de leitura menos as de proposta, inclusive anexos", async () => {
     const { vendas, visualizador, vendedora } = await semear();
     const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
     if (!card.ok) throw new Error("seed");
@@ -146,7 +146,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       // Só o próprio sino (não escreve no CRM): qualquer papel marca, como na tela.
       ["marcar_avisos_lidos", {}],
       ["gerar_pdf_proposta", { projeto_id: card.id }],
-      // GAB-91: qualquer usuário logado comenta (§4.6) — VISUALIZADOR também, como na tela.
+      // GAB-98: proposta e comentários não são do VISUALIZADOR.
       ["listar_comentarios_proposta", { projeto_id: card.id }],
       ["comentar_proposta", { projeto_id: card.id, texto: "Vi aqui" }],
       ["responder_comentario_proposta", { comentario_id: coment.comentario.id, texto: "De acordo" }],
@@ -157,7 +157,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     expect(leituras.map(([n]) => n).sort()).toEqual(FERRAMENTAS.filter((f) => !f.escrita).map((f) => f.nome).sort());
     for (const [nome, args] of leituras) {
       const r = await executarFerramenta(nome, args, visualizador);
-      expect(r.isError, nome).toBeFalsy();
+      expect(r.isError === true, nome).toBe(nome.endsWith("_proposta"));
     }
     // Responsável nunca é VISUALIZADOR (QUEM_ATUA), como no seletor da tela.
     const pessoas = dados(await executarFerramenta("listar_responsaveis", {}, visualizador));
@@ -166,10 +166,10 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
 
   it("PROJETOS (mesmo nível de VENDEDOR na tela) escreve; papel lido a cada chamada", async () => {
     const { projetos } = await semear();
-    const r = await executarFerramenta("criar_projeto", { titulo: "Do lado de projetos" }, projetos);
+    const r = await executarFerramenta("criar_projeto", { titulo: "Do lado de projetos", quadro: "projetos" }, projetos);
     expect(r.isError).toBeFalsy();
     // Rebaixado na Gestão → o token é o mesmo, mas o papel vem do banco a cada request (ver oauth.int.test).
-    expect((await executarFerramenta("criar_projeto", { titulo: "x" }, { ...projetos, papel: "VISUALIZADOR" })).isError).toBe(true);
+    expect((await executarFerramenta("criar_projeto", { titulo: "x", quadro: "projetos" }, { ...projetos, papel: "VISUALIZADOR" })).isError).toBe(true);
   });
 
   it("deleção definitiva, merge e configuração ficam só na tela: não há ferramenta para elas", () => {
@@ -416,7 +416,10 @@ describe("proposta via MCP (GAB-86): mesmas operações e permissões da tela", 
     const { id, vendedora, projetos, gestor } = await comProjeto();
     const outro = await db.usuario.create({ data: { nome: "Beto", email: "beto@ij.test", papel: "VENDEDOR" } });
     await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora);
-    for (const quem of [projetos, gestor, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
+    // GAB-98: quem não está escalado (Beto) nem abre: é recusado, sem ler o texto.
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "x" }, { id: outro.id, nome: outro.nome, papel: outro.papel, area: outro.area, cargos: outro.cargos }))).toMatch(/não tem acesso/);
+    expect(texto(await executarFerramenta("ler_proposta", { projeto_id: id }, projetos))).toMatch(/não tem acesso/);
+    for (const quem of [gestor]) {
       expect(dados(await executarFerramenta("ler_proposta", { projeto_id: id }, quem))).toMatchObject({ existe: true, voceEdita: false, acoesQueVocePode: [] });
       const r = await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "x" }, quem);
       expect(texto(r)).toMatch(/não está com a caneta/);
@@ -561,7 +564,10 @@ describe("preencher_proposta_de_anexo (GAB-90): mesma camada e permissão da tel
     const outro = await db.usuario.create({ data: { nome: "Beto", email: "beto@ij.test", papel: "VENDEDOR" } });
     const chamado = vi.fn(() => LEITURA);
     definirPropostaArquivoMock(chamado);
-    for (const quem of [projetos, gestor, { id: outro.id, nome: outro.nome, papel: outro.papel }]) {
+    // GAB-98: quem não está escalado (Beto) nem abre: é recusado, sem ler o texto.
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: 0, markdown: "x" }, { id: outro.id, nome: outro.nome, papel: outro.papel, area: outro.area, cargos: outro.cargos }))).toMatch(/não tem acesso/);
+    expect(texto(await executarFerramenta("ler_proposta", { projeto_id: id }, projetos))).toMatch(/não tem acesso/);
+    for (const quem of [gestor]) {
       expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId }, quem))).toMatch(/não está com a caneta/);
       // aplicar sem caneta (revisão certa): SEM_CANETA, nada gravado
       expect(texto(await executarFerramenta("preencher_proposta_de_anexo", { projeto_id: id, anexo_id: anexoId, aplicar: true, revisao: 0 }, quem))).toMatch(/não está com a caneta/);
@@ -816,7 +822,10 @@ describe("envio e resposta via MCP (GAB-89): mesmas regras e permissões da tela
 
 describe("comentários via MCP (GAB-91): mesma camada e permissões da tela", () => {
   it("comenta (geral e citando trecho), responde, lista, resolve e reabre; anuncia que grava", async () => {
-    const { vendas, vendedora, projetos } = await semear();
+    const { vendas, vendedora, projetos: membro } = await semear();
+    // GAB-98: comenta quem vê a proposta; o GP vê todas.
+    await db.usuario.update({ where: { id: membro.id }, data: { cargos: ["GP"] } });
+    const projetos = { ...membro, cargos: ["GP" as const] };
     const card = await criarCard({ pipelineId: vendas.id, faseId: fase(vendas, "primeiro_contato").id, titulo: "Padaria" }, vendedora);
     if (!card.ok) throw new Error("seed");
     await criarProposta(card.id, vendedora);
@@ -862,7 +871,7 @@ describe("comentários via MCP (GAB-91): mesma camada e permissões da tela", ()
     await db.usuario.update({ where: { id: projetos.id }, data: { ativo: false } });
     const r = await executarFerramenta("comentar_proposta", { projeto_id: card.id, texto: "oi" }, projetos);
     expect(r.isError).toBe(true);
-    expect(texto(r)).toMatch(/usuários ativos/);
+    expect(texto(r)).toMatch(/acesso à proposta/);
     const gravam = FERRAMENTAS.filter((f) => /^(comentar|responder|resolver|reabrir)_comentario|^comentar_proposta/.test(f.nome));
     expect(gravam).toHaveLength(4);
     for (const f of gravam) expect(f.muda, f.nome).toBe(true);

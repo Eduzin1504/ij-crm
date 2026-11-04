@@ -16,6 +16,7 @@ import { mensagemDaFalha, obterPropostaDoProjeto, salvarRascunho } from "@/lib/p
 import { mensagemConflito } from "@/lib/propostas/regras";
 import { mesclarSugestao, ROTULO_CAMPO_SUGESTAO, type CamposSugeridos } from "@/lib/propostas/sugestao";
 import type { Ferramenta, Resposta } from "./ferramentas";
+import { propostaVisivel } from "./guardas";
 import { urlBase } from "./url";
 
 const id = z.string().min(1).max(64);
@@ -43,6 +44,7 @@ export const preencherPropostaDeAnexo: Ferramenta = {
   descricao:
     "Usa um anexo do projeto (PDF, Word, Markdown, texto ou imagem; escaneado é lido pela IA) como base da proposta: devolve o texto em Markdown e a parte estruturada (valor, prazo_dias, escopo_resumo, entregas) que o arquivo sustenta. Campo incerto ou ausente NÃO é preenchido: vem null e listado em `revisar` (com o que foi lido) — confira com o usuário. Custa uma chamada de IA por uso. Padrão: só sugere, nada é gravado; para gravar, use editar_proposta com o markdown e os campos (sem nova chamada de IA), ou chame com aplicar=true e a revisao de ler_proposta (substitui o texto do rascunho; dados não preenchidos ficam como estão). Só quem está com a caneta (pingue-pongue em curso), como editar_proposta.",
   escrita: true,
+  guarda: (a, eu) => propostaVisivel(a as { projeto_id: string }, eu),
   entrada,
   executar: async (bruto, eu): Promise<Resposta> => {
     const a = bruto as z.infer<z.ZodObject<typeof entrada>>;

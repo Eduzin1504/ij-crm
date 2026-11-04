@@ -3,11 +3,9 @@
  * + polling em /api/projetos/[id]/comentarios) e o conector MCP chamam ESTAS
  * funções — nenhuma regra mora fora.
  *
- * - Qualquer usuário ATIVO comenta, responde, resolve e reabre, em qualquer
- *   etapa e sem a caneta. Comentar não edita o texto (a caneta segue valendo
- *   para editar). [escolha do agente] VISUALIZADOR também comenta: a spec diz
- *   "qualquer usuário logado comenta" (§4.6) e a transparência é o objetivo
- *   (§4.12); comentário não muda o Projeto nem a proposta.
+ * - Quem vê a proposta (GAB-98, `./acesso`) e está ATIVO comenta, responde, resolve
+ *   e reabre, em qualquer etapa e sem a caneta. Comentar não edita o texto (a caneta
+ *   segue valendo para editar). VISUALIZADOR não vê proposta: não comenta mais.
  * - Comentário geral ou preso a um trecho (âncora = trecho citado + contexto,
  *   `./ancora.ts`). Da tela vem a âncora pronta (o editor pode ter texto ainda
  *   não gravado pelo autosave); do MCP vem só o trecho, que o servidor acha no
@@ -23,6 +21,7 @@
 import { emViaMcp } from "@/lib/canal";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { db } from "@/lib/db";
+import { podeVerPropostaDoProjeto } from "./acesso";
 import { CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarContexto, normalizarTrecho, textoPlano, TRECHO_MAX, type Ancora } from "./ancora";
 import { COMENTARIO_MAX } from "./comentarios-limites";
 import { markdownParaDocumento } from "./markdown";
@@ -45,7 +44,7 @@ export const MENSAGEM_ERRO_COMENTARIO: Record<ErroComentario, string> = {
   PROJETO_NAO_ENCONTRADO: "Projeto não encontrado (ou está na lixeira).",
   PROPOSTA_NAO_ENCONTRADA: "Este projeto ainda não tem proposta.",
   COMENTARIO_NAO_ENCONTRADO: "Comentário não encontrado.",
-  SEM_PERMISSAO: "Só usuários ativos comentam.",
+  SEM_PERMISSAO: "Só quem tem acesso à proposta comenta.",
   TEXTO_VAZIO: "Escreva o comentário.",
   TEXTO_LONGO: `Comentário longo demais (máximo ${COMENTARIO_MAX} caracteres).`,
   TRECHO_INVALIDO: `Trecho inválido: selecione de 1 a ${TRECHO_MAX} caracteres do texto.`,
@@ -75,9 +74,10 @@ function limparTexto(t: string): { ok: true; texto: string } | Falha {
   return { ok: true, texto };
 }
 
-async function autorAtivo(id: string) {
-  const u = await db.usuario.findUnique({ where: { id }, select: { id: true, nome: true, ativo: true } });
-  return u?.ativo ? u : null;
+/** Autor RELIDO do banco: ativo e com acesso à proposta deste projeto (a regra vale para a tela e o MCP). */
+async function autorComAcesso(id: string, projetoId: string) {
+  const u = await db.usuario.findUnique({ where: { id }, select: { id: true, nome: true, ativo: true, papel: true, area: true, cargos: true } });
+  return u?.ativo && (await podeVerPropostaDoProjeto(u, projetoId)) ? u : null;
 }
 
 /** Proposta de Projeto vivo (fora da lixeira), com o que o aviso precisa. */
@@ -131,10 +131,10 @@ async function avisarDono(p: { projetoId: string; titulo: string; canetaComId: s
 export async function comentar(projetoId: string, e: { texto: string; trecho?: Ancora | string | null }, ator: Ator): Promise<{ ok: true; comentario: { id: string } } | Falha> {
   const t = limparTexto(e.texto);
   if (!t.ok) return t;
-  const autor = await autorAtivo(ator.id);
-  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
   const p = await propostaViva(projetoId);
   if (ehFalha(p)) return p;
+  const autor = await autorComAcesso(ator.id, projetoId);
+  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
 
   let ancora: Ancora | null = null;
   if (typeof e.trecho === "string") {
@@ -162,10 +162,10 @@ export async function comentar(projetoId: string, e: { texto: string; trecho?: A
 export async function responderComentario(comentarioId: string, texto: string, ator: Ator): Promise<{ ok: true; comentario: { id: string } } | Falha> {
   const t = limparTexto(texto);
   if (!t.ok) return t;
-  const autor = await autorAtivo(ator.id);
-  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
   const r = await raizDe(comentarioId);
   if (ehFalha(r)) return r;
+  const autor = await autorComAcesso(ator.id, r.proposta.projetoId);
+  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
   const c = await db.propostaComentario.create({
     data: { propostaId: r.proposta.id, paiId: r.raizId, autorId: autor.id, texto: t.texto, viaMcp: emViaMcp() },
     select: { id: true },
@@ -175,10 +175,10 @@ export async function responderComentario(comentarioId: string, texto: string, a
 }
 
 async function mudarResolucao(comentarioId: string, ator: Ator, resolver: boolean): Promise<{ ok: true } | Falha> {
-  const autor = await autorAtivo(ator.id);
-  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
   const r = await raizDe(comentarioId);
   if (ehFalha(r)) return r;
+  const autor = await autorComAcesso(ator.id, r.proposta.projetoId);
+  if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
   const agora = new Date();
   return db.$transaction(async (tx) => {
     // Condicional no próprio UPDATE: duas pessoas resolvendo juntas → uma só registra.

@@ -184,12 +184,20 @@ export async function obterConfigRanking(): Promise<ConfigRanking> {
 type Ator = { id: string; papel: Papel };
 
 /**
- * Gestor/admin e VISUALIZADOR sempre veem tudo (o visualizador não está no
- * ranking, então "só a própria linha" não faria sentido); vendedor, só se o
- * gestor deixou.
+ * Quem chega à tela do Ranking (a rota já exigiu o item, `exigirItem("ranking")`):
+ * gestor/admin veem tudo; vendedor, só se o gestor deixou. VISUALIZADOR não tem Ranking.
  */
 export function podeVerRanking(ator: Ator, config: ConfigRanking): boolean {
-  return temPapelMinimo(ator.papel, "GESTOR") || ator.papel === "VISUALIZADOR" || config.mostrarAosVendedores;
+  return temPapelMinimo(ator.papel, "GESTOR") || config.mostrarAosVendedores;
+}
+
+/**
+ * Painel (GAB-94), que é de todos: a visão completa continua como antes do GAB-98,
+ * com o VISUALIZADOR incluído (ele não tem linha própria, então "só as suas linhas"
+ * não faria sentido). Quem vê a tela do Ranking não muda quem vê o Painel.
+ */
+export function podeVerPainelCompleto(ator: Ator, config: ConfigRanking): boolean {
+  return podeVerRanking(ator, config) || ator.papel === "VISUALIZADOR";
 }
 
 /** Linha do próprio usuário sem a posição (com o ranking escondido, nem ela vaza). */

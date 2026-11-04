@@ -8,7 +8,7 @@ import { useSomenteLeitura } from "@/components/shell/somente-leitura";
 
 const ABA = "rounded-md px-3 py-1 font-mono text-xs uppercase tracking-eyebrow transition-colors";
 
-/** Meu | Time | Pessoa ▾ (padrão "Meu"; VISUALIZADOR não tem "Meu", o padrão dele é o time). Mantém o período na URL. */
+/** Meu | Time | Pessoa ▾, só para a gestão (padrão "Meu"; GAB-98: as pessoas são as que ela vê). Mantém o período na URL. */
 export function SeletorVisao({
   modo,
   pessoaId,

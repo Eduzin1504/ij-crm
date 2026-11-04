@@ -17,11 +17,12 @@ async function semear() {
     data: { chave: "vendas", nome: "Vendas", ordem: 0, fases: { create: [{ chave: "proposta", nome: "Proposta", ordem: 0, marco: "PROPOSTA" }] } },
     include: { fases: true },
   });
-  const pessoa = (nome: string, papel: Papel, area: Area | null = null) => db.usuario.create({ data: { nome, email: `${nome.toLowerCase()}@ij.test`, papel, area } });
+  // GAB-98: só comenta quem vê a proposta. Bia e Paula são GP e Vera é da gestão; quem não vê tem teste próprio.
+  const pessoa = (nome: string, papel: Papel, area: Area | null = null, cargos: "GP"[] = []) => db.usuario.create({ data: { nome, email: `${nome.toLowerCase()}@ij.test`, papel, area, cargos } });
   const ana = await pessoa("Ana", "VENDEDOR", "VENDAS");
-  const bia = await pessoa("Bia", "VENDEDOR", "VENDAS");
-  const paula = await pessoa("Paula", "PROJETOS", "PROJETOS");
-  const vera = await pessoa("Vera", "VISUALIZADOR");
+  const bia = await pessoa("Bia", "VENDEDOR", "VENDAS", ["GP"]);
+  const paula = await pessoa("Paula", "PROJETOS", "PROJETOS", ["GP"]);
+  const vera = await pessoa("Vera", "GESTOR");
   const projeto = await db.projeto.create({
     data: { pipelineId: vendas.id, faseId: vendas.fases[0].id, titulo: "Site da Padaria", responsavelId: ana.id, criadoVia: "UI" },
   });
@@ -221,5 +222,22 @@ describe("espaços que o Markdown não guarda (B1 da revisão)", () => {
       ["Prazo: 30 dias", false],
       ["sem atraso", false],
     ]);
+  });
+});
+
+describe("GAB-98: só comenta quem vê a proposta", () => {
+  it("VISUALIZADOR e quem não está escalado são recusados em comentar, responder, resolver e reabrir", async () => {
+    const { ana, projeto } = await semear();
+    const v = await db.usuario.create({ data: { nome: "Viu", email: "viu@ij.test", papel: "VISUALIZADOR" } });
+    const fora = await db.usuario.create({ data: { nome: "Fora", email: "fora@ij.test", papel: "PROJETOS", area: "PROJETOS" } });
+    const c = await comentar(projeto.id, { texto: "da dona" }, ana);
+    if (!c.ok) throw new Error("seed");
+    for (const quem of [v, fora]) {
+      expect(await comentar(projeto.id, { texto: "x" }, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+      expect(await responderComentario(c.comentario.id, "x", quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+      expect(await resolverComentario(c.comentario.id, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+      expect(await reabrirComentario(c.comentario.id, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    }
+    expect(await db.propostaComentario.count()).toBe(1);
   });
 });

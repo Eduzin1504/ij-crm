@@ -33,6 +33,8 @@ import { ErroDeRegra, MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { registrarMovimento } from "@/lib/projetos/projetos";
 import { interpretarPerda, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 import { alemDoContrato, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
+import type { PessoaComId } from "@/lib/auth/visibilidade";
+import { filtroPropostasVisiveis } from "./acesso";
 import { avisarCaneta, type EventoCaneta } from "./avisos";
 import {
   ladoDaCaneta,
@@ -291,11 +293,12 @@ export async function obterVersao(projetoId: string, numero: number) {
 
 export type FiltrosPropostas = { status?: StatusProposta; responsavelId?: string; texto?: string };
 
-/** Aba Propostas: todas as propostas de Projetos vivos, mais recentes primeiro. */
-export async function listarPropostas(f: FiltrosPropostas = {}) {
+/** Aba Propostas: as propostas de Projetos vivos que `quem` vê (`./acesso`), mais recentes primeiro. */
+export async function listarPropostas(f: FiltrosPropostas, quem: PessoaComId) {
   const texto = f.texto?.trim();
   const linhas = await db.proposta.findMany({
     where: {
+      ...filtroPropostasVisiveis(quem),
       ...(f.status ? { status: f.status } : {}),
       projeto: {
         deletadoEm: null,
