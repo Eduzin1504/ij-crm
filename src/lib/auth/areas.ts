@@ -94,3 +94,13 @@ export function descreverLado(u: PessoaComLado): string {
   const cargos = CARGOS.filter((c) => temCargo(u, c));
   return cargos.length ? `${cargos.map((c) => ROTULO_CARGO[c]).join(", ")} de ${ROTULO_AREA[lado].toLowerCase()}` : ROTULO_AREA[lado];
 }
+
+/**
+ * Kanban interno do projeto (tarefas do time): pessoa da área de Projetos
+ * (inclui gestor com essa área) ou admin. Vendedor, gestor de vendas ou sem
+ * área e visualizador: nada (sem link, rota e actions recusam). Ponto ÚNICO da
+ * regra: quando houver escala por projeto, muda só aqui.
+ */
+export function podeVerTarefas(u: PessoaComLado): boolean {
+  return u.papel === "ADMIN" || ladoDe(u) === "PROJETOS";
+}

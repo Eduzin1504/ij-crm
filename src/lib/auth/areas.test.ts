@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Area, Cargo, Papel } from "@prisma/client";
-import { descreverLado, ehGpDoLado, ladoDe, regraDeArea, resolverAreaCargos, temCargo } from "./areas";
+import { descreverLado, ehGpDoLado, ladoDe, podeVerTarefas, regraDeArea, resolverAreaCargos, temCargo } from "./areas";
 
 const pessoa = (papel: Papel, area: Area | null = null, cargos: Cargo[] = []) => ({ papel, area, cargos });
 
@@ -83,5 +83,23 @@ describe("descreverLado", () => {
     expect(descreverLado(pessoa("VENDEDOR", "VENDAS", ["GP"]))).toBe("GP de vendas");
     expect(descreverLado(pessoa("PROJETOS", "PROJETOS"))).toBe("Projetos");
     expect(descreverLado(pessoa("GESTOR"))).toBe("—");
+  });
+});
+
+describe("podeVerTarefas (kanban interno do projeto)", () => {
+  it("passa: papel PROJETOS, gestor com área Projetos e admin", () => {
+    expect(podeVerTarefas(pessoa("PROJETOS", "PROJETOS"))).toBe(true);
+    expect(podeVerTarefas(pessoa("PROJETOS", null))).toBe(true); // o papel fixa o lado
+    expect(podeVerTarefas(pessoa("GESTOR", "PROJETOS"))).toBe(true);
+    expect(podeVerTarefas(pessoa("GESTOR", "PROJETOS", ["GP"]))).toBe(true);
+    expect(podeVerTarefas(pessoa("ADMIN"))).toBe(true);
+  });
+
+  it("recusa: vendedor, gestor de vendas, gestor sem área e visualizador (mesmo com área gravada)", () => {
+    expect(podeVerTarefas(pessoa("VENDEDOR", "VENDAS"))).toBe(false);
+    expect(podeVerTarefas(pessoa("VENDEDOR", "PROJETOS"))).toBe(false); // coluna incoerente: o papel prevalece
+    expect(podeVerTarefas(pessoa("GESTOR", "VENDAS"))).toBe(false);
+    expect(podeVerTarefas(pessoa("GESTOR", null))).toBe(false);
+    expect(podeVerTarefas(pessoa("VISUALIZADOR", "PROJETOS"))).toBe(false);
   });
 });
