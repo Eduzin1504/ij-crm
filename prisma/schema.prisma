@@ -152,6 +152,25 @@ enum StatusMensagem {
 
 // ---------------------------------------------------------------- usuários
 
+// Kanban interno do projeto (tasks do time de projetos). Seis status fixos, como os
+// padrões do Linear; Backlog e Cancelada ficam recolhidas no quadro.
+enum StatusTarefa {
+  BACKLOG
+  A_FAZER
+  EM_ANDAMENTO
+  EM_REVISAO
+  FEITA
+  CANCELADA
+}
+
+enum PrioridadeTarefa {
+  SEM_PRIORIDADE
+  URGENTE
+  ALTA
+  MEDIA
+  BAIXA
+}
+
 model Usuario {
   id                String    @id @default(cuid())
   nome              String
@@ -209,6 +228,8 @@ model Usuario {
   checkins          ProjetoCheckin[]
   comentariosProposta   PropostaComentario[] @relation("comentarioAutor")
   comentariosResolvidos PropostaComentario[] @relation("comentarioResolvidoPor")
+  tarefasResponsavel    Tarefa[]             @relation("tarefaResponsavel")
+  tarefasCriadas        Tarefa[]             @relation("tarefaCriadaPor")
 
   @@map("usuario")
 }
@@ -492,6 +513,7 @@ model Projeto {
   entregas              ProjetoEntrega[]
   checkins              ProjetoCheckin[]
   lembretesCheckin      LembreteCheckin[]
+  tarefas               Tarefa[]
 
   @@index([pipelineId, faseId])
   @@index([responsavelId])
@@ -788,6 +810,41 @@ model Prazo {
   @@index([data]) // semana do time
   @@index([projetoId])
   @@map("prazo")
+}
+
+/// Tarefa do kanban interno do projeto: só o time de projetos vê (`podeVerTarefas`).
+/// NUNCA gera Timeline do card (a Timeline aparece para Vendas). `numero` é
+/// sequencial por projeto (#12), gerado na transação e nunca reaproveitado.
+model Tarefa {
+  id            String           @id @default(cuid())
+  projetoId     String           @map("oportunidade_id")
+  numero        Int
+  paiId         String?          @map("pai_id") // subtarefa: um nível só
+  titulo        String
+  descricao     String?
+  status        StatusTarefa     @default(A_FAZER)
+  prioridade    PrioridadeTarefa @default(SEM_PRIORIDADE)
+  posicao       Float // ordem dentro da coluna
+  responsavelId String?          @map("responsavel_id") // pode ficar sem responsável
+  prazo         DateTime?        @db.Date
+  etiquetas     String[]         @default([])
+  concluidaEm   DateTime?        @map("concluida_em")
+  criadoPorId   String           @map("criado_por_id")
+  deletadoEm    DateTime?        @map("deletado_em")
+  criadoEm      DateTime         @default(now()) @map("criado_em")
+  atualizadoEm  DateTime         @updatedAt @map("atualizado_em")
+
+  projeto     Projeto  @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  responsavel Usuario? @relation("tarefaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  criadoPor   Usuario  @relation("tarefaCriadaPor", fields: [criadoPorId], references: [id])
+  pai         Tarefa?  @relation("subtarefas", fields: [paiId], references: [id], onDelete: Cascade)
+  subtarefas  Tarefa[] @relation("subtarefas")
+
+  @@unique([projetoId, numero])
+  @@index([projetoId, status, posicao])
+  @@index([responsavelId])
+  @@index([paiId])
+  @@map("tarefa")
 }
 
 // GAB-84: arquivo de base anexado ao Projeto (spec fase 2 §4.7). Os BYTES ficam
@@ -1096,6 +1153,7 @@ enum TipoAviso {
   HANDOFF         // handoff do projeto
   CHECKIN_ATRASADO // GAB-95: a semana passou sem check-in (só no app)
   GP_TROCADO       // GAB-95: você deixou de ser o GP do projeto (só no app)
+  TAREFA_ATRIBUIDA // alguém te atribuiu uma tarefa do kanban interno do projeto
 }
 
 /// O que aconteceu com o WhatsApp privado de um aviso (null no aviso = tipo só do app).
