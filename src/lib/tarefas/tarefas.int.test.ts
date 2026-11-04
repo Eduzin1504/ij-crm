@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Area, Cargo, Papel } from "@prisma/client";
 import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
-import { criarTarefa, editarTarefa, excluirTarefa, listarQuadro, moverTarefa, type Ator } from "./tarefas";
+import { criarTarefa, editarTarefa, excluirTarefa, listarQuadro, moverTarefa, resumoTarefas, type Ator } from "./tarefas";
 
 const db = dbTeste();
 
@@ -240,5 +240,21 @@ describe("prioridade e etiquetas (etapa 2)", () => {
     const q = await listarQuadro(projeto.id, paula);
     expect(q.ok && q.etiquetas).toEqual(["backend", "qa"]);
     expect(await editarTarefa(projeto.id, t.id, { prioridade: "INVENTADA" as never }, paula)).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
+  });
+});
+
+describe("resumo para a visão geral do projeto", () => {
+  it("conta abertas, minhas e atrasadas; feitas, canceladas e excluídas ficam fora", async () => {
+    const { projeto, paula, pedro } = await semear();
+    const ids = await Promise.all([
+      criarTarefa(projeto.id, { titulo: "Minha atrasada", responsavelId: paula.id, prazo: "2026-11-01" }, paula),
+      criarTarefa(projeto.id, { titulo: "Do Pedro", responsavelId: pedro.id, prazo: "2026-11-20" }, paula),
+      criarTarefa(projeto.id, { titulo: "Feita atrasada", responsavelId: paula.id, prazo: "2026-11-01", status: "FEITA" }, paula),
+      criarTarefa(projeto.id, { titulo: "Excluída", responsavelId: paula.id }, paula),
+    ]);
+    const excluida = ids[3];
+    if (!excluida.ok) throw new Error();
+    await excluirTarefa(projeto.id, excluida.id, paula);
+    expect(await resumoTarefas(projeto.id, paula.id, "2026-11-04")).toEqual({ abertas: 2, minhas: 1, atrasadas: 1 });
   });
 });

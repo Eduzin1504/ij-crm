@@ -8,6 +8,7 @@ import { diaEmFuso } from "@/lib/projetos/aging";
 import { EXIBICAO_PADRAO } from "@/lib/tarefas/exibicao";
 import { exigirTarefas } from "@/lib/tarefas/acesso";
 import { listarQuadro } from "@/lib/tarefas/tarefas";
+import { AbasProjeto } from "../abas-projeto";
 import { QuadroTarefas } from "./quadro-tarefas";
 
 export const metadata = { title: "Tarefas do projeto" };
@@ -34,7 +35,8 @@ export default async function TarefasPage({ params }: { params: Promise<{ id: st
       <Link href={`/projetos/${q.projeto.id}`} className="mb-4 inline-flex items-center gap-1.5 font-mono text-xs text-fg-mute hover:text-foreground">
         <ArrowLeft className="size-3.5" /> {q.projeto.titulo}
       </Link>
-      <PageHeader eyebrow="projetos · tarefas do time" title={q.projeto.titulo} description="O que cada pessoa do time está fazendo neste projeto. Só o time de projetos vê este quadro." />
+      <PageHeader eyebrow="projetos · tarefas do time" title={q.projeto.titulo} />
+      <AbasProjeto projetoId={q.projeto.id} ativa="tarefas" tarefasAbertas={q.tarefas.filter((t) => t.status !== "FEITA" && t.status !== "CANCELADA").length} />
       <QuadroTarefas key={q.projeto.id} projetoId={q.projeto.id} tarefas={q.tarefas} pessoas={q.pessoas} etiquetas={q.etiquetas} exibicaoInicial={prefs.tarefas ?? EXIBICAO_PADRAO} hoje={hoje} agoraMs={agora.getTime()} />
     </div>
   );

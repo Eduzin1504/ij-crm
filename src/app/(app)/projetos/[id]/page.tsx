@@ -32,6 +32,8 @@ import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
 import { podeVerTarefas } from "@/lib/auth/areas";
+import { resumoTarefas } from "@/lib/tarefas/tarefas";
+import { AbasProjeto } from "./abas-projeto";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
 import { podeEditarCard, podeEditarChecklistHandoff, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
@@ -59,6 +61,9 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   const soLeituraDados = !podeEditarCard(ator, { responsavelId: card.responsavelId, quadro: card.pipeline.chave });
   // A proposta só para quem a vê: seção, link e os eventos dela na Timeline.
   const veProposta = await podeVerPropostaDoProjeto(ator, card.id);
+  // Kanban interno: só time de projetos e só card no quadro de Projetos (spec do kanban interno §4/§5).
+  const comTarefas = podeVerTarefas(ator) && card.pipeline.chave === "projetos";
+  const tarefas = comTarefas ? await resumoTarefas(card.id, ator.id, diaEmFuso(new Date())) : null;
   const timeline = veProposta ? card.timeline : timelineSemProposta(card.timeline);
   const motivoPerda = veProposta ? card.motivoPerda : mascararMotivoInviavel(card.motivoPerda);
 
@@ -156,6 +161,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           {soLeituraDados ? null : <ExcluirCard cardId={card.id} titulo={card.titulo} quadro={card.pipeline.chave} />}
         </div>
       </header>
+
+      {tarefas ? <AbasProjeto projetoId={card.id} ativa="geral" tarefasAbertas={tarefas.abertas} /> : null}
 
       <ResultadoTerminal card={{ ...card, motivoPerda }} />
 
@@ -285,17 +292,32 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             </p>
           </section> : null}
 
-          {/* Kanban interno (tarefas do time): só time de projetos e só card no quadro de Projetos. Sem item no menu. */}
-          {podeVerTarefas(ator) && card.pipeline.chave === "projetos" ? (
+          {/* Kanban interno (tarefas do time): resumo aqui; o quadro é a aba Tarefas. */}
+          {tarefas ? (
             <section className="rounded-xl border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm font-medium">Tarefas do time</h2>
                 <span className="flex-1" />
                 <Link href={`/projetos/${card.id}/tarefas`} className="text-sm text-fg-soft underline decoration-fg-faint underline-offset-2 hover:text-foreground">
-                  Abrir quadro de tarefas
+                  Abrir quadro
                 </Link>
               </div>
-              <p className="mt-1 text-xs text-fg-mute">O que cada pessoa está fazendo neste projeto. Só o time de projetos vê.</p>
+              {tarefas.abertas ? (
+                <dl className="mt-3 grid grid-cols-3 gap-2">
+                  {[
+                    ["abertas", tarefas.abertas, ""],
+                    ["com você", tarefas.minhas, ""],
+                    ["atrasadas", tarefas.atrasadas, tarefas.atrasadas ? "text-danger" : ""],
+                  ].map(([rotulo, n, cor]) => (
+                    <div key={rotulo as string} className="rounded-lg border border-border px-3 py-2">
+                      <dd className={`font-mono text-lg tabular ${cor}`}>{n}</dd>
+                      <dt className="eyebrow">{rotulo}</dt>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-1 text-xs text-fg-mute">Nenhuma tarefa aberta. Só o time de projetos vê este quadro.</p>
+              )}
             </section>
           ) : null}
 

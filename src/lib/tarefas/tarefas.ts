@@ -278,3 +278,19 @@ export async function excluirTarefa(projetoId: string, tarefaId: string, ator: A
     return traduzir(e);
   }
 }
+
+export type ResumoTarefas = { abertas: number; minhas: number; atrasadas: number };
+
+/**
+ * Resumo para a visão geral do projeto (aba e bloco "Tarefas do time"). Só conta;
+ * quem chama já checou `podeVerTarefas` e o quadro. `hoje` = `YYYY-MM-DD` no fuso de negócio.
+ */
+export async function resumoTarefas(projetoId: string, usuarioId: string, hoje: string): Promise<ResumoTarefas> {
+  const abertas = { projetoId, deletadoEm: null, status: { notIn: ["FEITA", "CANCELADA"] as StatusTarefa[] } };
+  const [total, minhas, atrasadas] = await Promise.all([
+    db.tarefa.count({ where: abertas }),
+    db.tarefa.count({ where: { ...abertas, responsavelId: usuarioId } }),
+    db.tarefa.count({ where: { ...abertas, prazo: { lt: instanteDoPrazo(hoje) } } }),
+  ]);
+  return { abertas: total, minhas, atrasadas };
+}
