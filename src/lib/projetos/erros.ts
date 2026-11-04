@@ -19,6 +19,9 @@ export type ErroProjeto =
   | "PROPOSTA_NAO_ACEITA"
   /** GAB-99: Ganho só a partir de Montando contrato (`trava-contrato.ts`). */
   | "GANHO_SO_DE_MONTANDO_CONTRATO"
+  /** GAB-93: Execução (e o que vem depois) só com o handoff fechado (`trava-handoff.ts`). */
+  | "HANDOFF_INCOMPLETO"
+  | "FASE_EXECUCAO_INDISPONIVEL"
   /** Ator VISUALIZADOR (somente leitura). */
   | "SEM_PERMISSAO"
   /** GAB-98: card de outra área; quem é de fora comenta, cria prazo e anexa (`acesso-card.ts`). */
@@ -27,7 +30,11 @@ export type ErroProjeto =
 
 /** Lançado dentro da transação: aborta (rollback) e vira `{ ok: false, erro }`. */
 export class ErroDeRegra extends Error {
-  constructor(readonly erro: ErroProjeto) {
+  /** `faltando`: o que falta, em texto, quando o código sozinho não diz (`textoDoErroProjeto`). */
+  constructor(
+    readonly erro: ErroProjeto,
+    readonly faltando?: string,
+  ) {
     super(erro);
   }
 }
@@ -57,4 +64,11 @@ export const MENSAGEM_ERRO_PROJETO: Record<ErroProjeto, string> = {
     "Montando contrato (e o que vem depois dele) só com a proposta aceita pelo cliente — nem a gestão força. Registre o aceite na proposta do projeto: ele já leva o card para Montando contrato.",
   GANHO_SO_DE_MONTANDO_CONTRATO: "Ganho (contrato assinado) só a partir de Montando contrato — nem a gestão força. Leve o card para Montando contrato e marque “Contrato assinado” de lá.",
   MOTIVO_PERDA_DETALHE_LONGO: `O detalhe do motivo pode ter até ${DETALHE_PERDA_MAX} caracteres.`,
+  HANDOFF_INCOMPLETO: "Execução (e o que vem depois dela) só com o handoff completo: GP do projeto, checklist e resumo. Nem a gestão força. Card novo nasce em Handoff.",
+  FASE_EXECUCAO_INDISPONIVEL: "O quadro Projetos está sem o marco Execução ativo. Peça à gestão/admin para conferir as fases.",
 };
+
+/** A mensagem do erro e, se houver, o que falta: a mesma na tela e no conector MCP. */
+export function textoDoErroProjeto(r: { erro: ErroProjeto; faltando?: string }): string {
+  return r.faltando ? `${MENSAGEM_ERRO_PROJETO[r.erro]} Falta: ${r.faltando}.` : MENSAGEM_ERRO_PROJETO[r.erro];
+}

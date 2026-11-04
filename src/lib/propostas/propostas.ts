@@ -31,7 +31,7 @@ import { gerarPdf } from "@/lib/pdf/gerador";
 import { templateAtual } from "@/lib/pdf/templates";
 import { ErroDeRegra, MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { registrarMovimento } from "@/lib/projetos/projetos";
-import { interpretarPerda, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
+import { interpretarPerda, PIPELINE_PROJETOS, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 import { alemDoContrato, faseMontandoContrato } from "@/lib/projetos/trava-contrato";
 import type { PessoaComId } from "@/lib/auth/visibilidade";
 import { filtroPropostasVisiveis } from "./acesso";
@@ -124,8 +124,11 @@ async function travarProposta(tx: Tx, projetoId: string) {
 
 /** Projeto vivo + quem age (relido) + proposta com o estado da caneta e a última versão. */
 async function contexto(tx: Tx, projetoId: string, ator: Ator) {
-  const projeto = await tx.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true, responsavelId: true } });
+  const projeto = await tx.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true, responsavelId: true, pipeline: { select: { chave: true } } } });
   if (!projeto) falhar("PROJETO_NAO_ENCONTRADO");
+  // GAB-93 (spec §4.8): depois do Ganho a proposta congela, mesmo a de card isento que nunca foi aceita.
+  // Toda escrita da proposta passa por aqui. Comentar continua (`comentarios.ts`).
+  if (projeto.pipeline.chave === PIPELINE_PROJETOS) falhar("PROPOSTA_CONGELADA");
   const pessoa = await lerPessoa(tx, ator.id);
   const proposta = await tx.proposta.findUnique({
     where: { projetoId },

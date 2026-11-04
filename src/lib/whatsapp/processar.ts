@@ -49,6 +49,7 @@ import { VERSAO_EXTRACAO } from "@/lib/llm/prompts/extracao.v3";
 import { ErroDeRegra } from "@/lib/projetos/erros";
 import { PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 import { FASES_DO_WHATSAPP } from "./ciclo-vendas";
+import { avisarHandoff } from "@/lib/avisos/handoff";
 import { aplicarExtracao, type Desfecho } from "./aplicar";
 import { alvoDaResposta, projetosCandidatos, type MotivoRespostaInvalida } from "./candidatas";
 import { textoAtualizado, textoAtualizadoSemTag, textoCriado, textoCriadoSemTag, textoFalha, textoPendente } from "./confirmacao";
@@ -355,5 +356,7 @@ async function processar(id: string, opts: { participantJid?: string | null }, p
       ? (m.semTag ? textoAtualizadoSemTag : textoAtualizado)(desfecho, { reprocessada })
       : (m.semTag ? textoCriadoSemTag : textoCriado)(desfecho, { reprocessada });
   await responder(m, confirmacao, desfecho.projetoId, opts.participantJid);
+  // GAB-93: depois do commit e da resposta; nunca lança.
+  if (desfecho.tipo === "ATUALIZADO" && desfecho.foiParaHandoff) await avisarHandoff(desfecho.projetoId, m.remetenteUsuarioId!);
   return { tipo: "PROCESSADA", projetoId: desfecho.projetoId, confirmacao };
 }

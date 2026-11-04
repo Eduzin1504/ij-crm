@@ -71,7 +71,8 @@ export async function carregarDados({ inicio, fim }: Intervalo, cliente: Consult
     ),
     terminais AS (
       -- GANHO é de quem vendeu (vendedor_id, GAB-81): o card segue para Projetos e muda de
-      -- responsável. PERDIDO fica com o responsável atual (card perdido está sempre em Vendas).
+      -- responsável. PERDIDO fica com o responsável atual e só existe aqui para card em Vendas: projeto
+      -- perdido no quadro Projetos (GAB-93) segue como GANHO, porque a venda aconteceu e a perda não é dela.
       SELECT o.id, o.titulo, o.responsavel_id, COALESCE(o.vendedor_id, o.responsavel_id) AS vendedor, o.data_ganho, o.valor_fechado, o.criado_em, x.tipo AS tipo_terminal, entrada.origem, entrada.em AS entrou_em
         FROM vivos o JOIN fase f ON f.id = o.fase_id
         -- Em Projetos = ganho (seguiu pelo Ganho de Vendas).

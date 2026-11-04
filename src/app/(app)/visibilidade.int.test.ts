@@ -38,6 +38,8 @@ import { CampoInline } from "./projetos/[id]/campo-inline";
 import DiffPage from "./projetos/[id]/proposta/diff/page";
 import PropostaPage from "./projetos/[id]/proposta/page";
 import VersaoPage from "./projetos/[id]/proposta/versoes/[numero]/page";
+import { marcarItemAction, moverParaExecucaoAction } from "./projetos/[id]/handoff-actions";
+import { POST as handoffContratoPOST } from "@/app/api/projetos/[id]/handoff/contrato/route";
 import { vincularAction } from "./projetos/[id]/vinculos-actions";
 import { GET as pdfGET } from "@/app/api/projetos/[id]/proposta/pdf/route";
 import { GET as comentariosGET } from "@/app/api/projetos/[id]/comentarios/route";
@@ -239,6 +241,16 @@ describe("casos que a matriz não cobre", () => {
     expect(await comentar(m.cardV.id, { texto: "oi" }, m.p.membroProjetos)).toEqual(semProposta);
     expect(semProposta).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
     expect(await comentar("nao-existe", { texto: "oi" }, m.p.membroProjetos)).toEqual(semProposta);
+  });
+
+  it("handoff na tela: itens seguem a área dona; o PDF do contrato também", async () => {
+    await como(m.p.vendedor);
+    expect(await marcarItemAction(m.cardP.id, "kickoff", true)).toMatchObject({ erro: expect.stringMatching(/outra área/) });
+    expect(await moverParaExecucaoAction(m.cardP.id)).toMatchObject({ erro: expect.stringMatching(/outra área/) });
+    const pdf = await handoffContratoPOST(new Request("http://x", { method: "POST", headers: { "x-nome-arquivo": "c.pdf" }, body: "x" }), { params: params({ id: m.cardP.id }) });
+    expect(pdf.status).toBe(403);
+    await como(m.p.membroProjetos);
+    expect(await marcarItemAction(m.cardP.id, "kickoff", true)).toEqual({ ok: true });
   });
 
   it("lixeira: gestor de outra área não restaura; da área, sem área e admin restauram", async () => {

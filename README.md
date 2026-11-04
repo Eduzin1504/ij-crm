@@ -579,6 +579,27 @@ entra em fase de ganho. Cards `isento_trava_contrato` seguem isentos. No detalhe
 `marcarContratoAssinado` (`contrato-assinado.ts`) é a porta da tela e da ferramenta MCP
 `marcar_contrato_assinado`: confere a regra, anexa pelo sistema de anexos e só então move. WhatsApp
 "assinou" fora da regra marca `revisar` e responde no grupo o que falta.
+**Handoff (GAB-93, spec fase 2 §4.8/§4.11/§4.12).** O ganho leva o card à coluna Handoff e avisa os GPs de
+projetos (app + WhatsApp privado, tipo `HANDOFF`). No detalhe do Projeto, o bloco Handoff reúne: GP do projeto
+(designado pelo GP de projetos, pessoa da área projetos; vira a responsável e recebe aviso); checklist (proposta
+final congelada, automática; PDF do contrato assinado; contatos, kickoff, acessos/materiais); e o resumo escrito
+por vendas (contexto, combinados verbais, riscos, o que o cliente valoriza). Execução, e toda fase depois dela ou
+de ganho no quadro, só com tudo fechado: arraste, MCP, card novo, lixeira e Gestão de fases, nem gestor força
+(`trava-handoff.ts`, erro `HANDOFF_INCOMPLETO`, que diz o que falta). O WhatsApp só enxerga fases de Vendas e
+trata card em Projetos como fechado. A trava olha a entrada: quem já está em Execução anda livre. O GP precisa
+continuar valendo (ativo, área projetos) e ser o responsável; se o responsável mudou, designar de novo corrige. Na
+lixeira, vale onde o card estava ao ser excluído (`alemDaExecucao` na EXCLUSAO). Isentos
+(`isento_trava_handoff`): o que já estava no quadro Projetos no deploy e o que vem do import do Pipefy. Cards ainda
+em Vendas no deploy passam pelo handoff.
+O quadro Projetos tem uma fase Perdido, sem marco e obrigatória (`validarTerminais`): não passa pela trava, pede
+motivo e pode reabrir. Perda em Projetos não é perda de venda: ranking e painel de vendas seguem contando o ganho e
+não contam a perda (a venda aconteceu); ela aparece no Kanban, na Tabela e no detalhe do Projeto.
+O PDF é identificado pela coluna `anexo.contrato_assinado` (um vivo por Projeto, com índice único parcial, sem olhar
+nome): marcada pelo "Contrato assinado" com PDF e pelo checklist, que aceita enviar o arquivo ou
+apontar um PDF já anexado. A proposta congela ao chegar em Projetos: toda escrita recusa (`PROPOSTA_CONGELADA`),
+comentar continua; em card isento sem aceite, o item fica dispensado. Serviço em `handoff.ts`, o mesmo da tela e
+das ferramentas MCP `ler_handoff`, `marcar_item_handoff`, `escrever_resumo_handoff`, `designar_gp_projeto`,
+`definir_contrato_handoff` e `mover_para_execucao`.
 O ganho guarda `vendedor_id` (responsável no momento do ganho); o ranking credita ganho/perda a ele. Deploy e rollback: runbook, "Ciclo
 único (GAB-81)"; contagens antes/depois: `scripts/verificar-ciclo-unico.sql`.
 

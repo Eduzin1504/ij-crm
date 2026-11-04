@@ -72,7 +72,9 @@ describe("validarTerminais", () => {
   });
 
   it("outros pipelines exigem só um GANHO", () => {
-    expect(validarTerminais("projetos", [comum, ganho])).toBeNull();
+    // GAB-93: Projetos também precisa de perdido.
+    expect(validarTerminais("projetos", [comum, ganho, perdido])).toBeNull();
+    expect(validarTerminais("projetos", [comum, ganho])).toBe("TERMINAL_PERDIDO_OBRIGATORIO");
     expect(validarTerminais("projetos", [comum])).toBe("TERMINAL_GANHO_OBRIGATORIO");
     expect(validarTerminais("projetos", [comum, perdido])).toBe("TERMINAL_GANHO_OBRIGATORIO");
   });

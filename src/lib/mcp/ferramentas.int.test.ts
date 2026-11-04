@@ -100,6 +100,11 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       marcar_proposta_enviada: { projeto_id: id },
       registrar_resposta_proposta: { projeto_id: id, resposta: "aceita" },
       concluir_revisao_proposta: { projeto_id: id, revisao: 0 },
+      marcar_item_handoff: { id, item: "kickoff", feito: true },
+      escrever_resumo_handoff: { id, contexto: "x" },
+      designar_gp_projeto: { id, gp_id: vendedora.id },
+      definir_contrato_handoff: { id, anexo_id: "a".repeat(32) },
+      mover_para_execucao: { id },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };
@@ -129,7 +134,11 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
     await db.proposta.update({ where: { projetoId: card.id }, data: { status: "PRONTA_PARA_ENVIO" } });
     const coment = await comentar(card.id, { texto: "Revisar o escopo" }, vendedora);
     if (!coment.ok) throw new Error("seed comentário");
+    const faseHandoff = await db.fase.findFirstOrThrow({ where: { marco: "HANDOFF" } });
+    const emHandoff = await criarCard({ pipelineId: faseHandoff.pipelineId, faseId: faseHandoff.id, titulo: "Recebido" }, vendedora);
+    if (!emHandoff.ok) throw new Error("seed handoff");
     const leituras = [
+      ["ler_handoff", { id: emHandoff.id }],
       ["listar_fases", {}],
       ["listar_responsaveis", {}],
       ["buscar_projetos", {}],

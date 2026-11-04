@@ -267,6 +267,17 @@ describe("MCP: casos que a matriz não cobre", () => {
     expect((JSON.parse(r.texto) as { campos: { motivoPerda: string } }).campos.motivoPerda).toBe("Preço: achou caro");
   });
 
+  it("handoff: itens, contrato e Execução seguem a área dona; resumo continua de vendas", async () => {
+    const { id } = m.cardP;
+    const item = { id, item: "kickoff", feito: true };
+    expect((await roda("marcar_item_handoff", item, m.p.vendedor)).texto).toMatch(FORA);
+    expect((await roda("definir_contrato_handoff", { id, anexo_id: "x" }, m.p.vendedor)).texto).toMatch(FORA);
+    expect((await roda("mover_para_execucao", { id }, m.p.gestorVendas)).texto).toMatch(FORA);
+    expect((await roda("marcar_item_handoff", item, m.p.membroProjetos)).erro).toBe(false);
+    expect((await roda("marcar_item_handoff", item, m.p.donoP)).erro).toBe(false);
+    expect((await roda("escrever_resumo_handoff", { id, contexto: "Da venda" }, m.p.vendedor)).texto).not.toMatch(FORA);
+  });
+
   it("Painel segue aberto: VISUALIZADOR e membro de Projetos consultam", async () => {
     expect((await roda("consultar_painel_vendas", { indicador: "conversao" }, m.p.visualizador)).erro).toBe(false);
     expect((await roda("consultar_painel_vendas", { indicador: "conversao" }, m.p.membroProjetos)).erro).toBe(false);

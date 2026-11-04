@@ -19,6 +19,7 @@
  * as mesmas funções de serviço da tela, com a máquina de estados de propostas/caneta.ts.
  * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
  * Contrato (GAB-99): marcar assinado, com o PDF opcional.
+ * Handoff (GAB-93): ler, itens, resumo, GP, PDF do contrato e mover para execução.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -32,7 +33,19 @@ import { ROTULO_MARCO } from "@/lib/fases/marcos";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { MENSAGEM_ERRO_CONTRATO, marcarContratoAssinado } from "@/lib/projetos/contrato-assinado";
 import { CAMPOS_EDITAVEIS, descricaoSchema, interpretarCampo, type CampoEditavel } from "@/lib/projetos/campos";
-import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
+import { MENSAGEM_ERRO_PROJETO, textoDoErroProjeto } from "@/lib/projetos/erros";
+import {
+  anexarContratoNoHandoff,
+  definirContratoNoHandoff,
+  designarGpDoProjeto,
+  listarCandidatosGp,
+  marcarItemHandoff,
+  MENSAGEM_ERRO_HANDOFF,
+  moverParaExecucao,
+  obterHandoff,
+  salvarResumoHandoff,
+} from "@/lib/projetos/handoff";
+import { descreverPendencias, ITENS_MANUAIS, RESUMO_CAMPO_MAX } from "@/lib/projetos/handoff-regras";
 import { adicionarNota, criarCard, editarCard, listarQuadro, listarResponsaveis, moverCard, obterCard, type PatchCard } from "@/lib/projetos/projetos";
 import { MOTIVOS_PERDA, PIPELINE_PROJETOS, PIPELINE_VENDAS } from "@/lib/projetos/terminal-regras";
 import { vincularAoCard } from "@/lib/projetos/vinculos";
@@ -74,6 +87,7 @@ import {
 } from "@/lib/propostas/propostas";
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
+import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
 import { recusaDeCriarNoQuadro } from "@/lib/projetos/acesso-card";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
@@ -353,7 +367,7 @@ const moverProjeto = ferramenta({
   nome: "mover_projeto",
   titulo: "Mover projeto de fase",
   descricao:
-    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card; Ganho só a partir de Montando contrato — prefira marcar_contrato_assinado). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
+    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card; Ganho só a partir de Montando contrato — prefira marcar_contrato_assinado; Execução e o que vem depois só com o handoff completo — veja ler_handoff). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
   escrita: true,
   guarda: cardEditavel,
   entrada: {
@@ -368,7 +382,7 @@ const moverProjeto = ferramenta({
     // Como a tela: sem diálogo de ganho/perda, `dadosTerminal` não vai.
     const temDados = Object.values(dados).some((v) => v !== undefined);
     const r = await moverCard(a.id, a.fase_id, eu, temDados ? { dadosTerminal: dados } : {});
-    if (!r.ok) return erro(MENSAGEM_ERRO_PROJETO[r.erro]);
+    if (!r.ok) return erro(textoDoErroProjeto(r));
     return ok({ mudou: r.mudou, terminal: r.terminal, url: urlProjeto(a.id) });
   },
 });
@@ -475,6 +489,7 @@ const listarAnexosMcp = ferramenta({
         tipo: ROTULO_TIPO_ANEXO[x.tipo],
         tamanhoBytes: x.tamanho,
         semTexto: x.semTexto,
+        contratoAssinado: x.contratoAssinado,
         caracteres: x.caracteres,
         autor: { id: x.autor.id, nome: x.autor.nome },
         criadoEm: x.criadoEm.toISOString(),
@@ -597,9 +612,11 @@ const lerProposta = ferramenta({
       return ok({ existe: false, projeto: r.projeto.titulo, voceCria: cria, dica: cria ? "Crie com criar_proposta." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria.", url: urlProposta(a.projeto_id) });
     }
     const p = r.proposta;
-    const edita = !!pessoa && podeEditarProposta(pessoa, p.estado);
-    const acoes = pessoa ? acoesPossiveis(pessoa, p.estado) : [];
-    const envio = pessoa ? acoesDeEnvio(pessoa, p.estado) : [];
+    // GAB-93: no quadro Projetos a proposta está congelada (os serviços recusam).
+    const congelada = r.projeto.pipeline.chave === PIPELINE_PROJETOS;
+    const edita = !congelada && !!pessoa && podeEditarProposta(pessoa, p.estado);
+    const acoes = !congelada && pessoa ? acoesPossiveis(pessoa, p.estado) : [];
+    const envio = !congelada && pessoa ? acoesDeEnvio(pessoa, p.estado) : [];
     const pessoas = acoes.some((x) => x === "passar" || x === "devolver") ? await listarPessoasDaCaneta() : [];
     const final = await versaoFinalDaProposta(a.projeto_id);
     return ok({
@@ -985,6 +1002,118 @@ const marcarContratoAssinadoMcp = ferramenta({
   },
 });
 
+// ---------------------------------------------------------------- handoff (GAB-93)
+
+const lerHandoff = ferramenta({
+  nome: "ler_handoff",
+  titulo: "Ler o handoff do projeto",
+  descricao:
+    "Mostra o handoff de um projeto do quadro projetos: GP do projeto, checklist (proposta final congelada, automática; PDF do contrato assinado; contatos do cliente; kickoff; acessos e materiais), resumo escrito por vendas, o que falta para entrar em Execução e as pessoas que podem ser designadas GP. isento=true: card anterior à trava, que não precisa fechar o handoff.",
+  escrita: false,
+  entrada: { id },
+  executar: async (a, eu) => {
+    const h = await obterHandoff(a.id);
+    if (!h) return erro("Esse projeto não está no quadro projetos (ou não existe): o handoff começa no Ganho.");
+    return ok({
+      editavel: h.emHandoff,
+      isento: h.isento,
+      completo: h.completo,
+      falta: h.pendencias.length ? descreverPendencias(h.pendencias) : null,
+      gp: h.gp ? { ...h.gp, valido: h.gpValido, responsavel: !h.responsavelDiverge } : null,
+      ...(h.emHandoff && !h.gpValido && (await listarGpsDeProjetos()).length === 0 ? { aviso: "Ninguém tem o cargo de GP de projetos: peça à gestão para dar o cargo a alguém, que então designa o GP do projeto." } : {}),
+      checklist: {
+        proposta_congelada: { feito: h.proposta.congelada, dispensada: h.proposta.dispensada, versao: (await podeVerPropostaDoProjeto(eu, a.id)) ? h.proposta.versao : null, automatico: true },
+        contrato_pdf: { feito: !!h.contrato, anexo: h.contrato },
+        contatos: { feito: !!h.itens.contatos, em: h.itens.contatos?.toISOString() ?? null },
+        kickoff: { feito: !!h.itens.kickoff, em: h.itens.kickoff?.toISOString() ?? null },
+        acessos: { feito: !!h.itens.acessos, em: h.itens.acessos?.toISOString() ?? null },
+      },
+      resumo: { ...h.resumo, por: h.resumoPor, em: h.resumoEm?.toISOString() ?? null },
+      candidatos_gp: h.emHandoff ? await listarCandidatosGp() : [],
+      url: urlProjeto(a.id),
+    });
+  },
+});
+
+const marcarItemHandoffMcp = ferramenta({
+  nome: "marcar_item_handoff",
+  titulo: "Marcar item do checklist de handoff",
+  descricao:
+    "Marca (feito=true) ou desmarca um item manual do checklist de handoff: contatos, kickoff ou acessos. Proposta congelada é automática e o PDF do contrato usa definir_contrato_handoff. Só com o projeto na coluna Handoff.",
+  escrita: true,
+  guarda: cardEditavel,
+  entrada: { id, item: z.enum(ITENS_MANUAIS), feito: z.boolean() },
+  executar: async (a, eu) => {
+    const r = await marcarItemHandoff(a.id, a.item, a.feito, eu);
+    return r.ok ? ok({ mudou: r.mudou, url: urlProjeto(a.id) }) : erro(MENSAGEM_ERRO_HANDOFF[r.erro]);
+  },
+});
+
+const parteResumo = z.string().max(RESUMO_CAMPO_MAX, `Cada parte do resumo pode ter até ${RESUMO_CAMPO_MAX} caracteres.`).optional();
+
+const escreverResumoHandoff = ferramenta({
+  nome: "escrever_resumo_handoff",
+  titulo: "Escrever o resumo de handoff",
+  descricao:
+    "Grava o resumo de handoff, escrito por vendas (só quem é do lado vendas). As quatro partes são obrigatórias para entrar em Execução: contexto, combinados (combinados verbais), riscos e valoriza (o que o cliente valoriza). Parte ausente fica como está; texto vazio limpa. Se não houver combinados ou riscos, escreva isso.",
+  escrita: true,
+  entrada: { id, contexto: parteResumo, combinados: parteResumo, riscos: parteResumo, valoriza: parteResumo },
+  executar: async (a, eu) => {
+    const r = await salvarResumoHandoff(a.id, { contexto: a.contexto, combinados: a.combinados, riscos: a.riscos, valoriza: a.valoriza }, eu);
+    return r.ok ? ok({ mudou: r.mudou, url: urlProjeto(a.id) }) : erro(MENSAGEM_ERRO_HANDOFF[r.erro]);
+  },
+});
+
+const designarGpProjeto = ferramenta({
+  nome: "designar_gp_projeto",
+  titulo: "Designar o GP do projeto",
+  descricao: "Só o GP de projetos: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
+  escrita: true,
+  entrada: { id, gp_id: id },
+  executar: async (a, eu) => {
+    const r = await designarGpDoProjeto(a.id, a.gp_id, eu);
+    return r.ok ? ok({ mudou: r.mudou, url: urlProjeto(a.id) }) : erro(MENSAGEM_ERRO_HANDOFF[r.erro]);
+  },
+});
+
+const definirContratoHandoff = ferramenta({
+  nome: "definir_contrato_handoff",
+  titulo: "Definir o PDF do contrato assinado no handoff",
+  descricao:
+    "Cumpre o item PDF do contrato assinado do checklist. anexo_id aponta um PDF já anexado ao projeto (listar_anexos); pdf_base64 (PDF de até 7,8 MB; maior que isso, use a tela) anexa o arquivo, com pdf_nome opcional. Envie um dos dois. Substitui o contrato definido antes. Só com o projeto na coluna Handoff.",
+  escrita: true,
+  guarda: cardEditavel,
+  entrada: {
+    id,
+    anexo_id: id.optional(),
+    pdf_nome: z.string().max(1000).optional(),
+    pdf_base64: z.string().max(PDF_BASE64_MAX, "PDF grande demais para o conector: o limite é 7,8 MB. Anexe pela tela do CRM.").optional(),
+  },
+  executar: async (a, eu) => {
+    if ((a.anexo_id === undefined) === (a.pdf_base64 === undefined)) return erro("Envie anexo_id ou pdf_base64 (um dos dois). Nada foi alterado.");
+    if (a.anexo_id !== undefined) {
+      const r = await definirContratoNoHandoff(a.id, a.anexo_id, eu);
+      return r.ok ? ok({ mudou: r.mudou, url: urlProjeto(a.id) }) : erro(MENSAGEM_ERRO_HANDOFF[r.erro]);
+    }
+    if (!BASE64.test(a.pdf_base64!)) return erro("pdf_base64 não é base64 válido.");
+    const r = await anexarContratoNoHandoff(a.id, { nome: a.pdf_nome?.trim() || "Contrato assinado.pdf", bytes: new Uint8Array(Buffer.from(a.pdf_base64!, "base64")) }, eu);
+    return r.ok ? ok({ anexo: r.anexo, url: urlProjeto(a.id) }) : erro(MENSAGEM_ERRO_HANDOFF[r.erro]);
+  },
+});
+
+const moverParaExecucaoMcp = ferramenta({
+  nome: "mover_para_execucao",
+  titulo: "Mover o projeto para Execução",
+  descricao: "Leva o projeto ao marco Execução. Só com o handoff completo (GP, checklist e resumo; veja ler_handoff), nem gestor força: a recusa diz o que falta.",
+  escrita: true,
+  guarda: cardEditavel,
+  entrada: { id },
+  executar: async (a, eu) => {
+    const r = await moverParaExecucao(a.id, eu);
+    return r.ok ? ok({ mudou: r.mudou, url: urlProjeto(a.id) }) : erro(r.erro);
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -995,6 +1124,12 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   definirProximaAcao,
   moverProjeto,
   marcarContratoAssinadoMcp,
+  lerHandoff,
+  marcarItemHandoffMcp,
+  escreverResumoHandoff,
+  designarGpProjeto,
+  definirContratoHandoff,
+  moverParaExecucaoMcp,
   registrarNota,
   buscarEmpresasContatos,
   vincularEmpresaContato,

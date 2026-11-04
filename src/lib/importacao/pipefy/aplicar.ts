@@ -487,6 +487,8 @@ async function aplicarCard(ctx: Ctx, card: CardPipefy): Promise<Desfecho> {
         revisar: revisar || !responsavel,
         // GAB-89: histórico de antes do CRM — livre da trava de Montando contrato, como os cards do deploy.
         isentoTravaContrato: true,
+        // GAB-93: idem para a trava de Execução (handoff).
+        isentoTravaHandoff: true,
         origem: card.origem,
         dor: card.dor,
         descricao: card.descricao,

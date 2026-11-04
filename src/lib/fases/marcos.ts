@@ -6,7 +6,8 @@
  * O ciclo é mostrado em dois quadros, e o quadro de um card é o `pipeline`
  * dele — por isso ele aparece em exatamente um quadro:
  * - Vendas: [subfases] Proposta, Montando contrato, [subfases] Ganho, Perdido.
- * - Projetos: Handoff (1ª coluna), Execução, [subfases] Finalizado.
+ * - Projetos: Handoff (1ª coluna), Execução, [subfases] Finalizado. GAB-93: o quadro
+ *   tem também uma fase Perdido, que não é marco (`fase.marco` é único; `validarTerminais` a garante).
  * Entrar em Ganho leva o MESMO card para Handoff (`projetos/terminal.ts`).
  *
  * Marco: não é apagado nem arquivado, não muda de tipo terminal e não sai da

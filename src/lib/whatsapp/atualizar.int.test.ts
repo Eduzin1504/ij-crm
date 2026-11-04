@@ -474,6 +474,24 @@ describe("mover para terminal pelo WhatsApp", () => {
     expect(c.dataGanho).not.toBeNull();
   });
 
+  it("GAB-93: 'assinou' que leva ao Handoff avisa o GP de projetos, e o card fica em Handoff (Execução nem é fase do WhatsApp)", async () => {
+    const gp = await dbT.usuario.create({ data: { nome: "Paula", email: "paula@ij.test", papel: "PROJETOS", area: "PROJETOS", cargos: ["GP"] } });
+    const id = await cardRecente();
+    await aceitar(id);
+    await enviar("#crm Gustavo, vamos montar o contrato", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "montando_contrato" }));
+    expect(await dbT.aviso.count({ where: { tipo: "HANDOFF" } })).toBe(0);
+    await enviar("#crm Gustavo assinou, 18 mil", (p) =>
+      saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "contrato_assinado", campos: { valor_fechado: "18 mil" } }),
+    );
+    expect((await cardDe(id)).fase.marco).toBe("HANDOFF");
+    const avisos = await dbT.aviso.findMany({ where: { tipo: "HANDOFF" } });
+    expect(avisos.map((a) => [a.usuarioId, a.projetoId])).toEqual([[gp.id, id]]);
+    // Mensagem pedindo execução: não é fase que o grupo move; o card em Projetos conta como fechado.
+    await enviar("#crm Gustavo começou a execução", (p) => saida({ intencao: "ATUALIZAR", oportunidade_id: idCandidata(p, "recente"), fase_chave: "em_execucao" }));
+    expect((await cardDe(id)).fase.marco).toBe("HANDOFF");
+    expect(await dbT.aviso.count({ where: { tipo: "HANDOFF" } })).toBe(1);
+  });
+
   it("GAB-99: card isento 'assinou' de qualquer fase: continua sem trava", async () => {
     const id = await cardRecente();
     await dbT.projeto.update({ where: { id }, data: { isentoTravaContrato: true } });

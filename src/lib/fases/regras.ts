@@ -26,9 +26,12 @@ export type ErroFase =
   | "ORDEM_MARCOS"
   // GAB-89: a Gestão de fases não leva para Montando contrato (ou além) card sem proposta aceita.
   | "DESTINO_EXIGE_PROPOSTA"
-  | "FASE_CRUZA_CONTRATO";
+  | "FASE_CRUZA_CONTRATO"
+  // GAB-93: idem para Execução, com o handoff.
+  | "DESTINO_EXIGE_HANDOFF"
+  | "FASE_CRUZA_EXECUCAO";
 
-/** Pipeline cuja regra de negócio exige também uma fase PERDIDO (§4.2). */
+/** Quadro de vendas (seed). */
 export const PIPELINE_VENDAS = "vendas";
 
 /**
@@ -105,8 +108,9 @@ export function validarCor(cor: string): string | null {
 }
 
 /**
- * Terminais obrigatórios entre as fases ATIVAS de um pipeline: `vendas` precisa
- * de ≥1 GANHO e ≥1 PERDIDO; os demais, ≥1 GANHO.
+ * Terminais obrigatórios entre as fases ATIVAS de um pipeline: `vendas` e
+ * `projetos` precisam de ≥1 GANHO e ≥1 PERDIDO (GAB-93: em projetos a fase não é
+ * marco, e sem ela o cliente que desiste em Handoff ficaria preso); os demais, ≥1 GANHO.
  */
 export function validarTerminais(
   pipelineChave: string,
@@ -114,7 +118,7 @@ export function validarTerminais(
 ): ErroFase | null {
   const tem = (t: TipoTerminal) => fasesAtivas.some((f) => f.tipoTerminal === t);
   if (!tem("GANHO")) return "TERMINAL_GANHO_OBRIGATORIO";
-  if (pipelineChave === PIPELINE_VENDAS && !tem("PERDIDO")) return "TERMINAL_PERDIDO_OBRIGATORIO";
+  if ((pipelineChave === PIPELINE_VENDAS || pipelineChave === "projetos") && !tem("PERDIDO")) return "TERMINAL_PERDIDO_OBRIGATORIO";
   return null;
 }
 

@@ -14,6 +14,7 @@ import { estruturadoParaEntrada } from "@/lib/propostas/estruturado";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
 import { podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { listarComentarios } from "@/lib/propostas/comentarios";
+import { PIPELINE_PROJETOS } from "@/lib/projetos/terminal-regras";
 import { listarPessoasDaCaneta, obterPropostaDoProjeto, pessoaDaCaneta, tempoComCaneta } from "@/lib/propostas/propostas";
 import { podeCriarProposta } from "@/lib/propostas/regras";
 import { urlPdfDaProposta } from "@/lib/propostas/url";
@@ -51,13 +52,15 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
   if (!(await podeVerPropostaDoProjeto(eu, id))) redirect("/403");
   const { projeto, proposta } = r;
   const pessoa = await pessoaDaCaneta(eu.id);
-  const cria = !!pessoa && pessoa.ativo && podeCriarProposta(pessoa, projeto);
-  const edita = !!proposta && !!pessoa && podeEditarProposta(pessoa, proposta.estado);
-  const acoes = proposta && pessoa ? acoesPossiveis(pessoa, proposta.estado) : [];
+  // GAB-93: no quadro Projetos (depois do Ganho) a proposta está congelada: só leitura e comentários.
+  const congelada = projeto.pipeline.chave === PIPELINE_PROJETOS;
+  const cria = !congelada && !!pessoa && pessoa.ativo && podeCriarProposta(pessoa, projeto);
+  const edita = !congelada && !!proposta && !!pessoa && podeEditarProposta(pessoa, proposta.estado);
+  const acoes = !congelada && proposta && pessoa ? acoesPossiveis(pessoa, proposta.estado) : [];
   const lado = proposta ? ladoDaCaneta(proposta) : "VENDAS";
   const pessoas = acoes.some((a) => a === "passar" || a === "devolver") ? await listarPessoasDaCaneta() : [];
   // GAB-89: envio ao cliente (PDF da versão final, marcar enviada, resposta, concluir revisão).
-  const envio = proposta && pessoa ? acoesDeEnvio(pessoa, proposta.estado) : [];
+  const envio = !congelada && proposta && pessoa ? acoesDeEnvio(pessoa, proposta.estado) : [];
   const versaoPdf = proposta ? versaoDoPdf(proposta, proposta.versoes[0]?.numero ?? null) : null;
   const caneta = {
     acoes,
@@ -104,7 +107,7 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
           <EstadoVazio
             mascote="notebook"
             titulo="Este projeto ainda não tem proposta"
-            texto={cria ? "Crie a proposta: o texto fica aqui, com versões, e a parte estruturada (valor, prazo, entregas) alimenta o contrato e a execução." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria a proposta."}
+            texto={congelada ? "O projeto já está no quadro Projetos: não há mais proposta a criar." : cria ? "Crie a proposta: o texto fica aqui, com versões, e a parte estruturada (valor, prazo, entregas) alimenta o contrato e a execução." : "Quem é de vendas e responsável pelo projeto (ou a gestão) cria a proposta."}
             acao={cria ? <CriarProposta projetoId={projeto.id} /> : undefined}
           />
         </section>

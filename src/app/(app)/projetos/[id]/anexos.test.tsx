@@ -18,6 +18,7 @@ function anexo(extra: Partial<AnexoDoProjeto> = {}): AnexoDoProjeto {
     tipo: "PDF",
     mime: "application/pdf",
     tamanho: 1536,
+    contratoAssinado: false,
     semTexto: false,
     caracteres: 1200,
     criadoEm: new Date("2026-10-31T15:00:00Z"),

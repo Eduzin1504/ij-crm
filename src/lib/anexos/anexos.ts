@@ -40,7 +40,17 @@ export function ehAnexoDuplicadoNoBanco(e: unknown): boolean {
 
 export type AnexoCriado = { id: string; nome: string; semTexto: boolean };
 
-export async function anexarArquivo(projetoId: string, arquivo: { nome: string; bytes: Uint8Array }, por: Ator): Promise<ResultadoAnexo<{ anexo: AnexoCriado }>> {
+/**
+ * `opts.contratoAssinado` (GAB-93): o anexo vira O contrato assinado do Projeto, no lugar de outro que já
+ * estivesse marcado, com a linha do card em FOR UPDATE (dois envios se enfileiram; o último fica).
+ * `opts.conferir` roda sob esse lock, depois da extração de texto: lançar desfaz tudo e remove o arquivo.
+ */
+export async function anexarArquivo(
+  projetoId: string,
+  arquivo: { nome: string; bytes: Uint8Array },
+  por: Ator,
+  opts: { contratoAssinado?: boolean; conferir?: (tx: Prisma.TransactionClient) => Promise<void> } = {},
+): Promise<ResultadoAnexo<{ anexo: AnexoCriado }>> {
   if (!podeEscrever(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
   const nome = sanitizarNome(arquivo.nome);
   const id = identificarTipo(arquivo.bytes, nome);
@@ -65,13 +75,18 @@ export async function anexarArquivo(projetoId: string, arquivo: { nome: string; 
     const criado = await db.$transaction(async (tx) => {
       // Relido dentro da transação, com a linha travada (FOR SHARE): o card pode ter ido
       // para a lixeira enquanto o PDF era lido, e "apagar de vez" (FOR UPDATE) espera este upload.
-      const vivo = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR SHARE`;
+      const contratoAssinado = opts.contratoAssinado === true;
+      const vivo = contratoAssinado
+        ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR UPDATE`
+        : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR SHARE`;
       if (vivo.length === 0) return null;
+      await opts.conferir?.(tx);
       const agora = new Date();
+      if (contratoAssinado) await tx.anexo.updateMany({ where: { projetoId, contratoAssinado: true }, data: { contratoAssinado: false } });
       await tx.anexo.create({
-        data: { id: anexoId, projetoId, nome, tipo: id.tipo, mime: id.mime, tamanho: arquivo.bytes.length, sha256, texto: extracao.texto, semTexto, autorId: por.id, criadoEm: agora },
+        data: { id: anexoId, projetoId, nome, tipo: id.tipo, mime: id.mime, tamanho: arquivo.bytes.length, sha256, texto: extracao.texto, semTexto, contratoAssinado, autorId: por.id, criadoEm: agora },
       });
-      await tx.timeline.create({ data: { projetoId, tipo: "ANEXO", payload: { evento: "adicionado", anexoId, nome, semTexto }, usuarioId: por.id, em: agora } });
+      await tx.timeline.create({ data: { projetoId, tipo: "ANEXO", payload: { evento: "adicionado", anexoId, nome, semTexto, ...(contratoAssinado ? { contratoAssinado } : {}) }, usuarioId: por.id, em: agora } });
       return true;
     });
     if (!criado) {
@@ -95,7 +110,7 @@ export async function listarAnexos(projetoId: string) {
   const anexos = await db.anexo.findMany({
     where: { projetoId, deletadoEm: null, projeto: { deletadoEm: null } },
     orderBy: [{ criadoEm: "desc" }, { id: "asc" }],
-    select: { id: true, nome: true, tipo: true, mime: true, tamanho: true, semTexto: true, criadoEm: true, autor: { select: { id: true, nome: true } } },
+    select: { id: true, nome: true, tipo: true, mime: true, tamanho: true, semTexto: true, contratoAssinado: true, criadoEm: true, autor: { select: { id: true, nome: true } } },
   });
   return anexos.map((a) => ({ ...a, caracteres: caracteres.get(a.id) ?? 0 }));
 }
