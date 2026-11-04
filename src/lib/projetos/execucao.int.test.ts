@@ -6,7 +6,8 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { removerFase, reordenarFases } from "@/lib/fases/fases";
 import { excluirCard, restaurarCard } from "@/lib/lixeira/cards";
 import { dbTeste, limparBanco } from "@/test/db";
-import { adicionarEntrega, ajustarDataEntrega, copiarCronogramaDaProposta, desmarcarEntrega, marcarEntregaFeita, obterCronograma, registrarCheckin } from "./execucao";
+import { timelineSemProposta } from "@/lib/propostas/acesso";
+import { adicionarEntrega, ajustarDataEntrega, cancelarEntrega, copiarCronogramaDaProposta, cronogramaSemProposta, desmarcarEntrega, marcarEntregaFeita, obterCronograma, registrarCheckin } from "./execucao";
 import { moverParaExecucao } from "./handoff";
 import { listarQuadro, moverCard } from "./projetos";
 
@@ -196,6 +197,38 @@ describe("cópia da proposta final", () => {
     expect((await s.entregas(id)).map((e) => e.titulo)).toEqual(["Boa"]);
   });
 
+  it("valor inválido vira null com warn, data inválida entra em `ignoradas` e fica fora de `copiaveis`", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const id = await s.card({ fase: "em_execucao" });
+    const p = await db.proposta.create({ data: { projetoId: id, status: "ACEITA", criadoPorId: s.ana.id, versaoEnviada: 1 } });
+    const estruturado = {
+      entregas: [
+        { titulo: "Valor ruim", dia: "2026-11-20", valor: "doze reais" },
+        { titulo: "Valor grande", dia: "2026-11-21", valor: "9999999999999.00" },
+        { titulo: "Boa", dia: "2026-11-22", valor: "10.50" },
+        { titulo: "Data ruim", dia: "2026-02-30", valor: "1.00" },
+      ],
+    };
+    await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: "", estruturado, autorId: s.ana.id } });
+    expect((await obterCronograma(id))?.copiaveis).toBe(3);
+    await moverCard(id, s.f("conclusao"), s.gp);
+    expect((await s.entregas(id)).map((e) => [e.titulo, e.valor?.toFixed(2) ?? null])).toEqual([
+      ["Valor ruim", null],
+      ["Valor grande", null],
+      ["Boa", "10.50"],
+    ]);
+    expect(warn).toHaveBeenCalled();
+    const t = await db.timeline.findFirstOrThrow({ where: { projetoId: id, tipo: "EXECUCAO" } });
+    expect(t.payload).toMatchObject({ evento: "cronograma_copiado", versao: 1, entregas: 3, ignoradas: 1 });
+  });
+
+  it("proposta só com data inválida: nada a copiar", async () => {
+    const id = await s.card({ fase: "em_execucao" });
+    const p = await db.proposta.create({ data: { projetoId: id, status: "ACEITA", criadoPorId: s.ana.id, versaoEnviada: 1 } });
+    await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: "", estruturado: { entregas: [{ titulo: "Ruim", dia: "ontem" }] }, autorId: s.ana.id } });
+    expect((await obterCronograma(id))?.copiaveis).toBe(0);
+  });
+
   it("card já em Execução no deploy: a tela copia uma vez, e não por cima do que existe", async () => {
     const id = await s.card({ proposta: true, fase: "em_execucao" });
     expect((await obterCronograma(id))?.copiaveis).toBe(2);
@@ -295,6 +328,68 @@ describe("cronograma manual", () => {
   });
 });
 
+describe("cancelar entrega", () => {
+  it("exige motivo; a linha fica, fora do cronograma ativo e da Timeline não some; não aceita mais nada", async () => {
+    const id = await s.card({ fase: "em_execucao" });
+    const a = await adicionarEntrega(id, { titulo: "A", dia: "2026-11-20", valor: "10,00" }, s.gp);
+    const b = await adicionarEntrega(id, { titulo: "B", dia: "2026-11-21" }, s.gp);
+    if (!a.ok || !b.ok) throw new Error("seed");
+    expect(await cancelarEntrega(id, a.entregaId, { motivo: "  " }, s.gp)).toEqual({ ok: false, erro: "MOTIVO_INVALIDO" });
+    expect(await cancelarEntrega(id, a.entregaId, { motivo: "x" }, s.par)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    expect(await cancelarEntrega(id, "outra", { motivo: "x" }, s.gp)).toEqual({ ok: false, erro: "ENTREGA_NAO_ENCONTRADA" });
+    expect(await cancelarEntrega(id, a.entregaId, { motivo: " Lançada\n por engano " }, s.gp)).toEqual({ ok: true, mudou: true });
+    expect(await cancelarEntrega(id, a.entregaId, { motivo: "de novo" }, s.gp)).toEqual({ ok: true, mudou: false });
+    expect(await s.entregas(id)).toHaveLength(2);
+    const v = (await obterCronograma(id))!;
+    expect(v.entregas.map((e) => e.titulo)).toEqual(["B"]);
+    expect(v.canceladas).toMatchObject([{ titulo: "A", motivo: "Lançada por engano", valor: "10.00" }]);
+    expect(await marcarEntregaFeita(id, a.entregaId, null, s.gp)).toEqual({ ok: false, erro: "ENTREGA_CANCELADA" });
+    expect(await desmarcarEntrega(id, a.entregaId, s.gp)).toEqual({ ok: false, erro: "ENTREGA_CANCELADA" });
+    expect(await ajustarDataEntrega(id, a.entregaId, { dia: "2026-12-01", motivo: "x" }, s.gp)).toEqual({ ok: false, erro: "ENTREGA_CANCELADA" });
+    expect((await s.eventos(id)).at(-1)).toBe("entrega_cancelada");
+    await marcarEntregaFeita(id, b.entregaId, "2026-01-01", s.gp);
+    expect(await cancelarEntrega(id, b.entregaId, { motivo: "x" }, s.gp)).toEqual({ ok: false, erro: "ENTREGA_JA_FEITA" });
+    expect(await db.projetoEntrega.count({ where: { projetoId: id, canceladaEm: null } })).toBe(1);
+  });
+
+  it("regra da cópia: manual cancelada não impede, e a ordem continua; cancelada da proposta não recopia", async () => {
+    const id = await s.card({ fase: "em_execucao", proposta: true });
+    const m = await adicionarEntrega(id, { titulo: "Engano", dia: "2026-11-20" }, s.gp);
+    if (!m.ok) throw new Error("seed");
+    expect((await obterCronograma(id))?.copiaveis).toBe(0);
+    expect(await copiarCronogramaDaProposta(id, s.gp)).toEqual({ ok: false, erro: "CRONOGRAMA_JA_EXISTE" });
+    await cancelarEntrega(id, m.entregaId, { motivo: "Engano" }, s.gp);
+    expect((await obterCronograma(id))?.copiaveis).toBe(2);
+    expect(await copiarCronogramaDaProposta(id, s.gp)).toEqual({ ok: true, entregas: 2 });
+    expect((await s.entregas(id)).map((e) => [e.ordem, e.titulo])).toEqual([[0, "Engano"], [1, "Diagnóstico"], [2, "Entrega final"]]);
+
+    for (const e of await s.entregas(id)) if (!e.canceladaEm) await cancelarEntrega(id, e.id, { motivo: "Saiu do escopo" }, s.gp);
+    expect((await obterCronograma(id))?.copiaveis).toBe(0);
+    await moverCard(id, s.f("handoff"), s.gp);
+    await moverCard(id, s.f("em_execucao"), s.gp);
+    expect(await s.entregas(id)).toHaveLength(3);
+    expect((await obterCronograma(id))?.entregas).toEqual([]);
+  });
+});
+
+describe("dados da proposta", () => {
+  it("cronogramaSemProposta tira valor, versão e copiaveis, e mantém título e datas", async () => {
+    const id = await s.card({ proposta: true });
+    await moverCard(id, s.f("em_execucao"), s.gp);
+    const [e] = await s.entregas(id);
+    await cancelarEntrega(id, e.id, { motivo: "x" }, s.gp);
+    const v = cronogramaSemProposta({ ...(await obterCronograma(id))!, copiaveis: 5 });
+    expect(v.copiaveis).toBe(0);
+    expect(v.entregas[0]).toMatchObject({ titulo: "Entrega final", previsto: "2026-12-10", valor: null, propostaVersao: null });
+    expect(v.canceladas[0]).toMatchObject({ titulo: "Diagnóstico", previstoOriginal: "2026-11-20", valor: null, propostaVersao: null });
+  });
+
+  it("timelineSemProposta tira a versão da cópia e mantém o evento", () => {
+    const [t] = timelineSemProposta([{ tipo: "EXECUCAO", payload: { evento: "cronograma_copiado", versao: 2, entregas: 3, ignoradas: 0 } }]);
+    expect(t.payload).toEqual({ evento: "cronograma_copiado", entregas: 3, ignoradas: 0 });
+  });
+});
+
 describe("quem pode", () => {
   it("GP, gestor sem área ou de projetos e admin operam; o resto não, e nada é gravado", async () => {
     const id = await s.card({ fase: "em_execucao" });
@@ -357,6 +452,14 @@ describe("check-in", () => {
 
     const q = await listarQuadro("projetos");
     expect(q?.cards.find((c) => c.id === id)?.checkins).toMatchObject([{ status: "VERMELHO", motivo: "Cliente sumiu" }]);
+
+    expect(q?.cards.find((c) => c.id === id)?.checkins[0].semana).toBe("2026-11-09");
+    await moverCard(id, s.f("handoff"), s.gp);
+    expect((await listarQuadro("projetos"))?.cards.find((c) => c.id === id)?.checkins).toEqual([]);
+    await moverCard(id, s.f("finalizado"), s.gp);
+    expect((await listarQuadro("projetos"))?.cards.find((c) => c.id === id)?.checkins).toEqual([]);
+    await moverCard(id, s.f("conclusao"), s.gp);
+    expect((await listarQuadro("projetos"))?.cards.find((c) => c.id === id)?.checkins).toHaveLength(1);
 
     const v = await obterCronograma(id, new Date("2026-11-10T12:00:00Z"));
     expect(v?.checkins.map((c) => c.status)).toEqual(["VERMELHO", "VERDE"]);
@@ -422,6 +525,36 @@ describe("lembrete de check-in", () => {
     await moverCard(id, s.f("handoff"), s.gp);
     await moverCard(id, s.f("em_execucao"), s.gp);
     expect((await db.projeto.findUniqueOrThrow({ where: { id } })).execucaoDesde?.getTime()).toBeGreaterThan(ANTES.getTime());
+  });
+
+  it("lixeira: o tempo lá não é cobrado, também para quem é acompanhado só por ter entrega ou check-in", async () => {
+    const comEntrega = await s.card({ fase: "em_execucao" });
+    await adicionarEntrega(comEntrega, { titulo: "A", dia: "2026-12-01" }, s.gp);
+    await db.projetoEntrega.updateMany({ where: { projetoId: comEntrega }, data: { criadoEm: ANTES } });
+    const comCheckin = await s.card({ fase: "em_execucao" });
+    await registrarCheckin(comCheckin, { status: "VERDE", motivo: "ok" }, s.gp, ANTES);
+    const nunca = await s.card({ fase: "em_execucao" });
+    const comData = await s.card({ fase: "em_execucao", execucaoDesde: ANTES });
+    for (const id of [comEntrega, comCheckin, nunca, comData]) {
+      await excluirCard(id, s.gp);
+      expect(await restaurarCard(id, s.gil)).toMatchObject({ ok: true });
+    }
+    const desde = async (id: string) => (await db.projeto.findUniqueOrThrow({ where: { id } })).execucaoDesde;
+    for (const id of [comEntrega, comCheckin, comData]) expect((await desde(id))?.getTime()).toBeGreaterThan(ANTES.getTime());
+    expect(await desde(nunca)).toBeNull();
+    // Restaurados agora: a semana cobrada logo depois é a da restauração ou anterior, que não conta.
+    const proximaSegunda = new Date(Date.now() + 7 * 24 * 3600_000);
+    expect(await lembrarCheckinsAtrasados(proximaSegunda)).toEqual({ lembretes: 0, refs: [] });
+    expect(await db.aviso.count({ where: { tipo: "CHECKIN_ATRASADO" } })).toBe(0);
+  });
+
+  it("entrega cancelada não conta como acompanhamento", async () => {
+    const id = await s.card({ fase: "em_execucao" });
+    const r = await adicionarEntrega(id, { titulo: "A", dia: "2026-12-01" }, s.gp);
+    if (!r.ok) throw new Error("seed");
+    await cancelarEntrega(id, r.entregaId, { motivo: "Engano" }, s.gp);
+    await db.projetoEntrega.updateMany({ where: { projetoId: id }, data: { criadoEm: ANTES } });
+    expect(await lembrarCheckinsAtrasados(SEGUNDA)).toEqual({ lembretes: 0, refs: [] });
   });
 
   it("fora de Execução, na lixeira ou em terminal não lembra", async () => {

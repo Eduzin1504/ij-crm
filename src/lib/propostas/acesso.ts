@@ -78,6 +78,12 @@ export function timelineSemProposta<T extends EntradaDaTimeline>(timeline: T[]):
   return timeline
     .filter((t) => !entradaDaProposta(t))
     .map((t) => {
+      // GAB-95: a cópia do cronograma fica; a versão da proposta, não.
+      if (t.tipo === "EXECUCAO" && (t.payload as { evento?: unknown } | null)?.evento === "cronograma_copiado") {
+        const semVersao: Record<string, unknown> = { ...(t.payload as object) };
+        delete semVersao.versao;
+        return { ...t, payload: semVersao };
+      }
       const payload = t.payload as { campo?: unknown; antes?: unknown; depois?: unknown } | null;
       if (t.tipo !== "CAMPO_ALTERADO" || payload?.campo !== "motivoPerda") return t;
       const texto = (v: unknown) => (typeof v === "string" ? mascararMotivoInviavel(v) : v);

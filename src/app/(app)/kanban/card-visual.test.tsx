@@ -67,16 +67,14 @@ describe("CardVisual: check-in (GAB-95)", () => {
   const fase = { id: "f1", chave: "exec", nome: "Em execução", cor: null, limiteDiasAlerta: null, isTerminal: false, tipoTerminal: null };
 
   it("mostra a cor do último check-in, com rótulo e motivo no título", () => {
-    render(<CardVisual card={{ ...base, ultimoCheckin: { status: "VERMELHO", motivo: "Cliente sumiu" } }} fase={fase} agoraMs={AGORA} />);
+    render(<CardVisual card={{ ...base, ultimoCheckin: { status: "VERMELHO", motivo: "Cliente sumiu", semana: "2026-11-02" } }} fase={fase} agoraMs={AGORA} />);
     const b = screen.getByTestId("status-checkin");
     expect(b.textContent).toBe("Vermelho");
-    expect(b.getAttribute("title")).toBe("Check-in: Vermelho · Cliente sumiu");
+    expect(b.getAttribute("title")).toBe("Check-in: Vermelho · semana de 02/11/2026 · Cliente sumiu");
   });
 
-  it("sem check-in não mostra nada; em fase terminal também não", () => {
-    const { rerender } = render(<CardVisual card={base} fase={fase} agoraMs={AGORA} />);
-    expect(screen.queryByTestId("status-checkin")).toBeNull();
-    rerender(<CardVisual card={{ ...base, ultimoCheckin: { status: "VERDE", motivo: "ok" } }} fase={{ ...fase, isTerminal: true, tipoTerminal: "GANHO" }} agoraMs={AGORA} />);
+  it("sem check-in não mostra nada (fora de Execução aberta, `listarQuadro` não manda)", () => {
+    render(<CardVisual card={base} fase={fase} agoraMs={AGORA} />);
     expect(screen.queryByTestId("status-checkin")).toBeNull();
   });
 });

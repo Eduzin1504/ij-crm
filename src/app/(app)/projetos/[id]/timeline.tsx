@@ -228,8 +228,14 @@ function Descricao({
       // GAB-95.
       const b = (v: unknown, resto: string) => <b className="font-medium text-foreground">{typeof v === "string" && v ? v : resto}</b>;
       const dia = (v: unknown) => (typeof v === "string" ? formatarDia(v) : "—");
-      if (p.evento === "cronograma_copiado") return <>copiou o cronograma da proposta (v{String(p.versao ?? "?")}, {String(p.entregas ?? 0)} entregas)</>;
+      if (p.evento === "cronograma_copiado") {
+        // `versao` não vem para quem não vê a proposta (`timelineSemProposta`).
+        const partes = [...(typeof p.versao === "number" ? [`v${p.versao}`] : []), `${String(p.entregas ?? 0)} entregas`, ...(typeof p.ignoradas === "number" && p.ignoradas > 0 ? [`${p.ignoradas} ignoradas por data inválida`] : [])];
+        return <>copiou o cronograma da proposta ({partes.join(", ")})</>;
+      }
       if (p.evento === "entrega_adicionada") return <>lançou a entrega {b(p.titulo, "entrega")}, prevista para {dia(p.dia)}</>;
+      if (p.evento === "entrega_feita" && typeof p.antes === "string") return <>corrigiu a data real da entrega {b(p.titulo, "entrega")} de {dia(p.antes)} para {dia(p.dia)}</>;
+      if (p.evento === "entrega_cancelada") return <>cancelou a entrega {b(p.titulo, "entrega")}: {typeof p.motivo === "string" ? p.motivo : ""}</>;
       if (p.evento === "entrega_feita") return <>marcou como feita a entrega {b(p.titulo, "entrega")} em {dia(p.dia)} (prevista para {dia(p.previsto)})</>;
       if (p.evento === "entrega_desmarcada") return <>desmarcou a entrega {b(p.titulo, "entrega")}, que estava feita em {dia(p.dia)}</>;
       if (p.evento === "data_ajustada") return <>ajustou a entrega {b(p.titulo, "entrega")} de {dia(p.de)} para {dia(p.para)}: {typeof p.motivo === "string" ? p.motivo : ""}</>;

@@ -1069,7 +1069,7 @@ const escreverResumoHandoff = ferramenta({
 const designarGpProjeto = ferramenta({
   nome: "designar_gp_projeto",
   titulo: "Designar o GP do projeto",
-  descricao: "Só o GP de projetos: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
+  descricao: "Só o GP de projetos, com o projeto em Handoff ou Execução: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff ou ver_cronograma). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
   escrita: true,
   entrada: { id, gp_id: id },
   executar: async (a, eu) => {

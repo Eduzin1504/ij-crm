@@ -28,7 +28,7 @@ async function semear() {
   });
   const pessoa = async (nome: string, papel: "PROJETOS" | "VENDEDOR" | "VISUALIZADOR", area?: "PROJETOS" | "VENDAS"): Promise<UsuarioMcp> => {
     const u = await db.usuario.create({ data: { nome, email: `${nome.toLowerCase()}@ij.test`, papel, area } });
-    return { id: u.id, nome: u.nome, papel: u.papel };
+    return { id: u.id, nome: u.nome, papel: u.papel, area: u.area, cargos: u.cargos };
   };
   const pedro = await pessoa("Pedro", "PROJETOS", "PROJETOS");
   const paula = await pessoa("Paula", "PROJETOS", "PROJETOS");
@@ -54,7 +54,7 @@ describe("ferramentas de execução (GAB-95)", () => {
   it("estão no catálogo; ver_cronograma é leitura, as outras escrevem", () => {
     const por = new Map(FERRAMENTAS.map((f) => [f.nome, f]));
     expect(por.get("ver_cronograma")?.escrita).toBe(false);
-    for (const n of ["marcar_entrega", "ajustar_data_entrega", "adicionar_entrega", "copiar_cronograma_proposta", "registrar_checkin"]) expect(por.get(n)?.escrita).toBe(true);
+    for (const n of ["marcar_entrega", "ajustar_data_entrega", "adicionar_entrega", "copiar_cronograma_proposta", "registrar_checkin", "cancelar_entrega"]) expect(por.get(n)?.escrita).toBe(true);
   });
 
   it("mover_para_execucao copia; ver, marcar, ajustar e check-in usam o mesmo serviço e saem via MCP na Timeline", async () => {
@@ -99,6 +99,48 @@ describe("ferramentas de execução (GAB-95)", () => {
     const v = await executarFerramenta("registrar_checkin", { id: s.id, status: "VERDE", motivo: "ok" }, s.vera);
     expect(texto(v)).toBe(SO_LEITURA);
     expect(await db.projetoCheckin.count()).toBe(0);
+  });
+
+  it("quem não vê a proposta: título e datas abertos; valor, versão, copiaveis e a cópia, não", async () => {
+    const ex = await db.fase.findUniqueOrThrow({ where: { marco: "EXECUCAO" } });
+    await db.projeto.update({ where: { id: s.id }, data: { faseId: ex.id } });
+    // Paula é da área, mas não está escalada; Pedro é o responsável.
+    const antes = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.paula));
+    expect(antes.copiaveis).toBe(0);
+    const recusa = await executarFerramenta("copiar_cronograma_proposta", { id: s.id }, s.paula);
+    expect(texto(recusa)).toContain("não tem acesso a esta proposta");
+    expect(dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.pedro)).copiaveis).toBe(1);
+    await db.propostaVersao.deleteMany();
+    const p = await db.proposta.findUniqueOrThrow({ where: { projetoId: s.id } });
+    await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: "", estruturado: { entregas: [{ titulo: "Diagnóstico", dia: "2026-11-20", valor: "1000.00" }] }, autorId: s.pedro.id } });
+    await executarFerramenta("copiar_cronograma_proposta", { id: s.id }, s.pedro);
+
+    const dono = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.pedro));
+    expect(dono.entregas[0]).toMatchObject({ valor: "1000.00", proposta_versao: 1 });
+    const fora = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.paula));
+    expect(fora.entregas[0]).toMatchObject({ titulo: "Diagnóstico", previsto_original: "2026-11-20", valor: null, proposta_versao: null });
+
+    const timelineDe = async (eu: UsuarioMcp) => dados(await executarFerramenta("ler_projeto", { id: s.id }, eu)).timeline as { tipo: string; payload?: { evento?: string; versao?: number; entregas?: number } }[];
+    const copia = (l: Awaited<ReturnType<typeof timelineDe>>) => JSON.stringify(l.filter((t) => JSON.stringify(t).includes("cronograma_copiado")));
+    expect(copia(await timelineDe(s.pedro))).toContain('"versao":1');
+    const vista = copia(await timelineDe(s.paula));
+    expect(vista).toContain("cronograma_copiado");
+    expect(vista).not.toContain("versao");
+  });
+
+  it("cancelar_entrega: fora do cronograma ativo, na Timeline via MCP; não volta", async () => {
+    await executarFerramenta("mover_para_execucao", { id: s.id }, s.pedro);
+    const v = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.pedro));
+    const entrega_id = v.entregas[0].id;
+    expect(dados(await executarFerramenta("cancelar_entrega", { id: s.id, entrega_id, motivo: "Fora do combinado" }, s.pedro))).toEqual({ mudou: true });
+    const depois = dados(await executarFerramenta("ver_cronograma", { id: s.id }, s.pedro));
+    expect(depois.entregas).toEqual([]);
+    expect(depois.canceladas).toMatchObject([{ titulo: "Diagnóstico", motivo: "Fora do combinado" }]);
+    expect(depois.copiaveis).toBe(0);
+    const r = await executarFerramenta("marcar_entrega", { id: s.id, entrega_id }, s.pedro);
+    expect(texto(r)).toContain("foi cancelada");
+    const t = await db.timeline.findFirstOrThrow({ where: { projetoId: s.id, tipo: "EXECUCAO" }, orderBy: [{ em: "desc" }, { id: "desc" }] });
+    expect(t).toMatchObject({ viaMcp: true, payload: { evento: "entrega_cancelada", motivo: "Fora do combinado" } });
   });
 
   it("argumento inválido é recusado pela porta única", async () => {

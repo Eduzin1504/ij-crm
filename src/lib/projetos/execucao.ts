@@ -14,13 +14,17 @@
  * visível a todos, como todo o resto do card.
  *
  * O painel (GAB-96) lê direto de `projeto_entrega` e `projeto_checkin`: colunas DATE e índices.
+ * Entrega cancelada fica na tabela: filtre com `ENTREGA_ATIVA`.
+ *
+ * `obterCronograma` traz os dados da proposta (valor, versão, o que dá para copiar). Quem chama e não
+ * vê a proposta (`podeVerPropostaDoProjeto`) passa por `cronogramaSemProposta`.
  */
 import type { OrigemEntrega, Papel, Prisma, StatusCheckin } from "@prisma/client";
 import { db } from "@/lib/db";
 import { diaValido, ENTREGAS_MAX, TITULO_ENTREGA_MAX } from "@/lib/propostas/estruturado";
 import { diaEmFuso } from "./aging";
 import { MENSAGEM_ERRO_PROJETO } from "./erros";
-import { copiarDaPropostaFinal, entregasDaPropostaFinal } from "./execucao-entrada";
+import { copiarDaPropostaFinal, entregasDaPropostaFinal, IMPEDE_COPIA, separarCopiaveis } from "./execucao-entrada";
 import { diaNoIntervalo, gpDoProjeto, lerMotivo, MOTIVO_MAX, podeOperarExecucao } from "./execucao-regras";
 import { colunaParaDia, diaParaColuna, semanaDe } from "./execucao-semana";
 import { lerDinheiro, PIPELINE_PROJETOS } from "./terminal-regras";
@@ -35,6 +39,7 @@ export type ErroExecucao =
   | "FORA_DA_EXECUCAO"
   | "ENTREGA_NAO_ENCONTRADA"
   | "ENTREGA_JA_FEITA"
+  | "ENTREGA_CANCELADA"
   | "ENTREGA_INVALIDA"
   | "VALOR_INVALIDO"
   | "DIA_INVALIDO"
@@ -49,7 +54,8 @@ export const MENSAGEM_ERRO_EXECUCAO: Record<ErroExecucao, string> = {
   CARD_NAO_ENCONTRADO: MENSAGEM_ERRO_PROJETO.CARD_NAO_ENCONTRADO,
   FORA_DA_EXECUCAO: "O cronograma e o check-in só mudam com o projeto em Execução. Fora dela ficam como registro.",
   ENTREGA_NAO_ENCONTRADA: "Entrega não encontrada neste projeto.",
-  ENTREGA_JA_FEITA: "Essa entrega já está feita. Desmarque antes de ajustar a data prevista.",
+  ENTREGA_JA_FEITA: "Essa entrega já está feita. Desmarque antes de ajustar a data prevista ou cancelar.",
+  ENTREGA_CANCELADA: "Essa entrega foi cancelada: não muda mais. Se ela voltou ao combinado, lance outra.",
   ENTREGA_INVALIDA: `Dê um nome à entrega (até ${TITULO_ENTREGA_MAX} caracteres).`,
   VALOR_INVALIDO: "Valor inválido: use reais no formato 12.500,00.",
   DIA_INVALIDO: "Data inválida: use AAAA-MM-DD.",
@@ -95,11 +101,16 @@ async function abrirParaOperar(tx: Tx, projetoId: string, por: Ator): Promise<vo
   if (!faseDeExecucaoAberta(card.fase, card.pipeline.chave, await faseExecucao(tx))) throw new Falha("FORA_DA_EXECUCAO");
 }
 
+/** Entrega do cronograma ativo: cancelada não muda mais. */
 async function lerEntrega(tx: Tx, projetoId: string, entregaId: string) {
   const e = await tx.projetoEntrega.findFirst({ where: { id: entregaId, projetoId } });
   if (!e) throw new Falha("ENTREGA_NAO_ENCONTRADA");
+  if (e.canceladaEm) throw new Falha("ENTREGA_CANCELADA");
   return e;
 }
+
+/** Filtro do cronograma ativo: é o que entra em contas, inclusive as do painel. */
+export const ENTREGA_ATIVA = { canceladaEm: null } as const satisfies Prisma.ProjetoEntregaWhereInput;
 
 const diaAceito = (dia: string) => diaValido(dia) && diaNoIntervalo(dia);
 
@@ -122,6 +133,8 @@ export type VisaoEntrega = {
   ajustes: VisaoAjuste[];
 };
 
+export type VisaoCancelada = { id: string; titulo: string; valor: string | null; previstoOriginal: string; propostaVersao: number | null; motivo: string; em: Date };
+
 export type VisaoCheckin = { id: string; status: StatusCheckin; motivo: string; semana: string; por: string; em: Date };
 
 export type VisaoCronograma = {
@@ -132,12 +145,15 @@ export type VisaoCronograma = {
   /** GP designado no handoff? false = é o responsável, sem GP válido. */
   gpDesignado: boolean;
   isento: boolean;
+  /** O cronograma ativo. */
   entregas: VisaoEntrega[];
+  /** Fora do cronograma, mantidas como registro. */
+  canceladas: VisaoCancelada[];
   /** Mais recentes primeiro (até `CHECKINS_NA_VISAO`). */
   checkins: VisaoCheckin[];
   /** Já há check-in na semana corrente (segunda a domingo, São Paulo). */
   checkinNaSemana: boolean;
-  /** Sem entregas e com proposta final: quantas dá para copiar (0 = nada a copiar). */
+  /** Nada impede a cópia e há proposta final: quantas dá para copiar, sem as inválidas (0 = nada a copiar). */
   copiaveis: number;
 };
 
@@ -166,14 +182,20 @@ export async function obterCronograma(projetoId: string, agora = new Date()): Pr
   const hoje = diaEmFuso(agora);
   const semana = semanaDe(agora);
   const emExecucao = faseDeExecucaoAberta(card.fase, card.pipeline.chave, ex);
-  const final = emExecucao && card.entregas.length === 0 ? await entregasDaPropostaFinal(db, projetoId) : null;
+  const impedida = card.entregas.some((e) => e.canceladaEm === null || e.origem === "PROPOSTA");
+  const final = emExecucao && !impedida ? await entregasDaPropostaFinal(db, projetoId) : null;
   const designado = card.handoff?.gpProjeto;
   return {
     emExecucao,
     gp: designado && designado.id === gpId ? { id: designado.id, nome: designado.nome } : card.responsavel,
     gpDesignado: designado?.id === gpId,
     isento: card.isentoTravaHandoff,
-    entregas: card.entregas.map((e) => {
+    canceladas: card.entregas.flatMap((e) =>
+      e.canceladaEm
+        ? [{ id: e.id, titulo: e.titulo, valor: e.valor?.toFixed(2) ?? null, previstoOriginal: colunaParaDia(e.previstoOriginal), propostaVersao: e.propostaVersao, motivo: e.motivoCancelamento ?? "", em: e.canceladaEm }]
+        : [],
+    ),
+    entregas: card.entregas.filter((e) => !e.canceladaEm).map((e) => {
       const previsto = colunaParaDia(e.previstoAtual);
       const realizado = e.realizadoEm ? colunaParaDia(e.realizadoEm) : null;
       return {
@@ -191,7 +213,17 @@ export async function obterCronograma(projetoId: string, agora = new Date()): Pr
     }),
     checkins: card.checkins.map((c) => ({ id: c.id, status: c.status, motivo: c.motivo, semana: colunaParaDia(c.semana), por: c.por.nome, em: c.em })),
     checkinNaSemana: card.checkins.some((c) => colunaParaDia(c.semana) === semana),
-    copiaveis: final?.entregas.length ?? 0,
+    copiaveis: final ? separarCopiaveis(final.entregas).validas.length : 0,
+  };
+}
+
+/** A visão para quem não vê a proposta: título e datas ficam; valor, versão e o que dá para copiar saem. */
+export function cronogramaSemProposta(c: VisaoCronograma): VisaoCronograma {
+  return {
+    ...c,
+    copiaveis: 0,
+    entregas: c.entregas.map((e) => ({ ...e, valor: null, propostaVersao: null })),
+    canceladas: c.canceladas.map((e) => ({ ...e, valor: null, propostaVersao: null })),
   };
 }
 
@@ -201,7 +233,7 @@ export async function obterCronograma(projetoId: string, agora = new Date()): Pr
 export async function copiarCronogramaDaProposta(projetoId: string, por: Ator): Promise<ResultadoExecucao<{ entregas: number }>> {
   return emTransacao(async (tx) => {
     await abrirParaOperar(tx, projetoId, por);
-    if ((await tx.projetoEntrega.count({ where: { projetoId } })) > 0) throw new Falha("CRONOGRAMA_JA_EXISTE");
+    if ((await tx.projetoEntrega.count({ where: { projetoId, ...IMPEDE_COPIA } })) > 0) throw new Falha("CRONOGRAMA_JA_EXISTE");
     const entregas = await copiarDaPropostaFinal(tx, { projetoId, porId: por.id, em: new Date() });
     if (entregas === 0) throw new Falha("PROPOSTA_SEM_CRONOGRAMA");
     return { ok: true as const, entregas };
@@ -218,8 +250,8 @@ export async function adicionarEntrega(projetoId: string, dados: { titulo: strin
   if (!valor.ok) return { ok: false, erro: "VALOR_INVALIDO" };
   return emTransacao(async (tx) => {
     await abrirParaOperar(tx, projetoId, por);
-    const { _count, _max } = await tx.projetoEntrega.aggregate({ where: { projetoId }, _count: true, _max: { ordem: true } });
-    if (_count >= ENTREGAS_MAX) throw new Falha("LIMITE_DE_ENTREGAS");
+    if ((await tx.projetoEntrega.count({ where: { projetoId, ...ENTREGA_ATIVA } })) >= ENTREGAS_MAX) throw new Falha("LIMITE_DE_ENTREGAS");
+    const { _max } = await tx.projetoEntrega.aggregate({ where: { projetoId }, _max: { ordem: true } });
     const coluna = diaParaColuna(dia);
     const e = await tx.projetoEntrega.create({
       data: { projetoId, ordem: (_max.ordem ?? -1) + 1, titulo, valor: valor.valor, previstoOriginal: coluna, previstoAtual: coluna, origem: "MANUAL" },
@@ -281,6 +313,23 @@ export async function ajustarDataEntrega(projetoId: string, entregaId: string, d
     await tx.projetoEntrega.update({ where: { id: e.id }, data: { previstoAtual: para } });
     await tx.entregaAjuste.create({ data: { entregaId: e.id, de: e.previstoAtual, para, motivo, porId: por.id } });
     await tx.timeline.create({ data: { projetoId, tipo: "EXECUCAO", payload: { evento: "data_ajustada", entregaId: e.id, titulo: e.titulo, de, para: dia, motivo }, usuarioId: por.id } });
+    return { ok: true as const, mudou: true };
+  });
+}
+
+/** Cancela com motivo: a linha fica, fora do cronograma ativo. Entrega feita precisa ser desmarcada antes. */
+export async function cancelarEntrega(projetoId: string, entregaId: string, dados: { motivo: string }, por: Ator): Promise<ResultadoExecucao<{ mudou: boolean }>> {
+  const motivo = lerMotivo(dados.motivo);
+  if (!motivo) return { ok: false, erro: "MOTIVO_INVALIDO" };
+  return emTransacao(async (tx) => {
+    await abrirParaOperar(tx, projetoId, por);
+    const e = await tx.projetoEntrega.findFirst({ where: { id: entregaId, projetoId } });
+    if (!e) throw new Falha("ENTREGA_NAO_ENCONTRADA");
+    if (e.canceladaEm) return { ok: true as const, mudou: false };
+    if (e.realizadoEm) throw new Falha("ENTREGA_JA_FEITA");
+    const agora = new Date();
+    await tx.projetoEntrega.update({ where: { id: e.id }, data: { canceladaEm: agora, motivoCancelamento: motivo } });
+    await tx.timeline.create({ data: { projetoId, tipo: "EXECUCAO", payload: { evento: "entrega_cancelada", entregaId: e.id, titulo: e.titulo, motivo }, usuarioId: por.id, em: agora } });
     return { ok: true as const, mudou: true };
   });
 }

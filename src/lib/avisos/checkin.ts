@@ -42,7 +42,7 @@ export async function lembrarCheckinsAtrasados(agora = new Date()): Promise<{ le
       responsavelId: true,
       responsavel: { select: { id: true, ativo: true, papel: true } },
       handoff: { select: { gpProjeto: { select: { id: true, ativo: true, papel: true, area: true, cargos: true } } } },
-      entregas: { orderBy: { criadoEm: "asc" }, take: 1, select: { criadoEm: true } },
+      entregas: { where: { canceladaEm: null }, orderBy: { criadoEm: "asc" }, take: 1, select: { criadoEm: true } },
       checkins: { orderBy: { em: "asc" }, take: 1, select: { em: true } },
     },
   });

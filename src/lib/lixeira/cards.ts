@@ -123,10 +123,11 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
         });
       }
       // GAB-95: voltar em Execução garante o cronograma (idempotente) e não cobra check-in do tempo na lixeira.
-      // Quem nunca foi acompanhado (já em Execução no deploy, sem data) continua sem cobrança.
+      // Vale para quem tem data e para quem é acompanhado por ter entrega ou check-in. Quem nunca foi
+      // acompanhado (já em Execução no deploy, sem nada) continua sem cobrança.
       const ex = await faseExecucao(tx);
       if (ex && destinoExigeHandoff(destino, ex)) {
-        await tx.projeto.updateMany({ where: { id, execucaoDesde: { not: null } }, data: { execucaoDesde: agora } });
+        await tx.projeto.updateMany({ where: { id, OR: [{ execucaoDesde: { not: null } }, { entregas: { some: {} } }, { checkins: { some: {} } }] }, data: { execucaoDesde: agora } });
         await aoEntrarEmExecucao(tx, { projetoId: id, porId: por.id, em: new Date(agora.getTime() + 2), novaEntrada: !jaEstavaEmExecucao });
       }
       return destino.id;

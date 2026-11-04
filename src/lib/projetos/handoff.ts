@@ -12,6 +12,7 @@
  *
  * Edição só enquanto o card está em Handoff (quadro Projetos, antes de Execução
  * e fora de terminal). Depois vira registro, e nada do que entrou na trava muda.
+ * Exceção (GAB-95): trocar o GP do projeto vale também em Execução ou subfase depois dela.
  * Toda edição trava a linha do card (FOR UPDATE) e relê a fase; o movimento lê a
  * linha em FOR SHARE, então os dois nunca se cruzam.
  *
@@ -39,7 +40,7 @@ import {
 } from "./handoff-regras";
 import { moverCard } from "./projetos";
 import { PIPELINE_PROJETOS } from "./terminal-regras";
-import { faseDeHandoff, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
+import { faseDeExecucaoAberta, faseDeHandoff, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
 
 type Tx = Prisma.TransactionClient;
 type Ator = { id: string; papel: Papel };
@@ -86,12 +87,14 @@ async function emTransacao<T>(corpo: (tx: Tx) => Promise<T>): Promise<T | { ok: 
   }
 }
 
-/** Trava a linha do card e confere que ele está em Handoff. */
-async function abrirParaEdicao(tx: Tx, projetoId: string) {
+/** Trava a linha do card e confere que ele está em Handoff (`tambemEmExecucao`: ou em Execução aberta). */
+async function abrirParaEdicao(tx: Tx, projetoId: string, opts: { tambemEmExecucao?: boolean } = {}) {
   const linha = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR UPDATE`;
   if (linha.length === 0) throw new Falha("CARD_NAO_ENCONTRADO");
   const card = await tx.projeto.findUniqueOrThrow({ where: { id: projetoId }, select: { responsavelId: true, fase: true, pipeline: { select: { chave: true } } } });
-  if (!faseDeHandoff(card.fase, card.pipeline.chave, await faseExecucao(tx))) throw new Falha("HANDOFF_ENCERRADO");
+  const ex = await faseExecucao(tx);
+  const emExecucao = !!opts.tambemEmExecucao && faseDeExecucaoAberta(card.fase, card.pipeline.chave, ex);
+  if (!emExecucao && !faseDeHandoff(card.fase, card.pipeline.chave, ex)) throw new Falha("HANDOFF_ENCERRADO");
   return card;
 }
 
@@ -123,7 +126,7 @@ export async function listarCandidatosGp(): Promise<{ id: string; nome: string }
 /** Designa o GP do projeto: a pessoa vira a responsável pelo Projeto e recebe o aviso. */
 export async function designarGpDoProjeto(projetoId: string, gpId: string, por: Ator): Promise<Resultado<{ mudou: boolean }>> {
   const r = await emTransacao(async (tx) => {
-    const card = await abrirParaEdicao(tx, projetoId);
+    const card = await abrirParaEdicao(tx, projetoId, { tambemEmExecucao: true });
     const ator = await lerPessoa(tx, por.id);
     if (!ator?.ativo || !podeDesignarGp(ator)) throw new Falha("SO_GP_DE_PROJETOS");
     const gp = await lerPessoa(tx, gpId);

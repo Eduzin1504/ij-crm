@@ -4,10 +4,10 @@
  * passa por `aoEntrarEmExecucao`: arraste, MCP e WhatsApp (`registrarMovimento`), lixeira
  * (`restaurarCard`) e Gestão de fases (remover com migração, reordenar).
  *
- * Idempotente: só copia se o Projeto não tem nenhuma entrega. Sair e voltar acha as
- * entregas e não recopia; nada aqui apaga. Quem já lançou entrega manual também não recebe a
- * cópia, para não misturar dois cronogramas. A linha do card fica travada, e o índice
- * único (projeto, ordem) segura uma cópia dupla no banco.
+ * Idempotente: só copia se nada impede (`IMPEDE_COPIA`). Sair e voltar acha as entregas e não
+ * recopia; nada aqui apaga. Quem tem entrega manual ativa também não recebe a cópia, para não
+ * misturar dois cronogramas. A linha do card fica travada, e o índice único (projeto, ordem)
+ * segura uma cópia dupla no banco.
  *
  * O import do Pipefy não passa por aqui: é histórico, como nas travas.
  */
@@ -28,25 +28,46 @@ export async function entregasDaPropostaFinal(tx: Pick<Tx, "proposta" | "propost
   return { versao: p.versaoEnviada, entregas: lerEstruturadoGravado(v.estruturado).entregas };
 }
 
-/** Copia da proposta final se o Projeto não tem entrega. Devolve quantas copiou. */
+/** Cabe em DECIMAL(14,2). */
+const VALOR_GRAVAVEL = /^\d{1,12}(\.\d{1,2})?$/;
+
+/**
+ * O que dá para copiar. O snapshot é validado ao salvar, e a leitura é defensiva: linha estranha não
+ * pode barrar o movimento do card. Data inválida fica de fora (`ignoradas`); valor inválido vira null. Puro.
+ */
+export function separarCopiaveis(entregas: readonly Entrega[]): { validas: Entrega[]; ignoradas: number; valoresInvalidos: number } {
+  const comData = entregas.filter((e) => diaValido(e.dia) && diaNoIntervalo(e.dia));
+  const validas = comData.map((e) => (e.valor === null || VALOR_GRAVAVEL.test(e.valor) ? e : { ...e, valor: null }));
+  return { validas, ignoradas: entregas.length - comData.length, valoresInvalidos: comData.filter((e, i) => e.valor !== validas[i].valor).length };
+}
+
+/**
+ * Entrega que impede copiar: toda ativa, e toda que já veio da proposta, mesmo cancelada (cancelar não
+ * ressuscita na volta). Só a manual cancelada não conta: lançar errado e cancelar não tira a cópia de quem tem proposta.
+ */
+export const IMPEDE_COPIA = { OR: [{ canceladaEm: null }, { origem: "PROPOSTA" }] } as const satisfies Prisma.ProjetoEntregaWhereInput;
+
+/** Copia da proposta final se nada impede. Devolve quantas copiou. */
 export async function copiarDaPropostaFinal(tx: Tx, a: { projetoId: string; porId: string | null; em: Date }): Promise<number> {
   await tx.$queryRaw`SELECT id FROM oportunidade WHERE id = ${a.projetoId} FOR UPDATE`;
-  if ((await tx.projetoEntrega.count({ where: { projetoId: a.projetoId } })) > 0) return 0;
+  if ((await tx.projetoEntrega.count({ where: { projetoId: a.projetoId, ...IMPEDE_COPIA } })) > 0) return 0;
   const final = await entregasDaPropostaFinal(tx, a.projetoId);
   if (!final) return 0;
-  // Snapshot é validado ao salvar; a leitura é defensiva: linha estranha não pode barrar o movimento do card.
-  const validas = final.entregas.filter((e) => diaValido(e.dia) && diaNoIntervalo(e.dia));
-  if (validas.length < final.entregas.length) {
-    console.warn(`[execucao] projeto ${a.projetoId}: ${final.entregas.length - validas.length} entrega(s) da v${final.versao} com data inválida ficaram fora da cópia`);
+  const { validas, ignoradas, valoresInvalidos } = separarCopiaveis(final.entregas);
+  if (ignoradas > 0 || valoresInvalidos > 0) {
+    console.warn(`[execucao] projeto ${a.projetoId}, v${final.versao}: ${ignoradas} entrega(s) com data inválida ficaram fora da cópia e ${valoresInvalidos} com valor inválido ficaram sem valor`);
   }
   if (validas.length === 0) return 0;
+  // Manual cancelada mantém a linha: a ordem continua depois dela.
+  const { _max } = await tx.projetoEntrega.aggregate({ where: { projetoId: a.projetoId }, _max: { ordem: true } });
+  const inicio = (_max.ordem ?? -1) + 1;
   await tx.projetoEntrega.createMany({
-    data: validas.map((e, ordem) => {
+    data: validas.map((e, i) => {
       const dia = diaParaColuna(e.dia);
-      return { projetoId: a.projetoId, ordem, titulo: e.titulo, valor: e.valor, previstoOriginal: dia, previstoAtual: dia, origem: "PROPOSTA" as const, propostaVersao: final.versao };
+      return { projetoId: a.projetoId, ordem: inicio + i, titulo: e.titulo, valor: e.valor, previstoOriginal: dia, previstoAtual: dia, origem: "PROPOSTA" as const, propostaVersao: final.versao };
     }),
   });
-  await tx.timeline.create({ data: { projetoId: a.projetoId, tipo: "EXECUCAO", payload: { evento: "cronograma_copiado", versao: final.versao, entregas: validas.length }, usuarioId: a.porId, em: a.em } });
+  await tx.timeline.create({ data: { projetoId: a.projetoId, tipo: "EXECUCAO", payload: { evento: "cronograma_copiado", versao: final.versao, entregas: validas.length, ignoradas }, usuarioId: a.porId, em: a.em } });
   return validas.length;
 }
 

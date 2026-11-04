@@ -110,6 +110,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       adicionar_entrega: { id, titulo: "x", dia: "2026-12-01" },
       copiar_cronograma_proposta: { id },
       registrar_checkin: { id, status: "VERDE", motivo: "x" },
+      cancelar_entrega: { id, entrega_id: "e1", motivo: "x" },
     };
     expect(Object.keys(casos).sort()).toEqual(FERRAMENTAS.filter((f) => f.escrita).map((f) => f.nome).sort());
     const antes = { cards: await db.projeto.count(), timeline: await db.timeline.count() };

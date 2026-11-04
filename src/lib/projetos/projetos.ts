@@ -32,7 +32,8 @@ import { reabrirPropostaInviavel } from "@/lib/propostas/caneta-banco";
 import { avisarHandoff } from "@/lib/avisos/handoff";
 import { exigirTravaDoContrato } from "./trava-contrato";
 import { aoMoverParaExecucao } from "./execucao-entrada";
-import { exigirTravaDoHandoff } from "./trava-handoff";
+import { colunaParaDia } from "./execucao-semana";
+import { exigirTravaDoHandoff, faseDeExecucaoAberta } from "./trava-handoff";
 import { PIPELINE_VENDAS } from "./terminal-regras";
 import type { DadosTerminal } from "./terminal-regras";
 
@@ -91,8 +92,8 @@ export type CardDoQuadro = {
   motivoPerda: string | null;
   /** GAB-86: badge de status da proposta (null = sem proposta). */
   proposta: { status: StatusProposta } | null;
-  /** GAB-95: o último check-in, para o badge (vazio = nenhum). */
-  checkins: { status: StatusCheckin; motivo: string; em: Date }[];
+  /** GAB-95: o último check-in, para o badge. Vazio = nenhum, ou card fora de Execução aberta. */
+  checkins: { status: StatusCheckin; motivo: string; semana: string }[];
 };
 
 export type Quadro = {
@@ -129,7 +130,7 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
         valorFechado: true,
         motivoPerda: true,
         proposta: { select: { status: true } },
-        checkins: { orderBy: [{ em: "desc" }, { id: "desc" }], take: 1, select: { status: true, motivo: true, em: true } },
+        checkins: { orderBy: [{ em: "desc" }, { id: "desc" }], take: 1, select: { status: true, motivo: true, semana: true } },
       },
     }),
     // Descrição pode ter 5000 caracteres: o quadro recebe só a prévia, cortada no
@@ -140,6 +141,8 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
       WHERE pipeline_id = ${p.id} AND deletado_em IS NULL AND descricao IS NOT NULL`,
   ]);
   const previaPorId = new Map(previas.map((r) => [r.id, r]));
+  const execucao = p.fases.find((f) => f.marco === "EXECUCAO") ?? null;
+  const fasesAbertas = new Set(p.fases.filter((f) => faseDeExecucaoAberta(f, p.chave, execucao)).map((f) => f.id));
   return {
     pipeline: { id: p.id, chave: p.chave, nome: p.nome },
     fases: p.fases,
@@ -148,6 +151,7 @@ export async function listarQuadro(pipelineChave: string): Promise<Quadro | null
       descricaoPrevia: previaPorId.get(c.id)?.previa ?? null,
       descricaoTruncada: previaPorId.get(c.id)?.truncada ?? false,
       empresa: c.empresa ? { nome: nomeExibido(c.empresa) } : null,
+      checkins: fasesAbertas.has(c.faseId) ? c.checkins.map((k) => ({ status: k.status, motivo: k.motivo, semana: colunaParaDia(k.semana) })) : [],
     })),
   };
 }

@@ -603,21 +603,26 @@ das ferramentas MCP `ler_handoff`, `marcar_item_handoff`, `escrever_resumo_hando
 `definir_contrato_handoff` e `mover_para_execucao`.
 **Execução (GAB-95, spec fase 2 §4.10/§4.12).** Ao entrar em Execução, ou em fase depois dela no quadro, o cronograma da
 versão final da proposta aceita vira o previsto (`projeto_entrega`). Todo caminho passa por `aoEntrarEmExecucao`
-(`execucao-entrada.ts`): arraste, MCP, lixeira e Gestão de fases. A cópia é idempotente, só acontece em Projeto sem nenhuma
-entrega, então sair e voltar não recopia nem apaga. `previsto_original` nunca muda (trigger no banco); ajustar a data
+(`execucao-entrada.ts`): arraste, MCP, lixeira e Gestão de fases. A cópia é idempotente: entrega ativa, ou já copiada mesmo se
+cancelada, impede outra (`IMPEDE_COPIA`), então sair e voltar não recopia nem apaga. Na cópia, data inválida fica de fora
+(`ignoradas` na Timeline) e valor inválido vira null. `previsto_original` nunca muda (trigger no banco); ajustar a data
 muda `previsto_atual`, exige motivo e deixa linha em `entrega_ajuste`, append-only. Entrega feita guarda a data real
-(`realizado_em`, DATE). Check-in (`projeto_checkin`, append-only): verde, amarelo ou vermelho com uma linha de motivo, semana de
-segunda a domingo em São Paulo; mais de um na semana vale, e o último é o badge do card. Sem controle de horas. Tudo vai para a
-Timeline (tipo `EXECUCAO`). Painel: leia as duas tabelas.
+(`realizado_em`, DATE). Entrega cancelada, com motivo, mantém a linha e sai do cronograma ativo; não volta. Check-in
+(`projeto_checkin`, append-only): verde, amarelo ou vermelho com uma linha de motivo, semana de segunda a domingo em São Paulo;
+mais de um na semana vale, e o último é o badge do card, só com o card em Execução aberta. Sem controle de horas. Tudo vai para a
+Timeline (tipo `EXECUCAO`). Painel: leia as duas tabelas, com `cancelada_em IS NULL` (`ENTREGA_ATIVA`).
 Quem opera: o GP do projeto (o designado no handoff, enquanto ativo e da área projetos; sem ele, o responsável do card), com
 ADMIN e GESTOR de projetos ou sem área de apoio. Os demais leem. Regra só em `podeOperarExecucao` (`execucao-regras.ts`), aplicada
-em `recusaDeExecucao`. Trocar o campo Responsável não troca um GP válido. Fora de Execução o cronograma é só registro.
+em `recusaDeExecucao`; no MCP, a guarda `cardEditavel` vem antes. O GP de projetos troca o GP do projeto também em Execução, no bloco
+e em `designar_gp_projeto`. Trocar o campo Responsável não troca um GP válido. Fora de Execução o cronograma é só registro.
+Quem não vê a proposta (`podeVerPropostaDoProjeto`) vê título e datas, sem valor, versão e `copiaveis`, e não copia
+(`cronogramaSemProposta`; `timelineSemProposta` tira a versão de `cronograma_copiado`).
 Card já em Execução no deploy e import do Pipefy: nada é copiado sozinho. A entrega é lançada à mão, ou "Copiar da proposta
 final" se houver proposta aceita. O lembrete (`avisos/checkin.ts`, cron de manutenção, tipo `CHECKIN_ATRASADO`, só no app, ao GP)
-cobra a semana que passou, um por semana e por Projeto (`lembrete_checkin`). A semana de entrada não é cobrada, e card sem
-`execucao_desde` (isentos no deploy) só é cobrado depois de ter entrega ou check-in. Serviço em `execucao.ts`, o mesmo das
-ferramentas MCP `ver_cronograma`, `marcar_entrega`, `ajustar_data_entrega`, `adicionar_entrega`,
-`copiar_cronograma_proposta` e `registrar_checkin`.
+cobra a semana que passou, um por semana e por Projeto (`lembrete_checkin`). A semana de entrada não é cobrada, nem o tempo na
+lixeira, e card sem `execucao_desde` (isentos no deploy) só é cobrado depois de ter entrega ativa ou check-in. Com GP e
+responsável inativos, ninguém é lembrado. Serviço em `execucao.ts`, o mesmo das ferramentas MCP `ver_cronograma`, `marcar_entrega`,
+`ajustar_data_entrega`, `cancelar_entrega`, `adicionar_entrega`, `copiar_cronograma_proposta` e `registrar_checkin`.
 O ganho guarda `vendedor_id` (responsável no momento do ganho); o ranking credita ganho/perda a ele. Deploy e rollback: runbook, "Ciclo
 único (GAB-81)"; contagens antes/depois: `scripts/verificar-ciclo-unico.sql`.
 

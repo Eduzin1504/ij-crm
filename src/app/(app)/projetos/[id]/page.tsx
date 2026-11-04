@@ -7,7 +7,7 @@ import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { listarAnexos } from "@/lib/anexos/anexos";
 import { pessoaDaCaneta } from "@/lib/propostas/propostas";
 import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
-import { obterCronograma } from "@/lib/projetos/execucao";
+import { cronogramaSemProposta, obterCronograma } from "@/lib/projetos/execucao";
 import { podeOperarExecucao } from "@/lib/projetos/execucao-regras";
 import { listarCandidatosGp, obterHandoff } from "@/lib/projetos/handoff";
 import { podeDesignarGp, podeEscreverResumo } from "@/lib/projetos/handoff-regras";
@@ -71,7 +71,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   }
   const agora = new Date();
   const hoje = diaEmFuso(agora);
-  const [pipelines, responsaveis, nomes, prazos, anexos, handoff, pessoa, cronograma] = await Promise.all([
+  const [pipelines, responsaveis, nomes, prazos, anexos, handoff, pessoa, cronogramaCompleto] = await Promise.all([
     listarPipelines({ incluirArquivadas: true }),
     listarResponsaveis(),
     nomesDeUsuarios(idsUsuarios),
@@ -84,7 +84,9 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   // GAB-93: fora da coluna Handoff o bloco é só registro, e some em card isento sem nada preenchido.
   const verHandoff = handoff && (handoff.emHandoff || !handoff.isento || handoff.gp || handoff.resumoEm);
   const designa = !!pessoa && pessoa.ativo && podeDesignarGp(pessoa);
-  const candidatosGp = handoff?.emHandoff && designa ? await listarCandidatosGp() : [];
+  // GAB-95: valor, versão e o que dá para copiar são da proposta. Título e datas ficam abertos.
+  const cronograma = cronogramaCompleto && !veProposta ? cronogramaSemProposta(cronogramaCompleto) : cronogramaCompleto;
+  const candidatosGp = (handoff?.emHandoff || cronograma?.emExecucao) && designa ? await listarCandidatosGp() : [];
   const semGpDeProjetos = !!handoff?.emHandoff && !handoff.gpValido && !designa && (await listarGpsDeProjetos()).length === 0;
   const todasFases = pipelines.flatMap((p) => p.fases);
   const nomesFases = new Map(todasFases.map((f) => [f.id, f.nome]));
@@ -173,8 +175,15 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       {/* GAB-95: em Execução, ou o registro de quem já passou por ela. Todos leem; quem opera é decidido no servidor. */}
-      {cronograma && (cronograma.emExecucao || cronograma.entregas.length > 0 || cronograma.checkins.length > 0) ? (
-        <ExecucaoDoProjeto cardId={card.id} cronograma={cronograma} hoje={hoje} podeOperar={cronograma.emExecucao && !!pessoa && podeOperarExecucao({ ...pessoa, id: ator.id }, cronograma.gp.id)} />
+      {cronograma && (cronograma.emExecucao || cronograma.entregas.length > 0 || cronograma.canceladas.length > 0 || cronograma.checkins.length > 0) ? (
+        <ExecucaoDoProjeto
+          cardId={card.id}
+          cronograma={cronograma}
+          hoje={hoje}
+          podeOperar={cronograma.emExecucao && !!pessoa && podeOperarExecucao({ ...pessoa, id: ator.id }, cronograma.gp.id)}
+          podeDesignar={designa}
+          candidatosGp={candidatosGp}
+        />
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

@@ -10,6 +10,9 @@ import type { UsuarioMcp } from "./oauth";
 /** Mover e editar dados: área dona ou responsável. O id do card vem em `id`. */
 export const cardEditavel = (a: { id: string }, eu: UsuarioMcp) => recusaDeEdicaoNoCard(a.id, eu);
 
+/** Copiar o cronograma da proposta (GAB-95): quem edita o card e vê a proposta. O GP, o serviço confere. */
+export const copiaDaPropostaVisivel = async (a: { id: string }, eu: UsuarioMcp) => (await recusaDeEdicaoNoCard(a.id, eu)) ?? recusaDaProposta(a.id, eu);
+
 /** Itens e PDF do contrato no Handoff: etapa conjunta de Projetos + Vendas. */
 export const checklistHandoffEditavel = (a: { id: string }, eu: UsuarioMcp) => recusaDoChecklistHandoff(a.id, eu);
 

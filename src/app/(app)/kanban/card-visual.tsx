@@ -66,8 +66,8 @@ export function CardVisual({
         ) : null}
         {/* GAB-86: status da proposta; ela em si fica na aba Propostas / no projeto (§4.2). */}
         {card.propostaStatus ? <StatusPropostaBadge status={card.propostaStatus} className="min-w-0 truncate" /> : null}
-        {/* GAB-95: em terminal o status do último check-in já não diz nada. */}
-        {card.ultimoCheckin && !fase?.isTerminal ? <StatusCheckinBadge status={card.ultimoCheckin.status} motivo={card.ultimoCheckin.motivo} className="min-w-0 truncate" /> : null}
+        {/* GAB-95: só vem preenchido com o card em Execução aberta (`listarQuadro`). */}
+        {card.ultimoCheckin ? <StatusCheckinBadge status={card.ultimoCheckin.status} motivo={card.ultimoCheckin.motivo} semana={card.ultimoCheckin.semana} className="min-w-0 truncate" /> : null}
         <span className="flex-1" />
         <Avatar nome={card.responsavelNome} usuarioId={card.responsavelId} fotoEm={card.responsavelFotoEm} />
       </div>

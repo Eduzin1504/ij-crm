@@ -936,6 +936,9 @@ model ProjetoEntrega {
   origem           OrigemEntrega
   /// Número da versão da proposta de onde veio (null em MANUAL).
   propostaVersao   Int?          @map("proposta_versao")
+  /// Cancelada (com motivo): a linha fica, fora do cronograma ativo e das contas do painel. Quem cancelou fica na Timeline.
+  canceladaEm      DateTime?     @map("cancelada_em")
+  motivoCancelamento String?     @map("motivo_cancelamento")
   criadoEm         DateTime      @default(now()) @map("criado_em")
   atualizadoEm     DateTime      @updatedAt @map("atualizado_em")
 

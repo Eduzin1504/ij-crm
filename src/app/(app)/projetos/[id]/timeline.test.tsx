@@ -41,6 +41,17 @@ describe("Timeline: EXECUCAO (GAB-95)", () => {
     expect(screen.getByText("Amarelo")).toBeInTheDocument();
     expect(screen.getByText(/Atenção ao prazo/)).toBeInTheDocument();
   });
+
+  it("correção de data real, cancelamento, ignoradas e cópia sem versão", () => {
+    ver({ evento: "entrega_feita", titulo: "Diagnóstico", dia: "2026-11-21", previsto: "2026-11-20", antes: "2026-11-19" });
+    expect(screen.getByText(/corrigiu a data real da entrega/).textContent).toContain("de 19/11/2026 para 21/11/2026");
+    ver({ evento: "entrega_cancelada", titulo: "Extra", motivo: "Fora do combinado" });
+    expect(screen.getByText(/cancelou a entrega/).textContent).toContain("Fora do combinado");
+    ver({ evento: "cronograma_copiado", versao: 2, entregas: 3, ignoradas: 1 });
+    expect(screen.getByText(/\(v2, 3 entregas, 1 ignoradas por data inválida\)/)).toBeInTheDocument();
+    ver({ evento: "cronograma_copiado", entregas: 4, ignoradas: 0 });
+    expect(screen.getByText("copiou o cronograma da proposta (4 entregas)", { exact: false })).toBeInTheDocument();
+  });
 });
 
 describe("Timeline: pares não unidos do ciclo único (GAB-81)", () => {

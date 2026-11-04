@@ -11,8 +11,11 @@ const acoes = vi.hoisted(() => ({
   desmarcarEntregaAction: vi.fn(),
   marcarEntregaAction: vi.fn(),
   registrarCheckinAction: vi.fn(),
+  cancelarEntregaAction: vi.fn(),
 }));
 vi.mock("./execucao-actions", () => acoes);
+const designarGpAction = vi.hoisted(() => vi.fn());
+vi.mock("./handoff-actions", () => ({ designarGpAction }));
 
 const { ExecucaoDoProjeto } = await import("./execucao");
 
@@ -25,16 +28,18 @@ const BASE: VisaoCronograma = {
     { id: "e1", titulo: "Diagnóstico", valor: "1000.00", previstoOriginal: "2026-11-20", previsto: "2026-11-27", realizado: null, atrasada: false, origem: "PROPOSTA", propostaVersao: 2, ajustes: [{ de: "2026-11-20", para: "2026-11-27", motivo: "Cliente atrasou", por: "Pedro", em: new Date("2026-11-01T12:00:00Z") }] },
     { id: "e2", titulo: "Final", valor: null, previstoOriginal: "2026-10-01", previsto: "2026-10-01", realizado: "2026-10-02", atrasada: false, origem: "MANUAL", propostaVersao: null, ajustes: [] },
   ],
+  canceladas: [],
   checkins: [{ id: "k1", status: "VERMELHO", motivo: "Cliente sumiu", semana: "2026-11-02", por: "Pedro", em: new Date("2026-11-03T12:00:00Z") }],
   checkinNaSemana: true,
   copiaveis: 0,
 };
 
-const montar = (extra: Partial<Parameters<typeof ExecucaoDoProjeto>[0]> = {}) => render(<ExecucaoDoProjeto cardId="c1" cronograma={BASE} hoje="2026-11-04" podeOperar {...extra} />);
+const montar = (extra: Partial<Parameters<typeof ExecucaoDoProjeto>[0]> = {}) => render(<ExecucaoDoProjeto cardId="c1" cronograma={BASE} hoje="2026-11-04" podeOperar podeDesignar={false} candidatosGp={[]} {...extra} />);
 
 beforeEach(() => {
   vi.clearAllMocks();
   for (const a of Object.values(acoes)) a.mockResolvedValue({ ok: true });
+  designarGpAction.mockResolvedValue({ ok: true });
 });
 
 describe("ExecucaoDoProjeto (GAB-95)", () => {
@@ -52,6 +57,37 @@ describe("ExecucaoDoProjeto (GAB-95)", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText("Diagnóstico")).toBeTruthy();
+  });
+
+  it("quem não opera vê quem opera e como mudar; em registro, não", () => {
+    const { rerender } = montar({ podeOperar: false });
+    expect(screen.getByText(/Quem opera: Pedro/).textContent).toContain("o GP de projetos designa outro GP");
+    rerender(<ExecucaoDoProjeto cardId="c1" cronograma={{ ...BASE, emExecucao: false }} hoje="2026-11-04" podeOperar={false} podeDesignar={false} candidatosGp={[]} />);
+    expect(screen.queryByText(/Quem opera/)).toBeNull();
+  });
+
+  it("o GP de projetos troca o GP do projeto aqui, sem operar", async () => {
+    montar({ podeOperar: false, podeDesignar: true, candidatosGp: [{ id: "u1", nome: "Pedro" }, { id: "u2", nome: "Paula" }] });
+    const trocar = screen.getByRole("button", { name: "Trocar GP" }) as HTMLButtonElement;
+    expect(trocar.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Trocar o GP do projeto"), { target: { value: "u2" } });
+    fireEvent.click(trocar);
+    await waitFor(() => expect(designarGpAction).toHaveBeenCalledWith("c1", "u2"));
+  });
+
+  it("cancelar exige motivo; cancelada fica à parte e fora da conta", async () => {
+    const { unmount } = montar();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    const confirmar = screen.getByRole("button", { name: "Confirmar cancelamento" }) as HTMLButtonElement;
+    expect(confirmar.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Motivo do cancelamento de Diagnóstico"), { target: { value: "Fora do combinado" } });
+    fireEvent.click(confirmar);
+    await waitFor(() => expect(acoes.cancelarEntregaAction).toHaveBeenCalledWith("c1", "e1", "Fora do combinado"));
+    unmount();
+    montar({ cronograma: { ...BASE, canceladas: [{ id: "e9", titulo: "Extra", valor: null, previstoOriginal: "2026-12-01", propostaVersao: null, motivo: "Engano", em: new Date("2026-11-01T12:00:00Z") }] } });
+    expect(screen.getByText(/1 de 2 feitas/)).toBeTruthy();
+    expect(screen.getByText("1 cancelada")).toBeTruthy();
+    expect(screen.getByText(/Engano/)).toBeTruthy();
   });
 
   it("marcar feita manda a data real, padrão hoje", async () => {
