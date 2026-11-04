@@ -10,17 +10,27 @@
  *   HTML: a tela desenha o documento como elementos React (texto escapado), e
  *   o editor recebe JSON — Markdown/HTML vindo do MCP nunca injeta marcação.
  *
+ * Blocos móveis (GAB-100): comentário HTML sozinho na linha, no nível de cima:
+ * `<!-- bloco:cronograma -->`, `<!-- bloco:investimento -->`, e `<!-- bloco:nenhum -->`
+ * quando os dois foram tirados da folha. Texto que só parece um marcador sai
+ * escapado (`\\<!-- ...`), então Markdown canônico antigo nunca vira bloco, e
+ * qualquer outro comentário continua literal. Só esses três viram nó, e o nó não
+ * guarda dado nenhum: só o lugar.
+ *
  * Garantias (testadas em `markdown.test.ts`, inclusive com documentos
  * aleatórios): para todo documento normalizado `d`,
  * `markdownParaDocumento(documentoParaMarkdown(d))` é `d`; e o Markdown
  * canônico é ponto fixo de `normalizarMarkdown`.
  */
 import { Lexer, type Token, type Tokens } from "marked";
-import { MARCAS, normalizarDocumento, type Bloco, type Documento, type ItemLista, type Marca, type NoTexto } from "./documento";
+import { MARCAS, normalizarDocumento, type Bloco, type Documento, type ItemLista, type Marca, type NoTexto, type TipoBlocoDados } from "./documento";
 
 // ---------------------------------------------------------------- doc → Markdown
 
 const DELIM: Record<Marca, string> = { bold: "**", italic: "*" };
+
+const marcadorDe = (tipo: TipoBlocoDados | "nenhum") => `<!-- bloco:${tipo} -->`;
+const MARCADOR = /^<!--\s*bloco:(cronograma|investimento|nenhum)\s*-->$/;
 
 /** Caracteres que o Markdown pode ler como formatação em qualquer ponto da linha. */
 const ESCAPAR_SEMPRE = /[\\*_`[\]<~]/g;
@@ -102,6 +112,10 @@ function serializarBloco(b: Bloco): string[] {
       return [`${"#".repeat(b.attrs.level)} ${serializarInline(b.content, true)}`];
     case "horizontalRule":
       return ["---"];
+    case "blocoDados":
+      return [marcadorDe(b.attrs.tipo)];
+    case "semBlocos":
+      return [marcadorDe("nenhum")];
     case "bulletList":
       return b.content.flatMap((it) => serializarItem(it, "-"));
     case "orderedList":
@@ -166,7 +180,8 @@ function paragrafosLiterais(cru: string): Bloco[] {
     .map((l) => ({ type: "paragraph", content: [{ type: "text", text: l }] }));
 }
 
-function blocos(tokens: Token[] | undefined): Bloco[] {
+/** `topo`: nível de cima do documento, o único lugar onde um marcador vira bloco móvel. */
+function blocos(tokens: Token[] | undefined, topo = false): Bloco[] {
   const saida: Bloco[] = [];
   for (const tk of tokens ?? []) {
     switch (tk.type) {
@@ -213,6 +228,13 @@ function blocos(tokens: Token[] | undefined): Bloco[] {
       case "code":
         saida.push(...paragrafosLiterais((tk as Tokens.Code).text));
         break;
+      case "html": {
+        const m = topo ? MARCADOR.exec(tk.raw.trim()) : null;
+        if (!m) saida.push(...paragrafosLiterais(tk.raw));
+        else if (m[1] === "nenhum") saida.push({ type: "semBlocos" });
+        else saida.push({ type: "blocoDados", attrs: { tipo: m[1] as TipoBlocoDados } });
+        break;
+      }
       default:
         // HTML de bloco, definição de link, qualquer outro: texto literal
         saida.push(...paragrafosLiterais(tk.raw));
@@ -223,7 +245,7 @@ function blocos(tokens: Token[] | undefined): Bloco[] {
 
 export function markdownParaDocumento(md: string): Documento {
   const tokens = new Lexer({ gfm: true, breaks: false }).lex(md);
-  return normalizarDocumento({ type: "doc", content: blocos(tokens) });
+  return normalizarDocumento({ type: "doc", content: blocos(tokens, true) });
 }
 
 /** Markdown qualquer (ex.: vindo do MCP) → Markdown canônico do subconjunto. */

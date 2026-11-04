@@ -16,6 +16,8 @@ import type { Node as NoPM } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { criarAncora, localizarAncora, normalizarBloco, type Ancora } from "@/lib/propostas/ancora";
+import { TITULO_BLOCO_DADOS } from "@/lib/propostas/blocos-dados";
+import type { TipoBlocoDados } from "@/lib/propostas/documento";
 
 export type DestaqueEditor = { id: string; ancora: Ancora };
 export type EntradaDestaques = { destaques: DestaqueEditor[]; ativo: string | null };
@@ -25,7 +27,7 @@ type Estado = EntradaDestaques & { set: DecorationSet };
  * Um bloco de texto: `plano` = início no texto plano (normalizado);
  * `posicoes[k]` = posição no documento PM do k-ésimo caractere normalizado.
  */
-export type SegmentoPM = { plano: number; tamanho: number; posicoes: number[] };
+export type SegmentoPM = { plano: number; tamanho: number; posicoes: number[]; atomo?: boolean };
 
 export const chaveDestaques = new PluginKey<Estado>("destaquesComentarios");
 
@@ -33,6 +35,14 @@ export function planoDoEditor(doc: NoPM): { texto: string; segmentos: SegmentoPM
   let texto = "";
   const segmentos: SegmentoPM[] = [];
   doc.descendants((no, pos) => {
+    // Bloco móvel (GAB-100): o título fixo no texto plano, como em `textoPlano`; todo caractere aponta para o nó.
+    if (no.type.name === "blocoDados") {
+      const t = TITULO_BLOCO_DADOS[no.attrs.tipo as TipoBlocoDados];
+      if (texto) texto += "\n";
+      segmentos.push({ plano: texto.length, tamanho: t.length, posicoes: Array.from({ length: t.length }, () => pos), atomo: true });
+      texto += t;
+      return false;
+    }
     if (!no.isTextblock) return true;
     // Só texto dentro do bloco (o subconjunto não tem nó inline sem texto): índice cru = pos + 1 + i.
     const { texto: t, mapa } = normalizarBloco(no.textContent);
@@ -81,7 +91,8 @@ function decorar(doc: NoPM, e: EntradaDestaques): DecorationSet {
     for (const s of segmentos) {
       const a = Math.max(f.inicio, s.plano);
       const b = Math.min(f.fim, s.plano + s.tamanho);
-      if (a < b) decos.push(Decoration.inline(s.posicoes[a - s.plano], s.posicoes[b - 1 - s.plano] + 1, { class: classe, "data-comentario": d.id }));
+      if (a < b && s.atomo) decos.push(Decoration.node(s.posicoes[0], s.posicoes[0] + 1, { class: classe, "data-comentario": d.id }));
+      else if (a < b) decos.push(Decoration.inline(s.posicoes[a - s.plano], s.posicoes[b - 1 - s.plano] + 1, { class: classe, "data-comentario": d.id }));
     }
   }
   return DecorationSet.create(doc, decos);

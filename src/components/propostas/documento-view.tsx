@@ -1,7 +1,10 @@
 import { Fragment, type ReactNode } from "react";
 import { cn } from "cn";
 import { segmentosDeDestaque, textoPlano, type Destaque } from "@/lib/propostas/ancora";
-import type { Bloco, Documento, ItemLista, NoTexto } from "@/lib/propostas/documento";
+import { TITULO_BLOCO_DADOS } from "@/lib/propostas/blocos-dados";
+import { documentoComBlocos, type Bloco, type Documento, type ItemLista, type NoTexto, type TipoBlocoDados } from "@/lib/propostas/documento";
+import type { Estruturado } from "@/lib/propostas/estruturado";
+import { BlocoDadosView } from "./bloco-dados-view";
 
 /**
  * Desenha o documento da proposta como elementos React (leitura: versões,
@@ -13,8 +16,12 @@ import type { Bloco, Documento, ItemLista, NoTexto } from "@/lib/propostas/docum
  * offset no texto plano (`lib/propostas/ancora.ts`) — é assim que a seleção do
  * leitor vira âncora — e os trechos comentados num `<mark data-comentario>`.
  * Realce só visual: o documento não muda.
+ *
+ * GAB-100 (`dados`): a folha mostra os blocos móveis com esses dados, no lugar em que
+ * estão. Sem `dados` (leitura dentro de outro painel) os blocos não aparecem.
  */
 type Anotacao = { inicios: Map<object, number>; destaques: readonly Destaque[]; ativo: string | null };
+type Folha = { dados: Estruturado; controles?: (tipo: TipoBlocoDados) => ReactNode };
 
 function comMarcas(n: NoTexto, texto: string): ReactNode {
   let el: ReactNode = texto;
@@ -54,19 +61,19 @@ function Inline({ nos, bloco, anot }: { nos: NoTexto[] | undefined; bloco: Bloco
   return <>{partes}</>;
 }
 
-function Itens({ itens, anot }: { itens: ItemLista[]; anot: Anotacao | null }) {
+function Itens({ itens, anot, folha }: { itens: ItemLista[]; anot: Anotacao | null; folha?: Folha }) {
   return (
     <>
       {itens.map((it, i) => (
         <li key={i}>
-          <Blocos blocos={it.content} anot={anot} />
+          <Blocos blocos={it.content} anot={anot} folha={folha} />
         </li>
       ))}
     </>
   );
 }
 
-function Blocos({ blocos, anot }: { blocos: Bloco[]; anot: Anotacao | null }) {
+function Blocos({ blocos, anot, folha }: { blocos: Bloco[]; anot: Anotacao | null; folha?: Folha }) {
   return (
     <>
       {blocos.map((b, i) => {
@@ -87,16 +94,28 @@ function Blocos({ blocos, anot }: { blocos: Bloco[]; anot: Anotacao | null }) {
           }
           case "horizontalRule":
             return <hr key={i} />;
+          case "blocoDados":
+            return folha ? (
+              <BlocoDadosView
+                key={b.attrs.tipo}
+                tipo={b.attrs.tipo}
+                dados={folha.dados}
+                titulo={<Inline nos={[{ type: "text", text: TITULO_BLOCO_DADOS[b.attrs.tipo] }]} bloco={b} anot={anot} />}
+                controles={folha.controles?.(b.attrs.tipo)}
+              />
+            ) : null;
+          case "semBlocos":
+            return null;
           case "bulletList":
             return (
               <ul key={i}>
-                <Itens itens={b.content} anot={anot} />
+                <Itens itens={b.content} anot={anot} folha={folha} />
               </ul>
             );
           case "orderedList":
             return (
               <ol key={i} start={b.attrs.start}>
-                <Itens itens={b.content} anot={anot} />
+                <Itens itens={b.content} anot={anot} folha={folha} />
               </ol>
             );
         }
@@ -110,18 +129,25 @@ export function DocumentoView({
   className,
   destaques,
   ativo = null,
+  dados,
+  controlesBloco,
 }: {
   documento: Documento;
   className?: string;
   /** GAB-91: com isto, o texto sai anotado (offsets + trechos comentados). */
   destaques?: readonly Destaque[];
   ativo?: string | null;
+  /** GAB-100: os dados dos blocos móveis (a folha); sem isto, os blocos não aparecem. */
+  dados?: Estruturado;
+  controlesBloco?: (tipo: TipoBlocoDados) => ReactNode;
 }) {
-  if (documento.content.length === 0) return <p className={cn("text-sm text-fg-faint", className)}>Sem texto.</p>;
+  const exibido = dados ? documentoComBlocos(documento) : documento;
+  if (exibido.content.length === 0) return <p className={cn("text-sm text-fg-faint", className)}>Sem texto.</p>;
   const anot = destaques ? { inicios: textoPlano(documento).inicios, destaques, ativo } : null;
+  const folha = dados ? { dados, controles: controlesBloco } : undefined;
   return (
     <div data-testid="documento-proposta" className={cn("proposta-texto", className)}>
-      <Blocos blocos={documento.content} anot={anot} />
+      <Blocos blocos={exibido.content} anot={anot} folha={folha} />
     </div>
   );
 }

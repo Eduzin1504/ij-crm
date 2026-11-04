@@ -16,18 +16,18 @@ export function HistoricoVersoes({ projetoId, versoes, atual, comparar }: { proj
   const para = comparar?.para ?? versoes[0]?.numero;
   const de = comparar ? comparar.de : versoes[1]?.numero;
   return (
-    <section className="rounded-xl border border-border bg-surface p-4">
-      <h2 className="mb-3 text-sm font-medium">Versões</h2>
+    <section className="rounded-xl border border-border bg-surface p-3">
+      <h2 className="eyebrow mb-2">Versões</h2>
       {versoes.length === 0 ? (
         <p className="text-xs text-fg-faint">Nenhuma versão salva ainda. O rascunho é salvo sozinho; “Salvar versão” congela um retrato.</p>
       ) : (
         <ol className="space-y-1">
-          {versoes.map((v) => (
-            <li key={v.numero}>
+          {versoes.map((v, i) => (
+            <li key={v.numero} className="flex items-start gap-1">
               <Link
                 href={`/projetos/${projetoId}/proposta/versoes/${v.numero}`}
                 aria-current={v.numero === atual ? "page" : undefined}
-                className="block rounded-lg px-2 py-1.5 text-sm hover:bg-surface-hover aria-[current=page]:bg-surface-hover"
+                className="block min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm hover:bg-surface-hover aria-[current=page]:bg-surface-hover"
               >
                 <span className="font-mono text-xs font-medium text-foreground">v{v.numero}</span>{" "}
                 <span className="text-fg-soft">{v.autor.nome}</span>
@@ -36,6 +36,11 @@ export function HistoricoVersoes({ projetoId, versoes, atual, comparar }: { proj
                 <span className="block font-mono text-[11px] text-fg-faint">{formatarDataHora(v.criadoEm)}</span>
                 {v.nota ? <span className="mt-0.5 block text-xs break-words text-fg-mute">{v.nota}</span> : null}
               </Link>
+              {versoes[i + 1] ? (
+                <Link href={`/projetos/${projetoId}/proposta/diff?de=${versoes[i + 1].numero}&para=${v.numero}`} className="shrink-0 py-1.5 text-xs text-fg-mute underline-offset-2 hover:text-foreground hover:underline">
+                  comparar
+                </Link>
+              ) : null}
             </li>
           ))}
         </ol>

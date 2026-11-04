@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, MessageSquare, RotateCcw, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { Check, ChevronDown, ChevronUp, MessageSquare, MessageSquarePlus, RotateCcw, X } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { formatarDataHora } from "@/lib/projetos/formatar";
+import { posicoesNaMargem } from "@/lib/propostas/margem";
 import { COMENTARIO_MAX } from "@/lib/propostas/comentarios-limites";
 import { comentarAction, resolverComentarioAction, responderComentarioAction, type RespostaComentario } from "./comentarios-actions";
 import { mensagemErro, useComentarios, type ComentarioJson, type ThreadJson } from "./comentarios-contexto";
@@ -46,7 +47,7 @@ function CampoTexto({ valor, mudar, rotulo, campo }: { valor: string; mudar: (v:
   );
 }
 
-function Thread({ t }: { t: ThreadJson }) {
+function Thread({ t, topo }: { t: ThreadJson; topo?: number }) {
   const c = useComentarios()!;
   const [respondendo, setRespondendo] = useState(false);
   const [resposta, setResposta] = useState("");
@@ -74,8 +75,12 @@ function Thread({ t }: { t: ThreadJson }) {
   return (
     <li
       id={`comentario-${t.id}`}
-      className={cn("rounded-lg border border-border p-3", ativo && "border-warn bg-warn-soft/40", t.resolvido && "opacity-75")}
+      data-thread={t.id}
+      style={topo === undefined ? undefined : { position: "absolute", top: topo, left: 0, right: 0 }}
+      className={cn("rounded-lg border border-border bg-surface p-3", ativo && "z-[1] border-warn bg-surface-strong", t.resolvido && "opacity-75")}
     >
+      {/* Fio até a linha comentada: atravessa o vão entre a margem e a folha. */}
+      {topo !== undefined && t.ancora && !alterado && !t.resolvido ? <span aria-hidden className="absolute top-4 -right-5 w-5 border-t border-dashed border-warn" /> : null}
       {t.ancora ? (
         <button
           type="button"
@@ -157,27 +162,104 @@ function Thread({ t }: { t: ThreadJson }) {
 }
 
 /**
+ * Cartões na altura da linha comentada: o trecho é achado pelo `data-comentario` que a
+ * folha põe nele (editor ou leitura). Roda de novo quando a folha ou os cartões mudam de
+ * tamanho ou o destaque muda de lugar. Só mede e posiciona: não toca no documento.
+ */
+function usePosicoes(lista: React.RefObject<HTMLUListElement | null>, threads: ThreadJson[], ligado: boolean) {
+  const [posicoes, setPosicoes] = useState<{ topos: Record<string, number>; altura: number } | null>(null);
+  const chave = threads.map((t) => t.id).join();
+  useLayoutEffect(() => {
+    const ul = lista.current;
+    if (!ligado || !ul) return;
+    const medir = () => {
+      const base = ul.getBoundingClientRect().top;
+      const itens = [...ul.querySelectorAll<HTMLElement>("[data-thread]")].map((el) => {
+        const id = el.dataset.thread!;
+        const alvo = document.querySelector(`[data-comentario="${CSS.escape(id)}"]`);
+        return { id, alvo: alvo ? alvo.getBoundingClientRect().top - base : null, altura: el.offsetHeight };
+      });
+      const r = posicoesNaMargem(itens);
+      setPosicoes((a) => (a && a.altura === r.altura && itens.every((i) => a.topos[i.id] === r.topos[i.id]) ? a : r));
+    };
+    let quadro = 0;
+    const agendar = () => {
+      cancelAnimationFrame(quadro);
+      quadro = requestAnimationFrame(medir);
+    };
+    medir();
+    const tamanho = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(agendar);
+    tamanho?.observe(ul);
+    ul.querySelectorAll("[data-thread]").forEach((el) => tamanho?.observe(el));
+    // O editor carrega depois (só no navegador) e desenha os destaques depois: observa a grade toda.
+    let folha: Element | null = null;
+    const olharFolha = () => {
+      const f = document.querySelector("[data-folha]");
+      if (f && f !== folha) {
+        if (folha) tamanho?.unobserve(folha);
+        tamanho?.observe(f);
+        folha = f;
+      }
+    };
+    olharFolha();
+    const mudancas =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(() => {
+            olharFolha();
+            agendar();
+          });
+    mudancas?.observe(ul.closest(".grade-proposta") ?? document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-comentario"] });
+    window.addEventListener("resize", agendar);
+    return () => {
+      cancelAnimationFrame(quadro);
+      tamanho?.disconnect();
+      mudancas?.disconnect();
+      window.removeEventListener("resize", agendar);
+    };
+  }, [lista, ligado, chave]);
+  return ligado ? posicoes : null;
+}
+
+/**
  * Comentários da proposta (GAB-91): qualquer pessoa logada comenta (geral ou
  * citando um trecho), responde, resolve e reabre — sem a caneta. Atualiza
  * sozinho pelo polling do `ComentariosProvider`.
+ *
+ * GAB-100, `alinhar`: é a margem esquerda da folha. Cartão na altura da linha, o de baixo
+ * desce se colidir, e o formulário fica recolhido no topo fixo da coluna.
  */
-export function PainelComentarios() {
+export function PainelComentarios({ alinhar = false }: { alinhar?: boolean }) {
   const c = useComentarios();
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [verResolvidos, setVerResolvidos] = useState(false);
   const [ocupado, startTransition] = useTransition();
+  const [formAberto, setFormAberto] = useState(false);
   const campo = useRef<HTMLTextAreaElement>(null);
+  const lista = useRef<HTMLUListElement>(null);
   const pedidoFoco = c?.pedidoFoco ?? 0;
+  const abertos = c?.threads.filter((t) => !t.resolvido) ?? [];
+  const resolvidos = (c?.threads.length ?? 0) - abertos.length;
+  const visiveis = verResolvidos ? (c?.threads ?? []) : abertos;
+  const posicoes = usePosicoes(lista, visiveis, alinhar);
 
   useEffect(() => {
-    if (pedidoFoco > 0) campo.current?.focus();
-  }, [pedidoFoco]);
+    if (pedidoFoco > 0) campo.current?.focus({ preventScroll: alinhar });
+  }, [pedidoFoco, alinhar]);
 
   if (!c) return null;
-  const abertos = c.threads.filter((t) => !t.resolvido);
-  const resolvidos = c.threads.length - abertos.length;
-  const visiveis = verResolvidos ? c.threads : abertos;
+  const comForm = !alinhar || formAberto || !!c.citado || texto.trim() !== "";
+
+  /** Setas: anterior e próximo entre os abertos que têm trecho na tela, na ordem do texto. */
+  function navegar(passo: -1 | 1) {
+    const naTela = abertos.filter((t) => t.ancora && !c!.alterado(t));
+    if (naTela.length === 0) return;
+    const ordenados = [...naTela].sort((a, b) => topoDoTrecho(a.id) - topoDoTrecho(b.id));
+    const i = ordenados.findIndex((t) => t.id === c!.ativo);
+    const prox = i === -1 ? (passo === 1 ? 0 : ordenados.length - 1) : (i + passo + ordenados.length) % ordenados.length;
+    c!.ativar(ordenados[prox].id, "painel");
+  }
 
   function enviar() {
     setErro(null);
@@ -192,63 +274,100 @@ export function PainelComentarios() {
       const e = erroDe(r);
       if (e) return setErro(e);
       setTexto("");
+      setFormAberto(false);
       c!.citar(null);
       await c!.recarregar();
     });
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface p-4" aria-label="Comentários">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-sm font-medium">Comentários</h2>
-        <span className="font-mono text-[11px] text-fg-faint">{abertos.length} abertos</span>
-        <span className="flex-1" />
-        {resolvidos ? (
-          <button type="button" className="text-xs text-fg-mute underline-offset-2 hover:underline" onClick={() => setVerResolvidos((v) => !v)}>
-            {verResolvidos ? "Esconder resolvidos" : `Ver resolvidos (${resolvidos})`}
-          </button>
+    <section className={alinhar ? "" : "rounded-xl border border-border bg-surface p-4"} aria-label="Comentários">
+      <div className={cn("mb-3", alinhar && "sticky top-14 z-[4] -mx-1 bg-background px-1 pt-1 pb-2")}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className="sr-only">Comentários</h2>
+          <span className="eyebrow">
+            {abertos.length} {abertos.length === 1 ? "aberto" : "abertos"} · {resolvidos} {resolvidos === 1 ? "resolvido" : "resolvidos"}
+          </span>
+          <span className="flex-1" />
+          <span className="flex">
+            <Button type="button" size="icon-xs" variant="ghost" aria-label="Comentário anterior" title="Anterior" disabled={abertos.length === 0} onClick={() => navegar(-1)}>
+              <ChevronUp />
+            </Button>
+            <Button type="button" size="icon-xs" variant="ghost" aria-label="Próximo comentário" title="Próximo" disabled={abertos.length === 0} onClick={() => navegar(1)}>
+              <ChevronDown />
+            </Button>
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {alinhar && !comForm ? (
+            <Button type="button" size="xs" variant="outline" onClick={() => setFormAberto(true)}>
+              <MessageSquarePlus className="size-3" /> Comentário geral
+            </Button>
+          ) : null}
+          {resolvidos ? (
+            <button type="button" className="text-xs text-fg-mute underline-offset-2 hover:underline" onClick={() => setVerResolvidos((v) => !v)}>
+              {verResolvidos ? "Esconder resolvidos" : `Ver resolvidos (${resolvidos})`}
+            </button>
+          ) : null}
+        </div>
+
+        {comForm ? (
+          <form
+            className="mt-2 space-y-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              enviar();
+            }}
+          >
+            {c.citado ? (
+              <div className="flex items-start gap-1 rounded-md border-l-2 border-warn bg-surface-hover/60 px-2 py-1 text-xs text-fg-mute">
+                <span className="line-clamp-3 flex-1 break-words italic">“{c.citado.trecho}”</span>
+                <button type="button" aria-label="Tirar o trecho citado" className="text-fg-faint hover:text-foreground" onClick={() => c.citar(null)}>
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
+            <CampoTexto valor={texto} mudar={setTexto} rotulo={c.citado ? "Comentário sobre o trecho" : "Comentário geral"} campo={campo} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" size="xs" disabled={ocupado || !texto.trim()}>
+                Comentar
+              </Button>
+              {alinhar ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => {
+                    setFormAberto(false);
+                    setTexto("");
+                    c.citar(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+              ) : !c.citado ? (
+                <span className="text-[11px] text-fg-faint">Para citar um trecho: selecione no texto e use “Comentar trecho”.</span>
+              ) : null}
+            </div>
+            {erro ? (
+              <p role="alert" className="text-xs text-destructive">
+                {erro}
+              </p>
+            ) : null}
+          </form>
+        ) : null}
+
+        {c.erroCarga ? (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {c.erroCarga}
+          </p>
         ) : null}
       </div>
 
-      <form
-        className="space-y-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          enviar();
-        }}
-      >
-        {c.citado ? (
-          <div className="flex items-start gap-1 rounded-md border-l-2 border-warn bg-surface-hover/60 px-2 py-1 text-xs text-fg-mute">
-            <span className="line-clamp-3 flex-1 break-words italic">“{c.citado.trecho}”</span>
-            <button type="button" aria-label="Tirar o trecho citado" className="text-fg-faint hover:text-foreground" onClick={() => c.citar(null)}>
-              <X className="size-3.5" />
-            </button>
-          </div>
-        ) : null}
-        <CampoTexto valor={texto} mudar={setTexto} rotulo={c.citado ? "Comentário sobre o trecho" : "Comentário geral"} campo={campo} />
-        <div className="flex items-center gap-2">
-          <Button type="submit" size="xs" disabled={ocupado || !texto.trim()}>
-            Comentar
-          </Button>
-          {!c.citado ? <span className="text-[11px] text-fg-faint">Para citar um trecho: selecione no texto e use “Comentar trecho”.</span> : null}
-        </div>
-        {erro ? (
-          <p role="alert" className="text-xs text-destructive">
-            {erro}
-          </p>
-        ) : null}
-      </form>
-
-      {c.erroCarga ? (
-        <p role="alert" className="mt-3 text-xs text-destructive">
-          {c.erroCarga}
-        </p>
-      ) : null}
-
       {visiveis.length ? (
-        <ul className="mt-4 space-y-3">
+        <ul ref={lista} className={cn("mt-4", posicoes ? "relative" : "space-y-3")} style={posicoes ? { height: posicoes.altura } : undefined}>
           {visiveis.map((t) => (
-            <Thread key={t.id} t={t} />
+            <Thread key={t.id} t={t} topo={posicoes?.topos[t.id]} />
           ))}
         </ul>
       ) : (
@@ -256,4 +375,8 @@ export function PainelComentarios() {
       )}
     </section>
   );
+}
+
+function topoDoTrecho(id: string): number {
+  return document.querySelector(`[data-comentario="${CSS.escape(id)}"]`)?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY;
 }

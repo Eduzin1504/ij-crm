@@ -27,7 +27,7 @@ function camposMcp(c: CamposSugeridos) {
     valor: c.valor,
     prazo_dias: c.prazoDias,
     escopo_resumo: c.escopoResumo,
-    entregas: c.entregas?.map((e) => ({ titulo: e.titulo, dia: e.dia, ...(e.valor ? { valor: e.valor } : {}) })) ?? null,
+    entregas: c.entregas?.map((e) => ({ titulo: e.titulo, dia: e.dia, ...(e.duracao ? { duracao: e.duracao } : {}), ...(e.valor ? { valor: e.valor } : {}) })) ?? null,
   };
 }
 

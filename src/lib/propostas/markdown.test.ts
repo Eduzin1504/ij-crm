@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lerDocumento, normalizarDocumento, type Bloco, type Documento, type NoTexto } from "./documento";
+import { documentoComBlocos, documentoDoEditor, lerDocumento, normalizarDocumento, type Bloco, type Documento, type NoTexto } from "./documento";
 import { documentoParaMarkdown, markdownParaDocumento, normalizarMarkdown } from "./markdown";
 
 const t = (text: string, ...marks: ("bold" | "italic")[]): NoTexto => (marks.length ? { type: "text", text, marks: marks.map((type) => ({ type })) } : { type: "text", text });
@@ -223,5 +223,101 @@ describe("limite de custo (conteúdo vem do MCP)", () => {
     const um = normalizarMarkdown(md);
     expect(normalizarMarkdown(um)).toBe(um);
     expect(performance.now() - inicio).toBeLessThan(3000);
+  });
+});
+
+describe("blocos móveis (GAB-100)", () => {
+  const p = (text: string): Bloco => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const b = (tipo: "cronograma" | "investimento"): Bloco => ({ type: "blocoDados", attrs: { tipo } });
+
+  it("ida e volta: bloco no meio do texto", () => {
+    const d: Documento = { type: "doc", content: [p("Antes."), b("cronograma"), p("Depois."), b("investimento"), p("Fim.")] };
+    const md = documentoParaMarkdown(d);
+    expect(md).toBe("Antes.\n\n<!-- bloco:cronograma -->\n\nDepois.\n\n<!-- bloco:investimento -->\n\nFim.");
+    expect(markdownParaDocumento(md)).toEqual(d);
+    expect(normalizarMarkdown(md)).toBe(md);
+  });
+
+  it("os dois no fim, nessa ordem, são a posição padrão: o Markdown fica igual ao de proposta antiga", () => {
+    const d: Documento = { type: "doc", content: [p("Texto."), b("cronograma"), b("investimento")] };
+    expect(documentoParaMarkdown(d)).toBe("Texto.");
+    expect(documentoParaMarkdown({ type: "doc", content: [p("Texto."), b("cronograma"), b("investimento"), { type: "paragraph" }] })).toBe("Texto.");
+    expect(documentoParaMarkdown({ type: "doc", content: [p("Texto."), b("investimento"), b("cronograma")] })).toBe("Texto.\n\n<!-- bloco:investimento -->\n\n<!-- bloco:cronograma -->");
+    expect(documentoParaMarkdown({ type: "doc", content: [p("Texto."), b("investimento")] })).toBe("Texto.\n\n<!-- bloco:investimento -->");
+  });
+
+  it("os dois fora da folha é diferente de proposta antiga: fica marcado", () => {
+    const md = documentoParaMarkdown(documentoDoEditor({ type: "doc", content: [p("Texto.")] }));
+    expect(md).toBe("Texto.\n\n<!-- bloco:nenhum -->");
+    expect(documentoComBlocos(markdownParaDocumento(md)).content.map((x) => x.type)).toEqual(["paragraph"]);
+    expect(documentoComBlocos(markdownParaDocumento("Texto.")).content.map((x) => x.type)).toEqual(["paragraph", "blocoDados", "blocoDados"]);
+    expect(normalizarMarkdown(md)).toBe(md);
+    // Com bloco na folha o marcador não diz nada.
+    expect(normalizarMarkdown("<!-- bloco:nenhum -->\n\nTexto.\n\n<!-- bloco:cronograma -->\n\nFim.")).toBe("Texto.\n\n<!-- bloco:cronograma -->\n\nFim.");
+  });
+
+  it("um de cada: o segundo some", () => {
+    expect(normalizarMarkdown("<!-- bloco:cronograma -->\n\nA\n\n<!-- bloco:cronograma -->\n\nB")).toBe("<!-- bloco:cronograma -->\n\nA\n\nB");
+  });
+
+  it("duplicado entre duas listas: tirá-lo une as listas sem deixar de ser ponto fixo", () => {
+    const md = normalizarMarkdown("- a\n\n<!-- bloco:nenhum -->\n\n- b");
+    expect(md).toBe("- a\n- b\n\n<!-- bloco:nenhum -->");
+    expect(normalizarMarkdown(md)).toBe(md);
+  });
+
+  it("marcador só vale sozinho no nível de cima; o resto continua texto literal", () => {
+    expect(markdownParaDocumento("Veja <!-- bloco:cronograma --> aqui").content).toEqual([p("Veja <!-- bloco:cronograma --> aqui")]);
+    expect(markdownParaDocumento("<!-- bloco:outra-coisa -->").content).toEqual([p("<!-- bloco:outra-coisa -->")]);
+    expect(markdownParaDocumento("<!-- oi -->").content).toEqual([p("<!-- oi -->")]);
+    const lista = markdownParaDocumento("- <!-- bloco:cronograma -->").content[0];
+    expect(lista.type).toBe("bulletList");
+    expect(JSON.stringify(lista)).not.toContain("blocoDados");
+    expect(JSON.stringify(markdownParaDocumento("> <!-- bloco:cronograma -->"))).not.toContain("blocoDados");
+  });
+
+  it("texto que parece marcador sai escapado: nunca vira bloco", () => {
+    const d: Documento = { type: "doc", content: [p("<!-- bloco:cronograma -->")] };
+    const md = documentoParaMarkdown(d);
+    expect(md).toBe("\\<!-- bloco:cronograma -->");
+    expect(markdownParaDocumento(md)).toEqual(d);
+  });
+
+  it("texto puro de OCR, com formatação qualquer, passa sem ganhar nem perder bloco", () => {
+    const ocr = "PROPOSTA\nCliente: ACME <acme@x.com>\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\ncódigo\n```";
+    const md = normalizarMarkdown(ocr);
+    expect(md).not.toContain("bloco:");
+    expect(normalizarMarkdown(md)).toBe(md);
+    expect(md).toContain("código");
+  });
+
+  it("documentos aleatórios com blocos continuam ponto fixo", () => {
+    let semente = 1234;
+    const rnd = (n: number) => {
+      semente = (semente * 48271) % 2147483647;
+      return semente % n;
+    };
+    for (let k = 0; k < 300; k++) {
+      const content: Bloco[] = [];
+      const n = 1 + rnd(7);
+      for (let i = 0; i < n; i++) {
+        const t = rnd(6);
+        if (t === 0) content.push(b("cronograma"));
+        else if (t === 1) content.push(b("investimento"));
+        else if (t === 2) content.push({ type: "bulletList", content: [{ type: "listItem", content: [p(`item ${i}`)] }] });
+        else if (t === 3) content.push({ type: "semBlocos" });
+        else content.push(p(`texto ${i}`));
+      }
+      const d = normalizarDocumento({ type: "doc", content });
+      expect(markdownParaDocumento(documentoParaMarkdown(d))).toEqual(d);
+      expect(normalizarDocumento(d)).toEqual(d);
+    }
+  });
+
+  it("JSON do editor: bloco válido entra; tipo desconhecido é recusado; dentro de lista não é do subconjunto", () => {
+    expect(lerDocumento({ type: "doc", content: [{ type: "blocoDados", attrs: { tipo: "cronograma" } }, p("a")] })?.content[0]).toEqual(b("cronograma"));
+    expect(lerDocumento({ type: "doc", content: [{ type: "blocoDados", attrs: { tipo: "outro" } }] })).toBeNull();
+    const dentro = lerDocumento({ type: "doc", content: [{ type: "bulletList", content: [{ type: "listItem", content: [p("a"), b("cronograma")] }] }] });
+    expect(JSON.stringify(dentro)).not.toContain("blocoDados");
   });
 });

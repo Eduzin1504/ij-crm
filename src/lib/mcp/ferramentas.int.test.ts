@@ -448,6 +448,34 @@ describe("proposta via MCP (GAB-86): mesmas operações e permissões da tela", 
   });
 });
 
+describe("blocos móveis e duração via MCP (GAB-100)", () => {
+  it("duração em entrega volta na forma que dá para reenviar; marcador de bloco vai e volta; comentar o bloco funciona", async () => {
+    const s = await semear();
+    const { vendedora } = s;
+    const card = await criarCard({ pipelineId: s.vendas.id, faseId: fase(s.vendas, "primeiro_contato").id, titulo: "Site da Padaria" }, vendedora);
+    if (!card.ok) throw new Error("seed");
+    const id = card.id;
+    dados(await executarFerramenta("criar_proposta", { projeto_id: id }, vendedora));
+    const lida0 = dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora));
+    const r = dados(
+      await executarFerramenta(
+        "editar_proposta",
+        { projeto_id: id, revisao: lida0.revisao, markdown: "Antes.\n\n<!-- bloco:cronograma -->\n\nDepois.", entregas: [{ titulo: "Levantamento", duracao: "2 sem" }, { titulo: "MVP", dia: "2026-12-15", valor: "8.000,00" }] },
+        vendedora,
+      ),
+    );
+    expect(r.markdownGravado).toBe("Antes.\n\n<!-- bloco:cronograma -->\n\nDepois.");
+    expect(r.estruturado.entregas).toEqual([{ titulo: "Levantamento", dia: null, duracao: "2 semanas", valor: null }, { titulo: "MVP", dia: "2026-12-15", valor: "8.000,00" }]);
+    // O que o MCP leu, reenviado igual, é aceito e não muda nada.
+    const lida = dados(await executarFerramenta("ler_proposta", { projeto_id: id }, vendedora));
+    const de = dados(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: lida.revisao, entregas: lida.estruturado.entregas }, vendedora));
+    expect(de.mudou).toBe(false);
+    expect(texto(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: lida.revisao, entregas: [{ titulo: "X" }] }, vendedora))).toMatch(/informe a data ou a duração/);
+    expect(dados(await executarFerramenta("comentar_proposta", { projeto_id: id, texto: "Revise", trecho: "Cronograma" }, vendedora))).toBeTruthy();
+    expect(dados(await executarFerramenta("editar_proposta", { projeto_id: id, revisao: lida.revisao, markdown: "Texto.\n\n<!-- bloco:nenhum -->" }, vendedora)).markdownGravado).toBe("Texto.\n\n<!-- bloco:nenhum -->");
+  });
+});
+
 describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
   async function comProposta() {
     const s = await semear();

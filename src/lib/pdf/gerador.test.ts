@@ -2,7 +2,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";
 import { gerarPdf, limparTexto } from "./gerador";
-import { TEMPLATE_PROVISORIO } from "./templates/provisorio";
+import { TEMPLATE_IJ } from "./templates/ij";
 import type { DocumentoPdf } from "./tipos";
 
 async function texto(bytes: Uint8Array) {
@@ -13,7 +13,7 @@ async function texto(bytes: Uint8Array) {
 
 const ACENTOS = "Ação, coração, pão, órgão, É, Ç, ü, à, ê — “aspas” e R$ 12.500,00";
 
-describe("gerarPdf (pdf-lib + Inter embutida)", () => {
+describe("gerarPdf (pdf-lib + Arimo embutida)", () => {
   it("acentos/UTF-8 saem como texto de verdade (fonte embutida em subconjunto)", async () => {
     const doc: DocumentoPdf = {
       titulo: "Proposta comercial",
@@ -29,19 +29,19 @@ describe("gerarPdf (pdf-lib + Inter embutida)", () => {
         { tipo: "tabela", colunas: [{ titulo: "Entrega", largura: 0.6 }, { titulo: "Data", largura: 0.2 }, { titulo: "Valor", largura: 0.2, alinhar: "direita" }], linhas: [["Protótipo", "01/12/2026", "R$ 5.000,00"]] },
       ],
     };
-    const bytes = await gerarPdf(doc, TEMPLATE_PROVISORIO);
+    const bytes = await gerarPdf(doc, TEMPLATE_IJ);
     expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
     const t = await texto(bytes);
     expect(t.paginas).toBe(1);
     const p1 = t.texto[0];
-    for (const s of ["Proposta comercial", "Padaria São João", "Ação, coração, pão, órgão, É, Ç, ü, à, ê", "negrito", "itálico", "Página inicial", "Sub-item numerado", "Valor total", "R$ 12.500,00", "Protótipo", "Inteli Júnior", "Página 1 de 1"]) {
+    for (const s of ["Proposta comercial", "Padaria São João", "Ação, coração, pão, órgão, É, Ç, ü, à, ê", "negrito", "itálico", "Página inicial", "Sub-item numerado", "Valor total", "R$ 12.500,00", "Protótipo"]) {
       expect(p1).toContain(s);
     }
-    // Subconjunto: o PDF não carrega a fonte inteira (4 × ~400 KB).
-    expect(bytes.length).toBeLessThan(200_000);
+    // Subconjunto: o PDF não carrega a fonte inteira (4 × ~500 KB). Com as imagens do modelo.
+    expect(bytes.length).toBeLessThan(250_000);
   });
 
-  it("quebra linha e página; o rodapé numera todas", async () => {
+  it("quebra linha e página, sem perder texto", async () => {
     const longo = Array.from({ length: 400 }, (_, i) => `palavra${i}`).join(" ");
     const doc: DocumentoPdf = {
       titulo: "Longo",
@@ -50,16 +50,79 @@ describe("gerarPdf (pdf-lib + Inter embutida)", () => {
         { tipo: "tabela", colunas: [{ titulo: "A", largura: 0.5 }, { titulo: "B", largura: 0.5 }], linhas: Array.from({ length: 80 }, (_, i) => [`linha ${i}`, "x".repeat(300)]) },
       ],
     };
-    const t = await texto(await gerarPdf(doc, TEMPLATE_PROVISORIO));
+    const t = await texto(await gerarPdf(doc, TEMPLATE_IJ));
     expect(t.paginas).toBeGreaterThan(3);
-    t.texto.forEach((p, i) => expect(p).toContain(`Página ${i + 1} de ${t.paginas}`));
     expect(t.texto.join(" ")).toContain("palavra399");
     expect(t.texto.join(" ")).toContain("linha 79");
   });
 
   it("caractere que a fonte não tem (emoji) vira ? em vez de sumir", async () => {
-    const t = await texto(await gerarPdf({ titulo: "X", blocos: [{ tipo: "paragrafo", trechos: [{ texto: "oi 🚀 fim" }] }] }, TEMPLATE_PROVISORIO));
+    const t = await texto(await gerarPdf({ titulo: "X", blocos: [{ tipo: "paragrafo", trechos: [{ texto: "oi 🚀 fim" }] }] }, TEMPLATE_IJ));
     expect(t.texto[0]).toContain("oi ? fim");
+  });
+});
+
+describe("modelo da IJ", () => {
+  const coord = (b: Uint8Array) => getDocumentProxy(new Uint8Array(b));
+  async function itens(bytes: Uint8Array, pagina: number) {
+    const doc = await coord(bytes);
+    const c = await (await doc.getPage(pagina)).getTextContent();
+    return c.items as { str: string; transform: number[]; width: number }[];
+  }
+
+  it("capa em página própria, com empresa, data e endereço; o conteúdo começa na página seguinte", async () => {
+    const bytes = await gerarPdf(
+      { titulo: "Proposta Comercial de Projeto", capa: { titulo: "PROPOSTA COMERCIAL", empresa: "Padaria São João", data: "São Paulo, 4 de novembro de 2026", endereco: "Avenida X" }, blocos: [{ tipo: "paragrafo", trechos: [{ texto: "Corpo." }] }] },
+      TEMPLATE_IJ,
+    );
+    const t = await texto(bytes);
+    expect(t.paginas).toBe(2);
+    for (const s of ["PROPOSTA COMERCIAL", "Padaria São João", "São Paulo, 4 de novembro de 2026", "Avenida X"]) expect(t.texto[0]).toContain(s);
+    expect(t.texto[0]).not.toContain("Corpo.");
+    expect(t.texto[1]).toContain("Corpo.");
+  });
+
+  it("nome de empresa enorme encolhe e continua inteiro na capa", async () => {
+    const empresa = "Companhia Brasileira de Distribuição e Logística de Alimentos do Sudeste";
+    const bytes = await gerarPdf({ titulo: "T", capa: { titulo: "PROPOSTA COMERCIAL", empresa, data: "d", endereco: "e" }, blocos: [] }, TEMPLATE_IJ);
+    const it = (await itens(bytes, 1)).find((i) => i.str.includes("Companhia"))!;
+    expect(it.str).toBe(empresa);
+    expect(it.transform[4]).toBeGreaterThan(0.11 * 595);
+  });
+
+  it("parágrafo justificado: linhas com a mesma borda direita, a última não; primeira linha recuada", async () => {
+    const longo = Array.from({ length: 120 }, (_, i) => `palavra${i}`).join(" ");
+    const bytes = await gerarPdf({ titulo: "T", blocos: [{ tipo: "paragrafo", trechos: [{ texto: longo }] }] }, TEMPLATE_IJ);
+    const pal = (await itens(bytes, 1)).filter((i) => i.str.trim().startsWith("palavra"));
+    const porLinha = new Map<number, typeof pal>();
+    for (const p of pal) porLinha.set(p.transform[5], [...(porLinha.get(p.transform[5]) ?? []), p]);
+    const linhas = [...porLinha.values()];
+    expect(linhas.length).toBeGreaterThan(3);
+    const direita = (l: typeof pal) => Math.max(...l.map((p) => p.transform[4] + p.width));
+    for (const l of linhas.slice(0, -1)) expect(direita(l)).toBeGreaterThan(595.28 - 70 - 6);
+    expect(direita(linhas.at(-1)!)).toBeLessThan(595.28 - 70 - 30);
+    expect(linhas[0][0].transform[4]).toBeCloseTo(70 + 34, 0);
+    expect(linhas[1][0].transform[4]).toBeCloseTo(70, 0);
+  });
+
+  it("título principal centralizado; tabela com linha de total", async () => {
+    const bytes = await gerarPdf(
+      { titulo: "Proposta Comercial de Projeto", blocos: [{ tipo: "tabela", colunas: [{ titulo: "Etapas", largura: 0.76 }, { titulo: "Duração", largura: 0.24, alinhar: "centro" }], linhas: [["Um", "2 semanas"]], total: ["Total", "2 semanas"] }] },
+      TEMPLATE_IJ,
+    );
+    const it = await itens(bytes, 1);
+    const titulo = it.find((i) => i.str.includes("Proposta Comercial"))!;
+    expect(titulo.transform[4] + titulo.width / 2).toBeCloseTo(595.28 / 2, 0);
+    expect(it.map((i) => i.str).join(" ")).toContain("Total");
+  });
+
+  it("100 mil caracteres justificados continuam rápidos (posição por palavra com codificação guardada)", async () => {
+    const paragrafo = Array.from({ length: 150 }, (_, i) => `palavra${i % 37}`).join(" ");
+    const blocos = Array.from({ length: 80 }, (): DocumentoPdf["blocos"][number] => ({ tipo: "paragrafo", trechos: [{ texto: paragrafo }] }));
+    const ini = performance.now();
+    const bytes = await gerarPdf({ titulo: "T", capa: { titulo: "A", empresa: "B", data: "C", endereco: "D" }, blocos }, TEMPLATE_IJ);
+    expect(performance.now() - ini).toBeLessThan(5000);
+    expect(bytes.length).toBeLessThan(2_000_000);
   });
 });
 

@@ -458,6 +458,26 @@ Camada única em `src/lib/avisos/avisos.ts` (`emitirAvisos`): toda origem de avi
 - **MCP**: `listar_avisos` e `marcar_avisos_lidos` (sempre os da própria pessoa, qualquer papel).
   `marcar_avisos_lidos` não anuncia `readOnlyHint` (campo `muda` da ferramenta), mas não é escrita no CRM.
 
+## Proposta como folha (GAB-100)
+
+Spec: `docs/superpowers/specs/2026-11-04-proposta-folha-design.md`. A tela tem três colunas: comentários
+na margem, folha no centro, ações e cartões à direita (`grade-folha.tsx`). Abaixo de 1024 px, comentários e
+infos abrem em painel.
+
+- **Modelo**: `src/lib/pdf/templates/ij.ts` no PDF e `.folha` em `globals.css` na tela, com as mesmas
+  proporções, Arimo e Poppins. As imagens ficam em `src/lib/pdf/imagens` (PDF) e `public/images/proposta` (tela).
+  Sem marca de "fim da página" na folha: o cálculo do gerador não vale para a largura da tela. "Ver PDF"
+  (`?rascunho=1`) mostra o rascunho em qualquer status; o PDF de envio continua sendo o da versão final.
+- **Blocos móveis**: `blocoDados` é só o lugar de Cronograma e Investimento; os dados ficam no `estruturado`, e o
+  cálculo do que aparece é um só (`blocos-dados.ts`). No Markdown, uma linha sozinha `<!-- bloco:cronograma -->` ou
+  `<!-- bloco:investimento -->`. Os dois no fim, nessa ordem, são a posição padrão e não se escrevem: proposta antiga
+  continua com o mesmo Markdown. `<!-- bloco:nenhum -->` registra que os dois saíram da folha. Na âncora
+  de comentário, o bloco entra pelo título fixo, nunca pelos dados.
+- **Duração**: a entrega tem `dia` ou `duracao` ("2 semanas"), nunca as duas. `dia` é `null` na que só tem duração;
+  `datasPrevistas` (`estruturado.ts`) calcula a data na execução, com as durações em sequência a partir do início.
+- **Cartão "Dados da proposta"**: grava sozinho pela mesma `revisao` do texto. Dado incompleto não vai
+  ao servidor: fica no cartão com o motivo, e segura passar a caneta.
+
 ## Comentários na proposta (GAB-91)
 
 Serviço em `src/lib/propostas/comentarios.ts` (tela e MCP chamam as mesmas funções), tabela

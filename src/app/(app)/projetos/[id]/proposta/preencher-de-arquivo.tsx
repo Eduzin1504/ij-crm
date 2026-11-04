@@ -51,7 +51,7 @@ function Campos({ c }: { c: CamposSugeridos }) {
     [ROTULO_CAMPO_SUGESTAO.valor, c.valor ? `R$ ${c.valor}` : null],
     [ROTULO_CAMPO_SUGESTAO.prazoDias, c.prazoDias],
     [ROTULO_CAMPO_SUGESTAO.escopoResumo, c.escopoResumo],
-    [ROTULO_CAMPO_SUGESTAO.entregas, c.entregas ? c.entregas.map((e) => `${e.titulo} (${e.dia}${e.valor ? `, R$ ${e.valor}` : ""})`).join("; ") : null],
+    [ROTULO_CAMPO_SUGESTAO.entregas, c.entregas ? c.entregas.map((e) => `${e.titulo} (${e.dia || e.duracao}${e.valor ? `, R$ ${e.valor}` : ""})`).join("; ") : null],
   ];
   return (
     <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[10rem_1fr]">

@@ -102,7 +102,7 @@ describe("PDF da proposta", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const t = await textoDoPdf(r.bytes);
-    for (const trecho of ["Proposta comercial", "Padaria São João · Site da Padaria", "Versão 1", "Escopo", "5 páginas", "coração e ação", "R$ 12.500,00", "60 dias corridos", "Site institucional", "Cronograma de entregas", "Protótipo", "01/12/2026", "R$ 5.000,00"]) {
+    for (const trecho of ["PROPOSTA COMERCIAL", "Proposta Comercial de Projeto", "Padaria São João", "Escopo", "5 páginas", "coração e ação", "R$ 12.500,00", "60 dias corridos", "Cronograma", "Protótipo", "01/12/2026", "R$ 5.000,00"]) {
       expect(t).toContain(trecho);
     }
   });

@@ -15,10 +15,11 @@ const nextConfig: NextConfig = {
   // (src/lib/anexos/pdf-filho.mjs, via `node`), que nenhum import do servidor
   // alcança: o tracing do standalone precisa copiar o script e o `unpdf` que ele
   // importa. O CI (build.yml) roda o filho de dentro do standalone para conferir.
-  // GAB-89: o PDF da proposta (/api/projetos/[id]/proposta/pdf) lê as fontes
-  // Inter do disco (src/lib/pdf/fontes.ts), fora do grafo de imports.
+  // GAB-89/GAB-100: o PDF da proposta (/api/projetos/[id]/proposta/pdf) lê as fontes
+  // Arimo e Poppins e as imagens do modelo do disco (src/lib/pdf/fontes.ts), fora do
+  // grafo de imports.
   outputFileTracingIncludes: {
-    "/api/projetos/**": ["./src/lib/anexos/pdf-filho.mjs", "./node_modules/unpdf/**/*", "./src/lib/pdf/fontes/*"],
+    "/api/projetos/**": ["./src/lib/anexos/pdf-filho.mjs", "./node_modules/unpdf/**/*", "./src/lib/pdf/fontes/*", "./src/lib/pdf/imagens/*"],
   },
   // Detalhe do card mudou para /projetos/[id] (GAB-80); links antigos redirecionam.
   async redirects() {

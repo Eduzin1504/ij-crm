@@ -52,10 +52,10 @@ describe("diffMarkdown: por bloco (linha), com as palavras trocadas dentro do bl
 });
 
 describe("diffEstruturado: campo a campo, no formato da tela", () => {
-  const base: Estruturado = { valor: "20000.00", prazoDias: 60, escopoResumo: "Site", entregas: [{ titulo: "MVP", dia: "2026-12-15", valor: "8000.00" }] };
+  const base: Estruturado = { valor: "20000.00", prazoDias: 60, escopoResumo: "Site", entregas: [{ titulo: "MVP", dia: "2026-12-15", duracao: null, valor: "8000.00" }] };
   it("só os campos que mudaram", () => {
     expect(diffEstruturado(base, base)).toEqual([]);
-    expect(diffEstruturado(base, { ...base, valor: "25000.00", entregas: [...base.entregas, { titulo: "Final", dia: "2027-01-30", valor: null }] })).toEqual([
+    expect(diffEstruturado(base, { ...base, valor: "25000.00", entregas: [...base.entregas, { titulo: "Final", dia: "2027-01-30", duracao: null, valor: null }] })).toEqual([
       { campo: "Valor", antes: "R$ 20.000,00", depois: "R$ 25.000,00" },
       { campo: "Cronograma de entregas", antes: "MVP · 15/12/2026 · R$ 8.000,00", depois: "MVP · 15/12/2026 · R$ 8.000,00\nFinal · 30/01/2027" },
     ]);
@@ -63,5 +63,23 @@ describe("diffEstruturado: campo a campo, no formato da tela", () => {
       { campo: "Prazo", antes: "60 dias", depois: "—" },
       { campo: "Escopo resumido", antes: "Site", depois: "—" },
     ]);
+  });
+});
+
+describe("blocos móveis no diff (GAB-100)", () => {
+  it("mover o bloco aparece em palavras, e não é pareado com texto", () => {
+    const d = diffMarkdown("Um.\n\nDois.", "Um.\n\n<!-- bloco:cronograma -->\n\nDois.");
+    expect(d).toEqual([{ tipo: "igual", texto: "Um." }, { tipo: "adicionada", texto: "[Bloco Cronograma]" }, { tipo: "igual", texto: "Dois." }]);
+    const troca = diffMarkdown("Um.", "Outro.\n\n<!-- bloco:investimento -->");
+    expect(troca.map((l) => l.tipo)).toEqual(["alterada", "adicionada"]);
+    expect(diffParaTexto(diffMarkdown("Um.", "Um.\n\n<!-- bloco:nenhum -->"))).toContain("+ [Blocos Cronograma e Investimento fora da folha]");
+  });
+
+  it("entrega com duração no diff da parte estruturada; antiga sem mudança não vira diferença", () => {
+    const base = { valor: null, prazoDias: null, escopoResumo: null };
+    const data = { ...base, entregas: [{ titulo: "A", dia: "2026-12-01", duracao: null, valor: null }] };
+    const dur = { ...base, entregas: [{ titulo: "A", dia: null, duracao: "2 semanas", valor: null }] };
+    expect(diffEstruturado(data, data)).toEqual([]);
+    expect(diffEstruturado(data, dur)).toEqual([{ campo: "Cronograma de entregas", antes: "A · 01/12/2026", depois: "A · 2 semanas" }]);
   });
 });

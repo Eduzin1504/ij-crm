@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { DocumentoView } from "@/components/propostas/documento-view";
 import type { EntradaDestaques } from "@/components/propostas/destaques-editor";
 import { ancoraDaSelecaoDom } from "@/components/propostas/selecao-dom";
-import { localizarAncora, textoPlano, type Ancora, type Destaque } from "@/lib/propostas/ancora";
-import { normalizarDocumento, type Documento } from "@/lib/propostas/documento";
+import { ancoraDoBloco, localizarAncora, textoPlano, type Ancora, type Destaque } from "@/lib/propostas/ancora";
+import { normalizarDocumento, type Documento, type TipoBlocoDados } from "@/lib/propostas/documento";
+import type { Estruturado } from "@/lib/propostas/estruturado";
 
 /** Polling dos comentários: ≤ ~10 s para aparecer em outra tela. Pausa com a aba oculta. */
 export const INTERVALO_COMENTARIOS_MS = 5_000;
@@ -144,7 +145,7 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
     // Rola até o outro lado: clicou no texto → o comentário; no comentário → o trecho.
     requestAnimationFrame(() => {
       const alvo = origem === "texto" ? document.getElementById(`comentario-${id}`) : document.querySelector(`[data-comentario="${CSS.escape(id)}"]`);
-      alvo?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      alvo?.scrollIntoView?.({ block: origem === "texto" ? "nearest" : "center", behavior: "smooth" });
     });
   }, []);
 
@@ -250,7 +251,7 @@ export function BotaoComentarTrecho() {
 }
 
 /** Leitura do rascunho (quem não está com a caneta) com os trechos comentados realçados e seleção comentável. */
-export function TextoComentavel({ documento }: { documento: Documento }) {
+export function TextoComentavel({ documento, dados }: { documento: Documento; dados?: Estruturado }) {
   const c = useComentarios();
   const raiz = useRef<HTMLDivElement>(null);
   const plano = useMemo(() => textoPlano(documento).texto, [documento]);
@@ -268,7 +269,29 @@ export function TextoComentavel({ documento }: { documento: Documento }) {
   );
   return (
     <div ref={raiz}>
-      <DocumentoView documento={documento} destaques={destaques} ativo={c?.ativo ?? null} />
+      <DocumentoView documento={documento} destaques={destaques} ativo={c?.ativo ?? null} dados={dados} controlesBloco={c ? (tipo) => <ComentarBloco documento={documento} tipo={tipo} /> : undefined} />
     </div>
+  );
+}
+
+/** Comentar o bloco inteiro: a âncora é o título dele, no lugar em que está (GAB-100). */
+function ComentarBloco({ documento, tipo }: { documento: Documento; tipo: TipoBlocoDados }) {
+  const c = useComentarios();
+  if (!c) return null;
+  return (
+    <span className="bloco-dados-controles">
+      <button
+        type="button"
+        aria-label="Comentar o bloco"
+        title="Comentar o bloco"
+        className="inline-flex size-6 items-center justify-center rounded-md text-fg-soft hover:bg-surface-hover hover:text-foreground"
+        onClick={() => {
+          const a = ancoraDoBloco(documento, tipo);
+          if (a) c.citar(a);
+        }}
+      >
+        <MessageSquarePlus className="size-3.5" />
+      </button>
+    </span>
   );
 }

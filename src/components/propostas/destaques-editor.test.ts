@@ -1,6 +1,6 @@
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
-import { lerDocumento, type Documento } from "@/lib/propostas/documento";
+import { documentoParaEditor, lerDocumento, type Documento } from "@/lib/propostas/documento";
 import { textoPlano } from "@/lib/propostas/ancora";
 import { documentoParaMarkdown, markdownParaDocumento } from "@/lib/propostas/markdown";
 import { EXTENSOES } from "./editor-texto";
@@ -15,7 +15,7 @@ const doc: Documento = {
   ],
 };
 
-const novo = () => new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: doc });
+const novo = () => new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: documentoParaEditor(doc) });
 
 describe("texto plano do editor = o da visualização", () => {
   it("mesmo texto que textoPlano(documento) (a âncora vale nos dois)", () => {
@@ -31,7 +31,7 @@ describe("ancoraDaSelecao", () => {
     const { texto, segmentos } = planoDoEditor(e.state.doc);
     const seg = segmentos[1]; // "Site com loja"
     e.commands.setTextSelection({ from: seg.posicoes[0] + 5, to: seg.posicoes[0] + 13 });
-    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "com loja", antes: texto.slice(0, 12), depois: "\nitem um" });
+    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "com loja", antes: texto.slice(0, 12), depois: "\nitem um\nCronograma\nInvestimento" });
     e.destroy();
   });
 
@@ -75,13 +75,13 @@ describe("espaços que o Markdown não guarda (editor ao vivo × canônico)", ()
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: "  Prazo:  30\tdias  " }] }],
   };
-  const editor = () => new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: cru });
+  const editor = () => new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: documentoParaEditor(cru) });
   // O que o servidor e os leitores veem: ida e volta pelo Markdown canônico.
   const canonico = () => textoPlano(markdownParaDocumento(documentoParaMarkdown(cru))).texto;
 
   it("texto plano do editor = o do documento canônico", () => {
     const e = editor();
-    expect(canonico()).toBe("Prazo: 30 dias");
+    expect(canonico()).toBe("Prazo: 30 dias\nCronograma\nInvestimento");
     expect(planoDoEditor(e.state.doc).texto).toBe(canonico());
     e.destroy();
   });
@@ -90,7 +90,7 @@ describe("espaços que o Markdown não guarda (editor ao vivo × canônico)", ()
     const e = editor();
     const p0 = 1; // início do texto do parágrafo
     e.commands.setTextSelection({ from: p0 + 2, to: p0 + 12 }); // "Prazo:  30"
-    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "Prazo: 30", antes: "", depois: " dias" });
+    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "Prazo: 30", antes: "", depois: " dias\nCronograma\nInvestimento" });
     e.destroy();
   });
 

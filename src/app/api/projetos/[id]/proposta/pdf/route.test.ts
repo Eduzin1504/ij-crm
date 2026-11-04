@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { usuarioAtual, pdfDaProposta } = vi.hoisted(() => ({ usuarioAtual: vi.fn(), pdfDaProposta: vi.fn() }));
+const { usuarioAtual, pdfDaProposta, pdfDoRascunho } = vi.hoisted(() => ({ usuarioAtual: vi.fn(), pdfDaProposta: vi.fn(), pdfDoRascunho: vi.fn() }));
 vi.mock("@/lib/auth/atual", () => ({ usuarioAtual }));
-vi.mock("@/lib/propostas/propostas", async (orig) => ({ ...(await orig<typeof import("@/lib/propostas/propostas")>()), pdfDaProposta }));
+vi.mock("@/lib/propostas/propostas", async (orig) => ({ ...(await orig<typeof import("@/lib/propostas/propostas")>()), pdfDaProposta, pdfDoRascunho }));
 
 import { GET } from "./route";
 
@@ -32,6 +32,16 @@ describe("GET /api/projetos/[id]/proposta/pdf (GAB-89)", () => {
     expect(r.headers.get("content-disposition")).toContain("filename*=UTF-8''Proposta%20-%20Padaria%20S%C3%A3o%20Jo%C3%A3o%20-%20v2.pdf");
     expect(r.headers.get("cache-control")).toContain("no-store");
     expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([37, 80, 68, 70]);
+  });
+
+  it("GAB-100: rascunho=1 é a prévia, aberta no navegador; não passa pelo PDF de envio", async () => {
+    usuarioAtual.mockResolvedValue({ id: "x", papel: "ADMIN", area: null, cargos: [] });
+    pdfDoRascunho.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70]), nomeArquivo: "Proposta - Site - rascunho.pdf" });
+    const r = await GET(req("?rascunho=1"), ctx());
+    expect(r.status).toBe(200);
+    expect(pdfDoRascunho).toHaveBeenCalledWith("p1");
+    expect(pdfDaProposta).not.toHaveBeenCalled();
+    expect(r.headers.get("content-disposition")).toMatch(/^inline; filename=/);
   });
 
   it("regra → texto em português: versão velha 409, proposta inexistente 404, link torto 400", async () => {

@@ -1,4 +1,5 @@
-import { formatarDia, formatarDinheiro } from "@/lib/projetos/formatar";
+import { formatarDinheiro } from "@/lib/projetos/formatar";
+import { rotuloDaEntrega } from "@/lib/propostas/blocos-dados";
 import { somaDasParcelas, type Estruturado } from "@/lib/propostas/estruturado";
 
 /** Parte estruturada só para leitura (quem não edita e as versões). */
@@ -28,11 +29,11 @@ export function EstruturadoLeitura({ e }: { e: Estruturado }) {
           ) : (
             <ol className="mt-1 space-y-1">
               {e.entregas.map((x, i) => (
-                <li key={i} className="flex gap-2">
+                <li key={i} className="flex flex-wrap gap-x-2">
                   <span className="w-5 font-mono text-xs text-fg-faint tabular">{i + 1}</span>
-                  <span className="min-w-0 flex-1 break-words">{x.titulo}</span>
-                  <span className="font-mono text-xs text-fg-mute tabular">{formatarDia(x.dia)}</span>
-                  <span className="w-28 text-right font-mono text-xs tabular">{x.valor ? formatarDinheiro(x.valor) : "—"}</span>
+                  <span className="min-w-0 flex-1 basis-3/5 break-words">{x.titulo}</span>
+                  <span className="font-mono text-xs text-fg-mute tabular">{rotuloDaEntrega(x)}</span>
+                  <span className="ml-auto text-right font-mono text-xs tabular">{x.valor ? formatarDinheiro(x.valor) : "—"}</span>
                 </li>
               ))}
             </ol>

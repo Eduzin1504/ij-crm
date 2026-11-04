@@ -4,7 +4,7 @@
  * (mudou escopo/prazo/valor → volta para projetos), o contrato e a execução.
  *
  * Entrada = strings do formulário/MCP (dinheiro no formato BR "12.500,00",
- * dia "AAAA-MM-DD"); saída = forma canônica gravada (rascunho e snapshot da
+ * dia "AAAA-MM-DD", duração "2 semanas"); saída = forma canônica gravada (rascunho e snapshot da
  * versão). Validado SEMPRE no servidor (o formulário só ajuda). Puro.
  */
 import { z } from "zod";
@@ -16,7 +16,15 @@ export const TITULO_ENTREGA_MAX = 200;
 export const ENTREGAS_MAX = 50;
 export const PRAZO_DIAS_MAX = 3650;
 
-export type Entrega = { titulo: string; dia: string; valor: string | null };
+export const DURACAO_MAX_CAMPO = 30;
+
+/**
+ * A entrega tem data OU duração (GAB-100, spec proposta-folha §5). `dia` é `null` de
+ * propósito, e não "": quem usa a entrega (a cópia para a execução, GAB-95) não compila
+ * sem decidir o que fazer com a que só tem duração, em vez de descartá-la em silêncio.
+ * Entregas antigas têm só data e continuam válidas.
+ */
+export type Entrega = { titulo: string; dia: string | null; duracao: string | null; valor: string | null };
 
 /** Forma gravada: valor decimal com ponto ("12500.00"), prazo em dias corridos. */
 export type Estruturado = {
@@ -35,7 +43,7 @@ export const estruturadoEntradaSchema = z
     prazoDias: z.union([z.string().max(10), z.number()]).optional(),
     escopoResumo: z.string().max(ESCOPO_RESUMO_MAX * 2).optional(),
     entregas: z
-      .array(z.object({ titulo: z.string().max(TITULO_ENTREGA_MAX * 2), dia: z.string().max(20), valor: z.string().max(50).optional() }).strict())
+      .array(z.object({ titulo: z.string().max(TITULO_ENTREGA_MAX * 2), dia: z.string().max(20).optional(), duracao: z.string().max(DURACAO_MAX_CAMPO).optional(), valor: z.string().max(50).optional() }).strict())
       .max(ENTREGAS_MAX * 2)
       .optional(),
   })
@@ -51,6 +59,52 @@ export function diaValido(dia: string): boolean {
   if (!m) return false;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.toISOString().slice(0, 10) === dia;
+}
+
+const UNIDADES_DURACAO: { padrao: RegExp; dias: number; um: string; varios: string }[] = [
+  { padrao: /^(d|dia|dias)$/, dias: 1, um: "dia", varios: "dias" },
+  { padrao: /^(sem|semana|semanas)$/, dias: 7, um: "semana", varios: "semanas" },
+  { padrao: /^(m[eê]s|meses)$/, dias: 30, um: "mês", varios: "meses" },
+];
+
+function partesDaDuracao(bruta: string): { n: number; unidade: (typeof UNIDADES_DURACAO)[number] } | null {
+  const m = /^(\d{1,3})\s*([\p{L}]+)\.?$/u.exec(bruta.trim().toLowerCase());
+  if (!m || Number(m[1]) < 1) return null;
+  const unidade = UNIDADES_DURACAO.find((u) => u.padrao.test(m[2]));
+  return unidade ? { n: Number(m[1]), unidade } : null;
+}
+
+/** "2 sem", "2 Semanas" → "2 semanas"; o que não for duração → null. */
+export function normalizarDuracao(bruta: string): string | null {
+  const p = partesDaDuracao(bruta);
+  return p ? `${p.n} ${p.n === 1 ? p.unidade.um : p.unidade.varios}` : null;
+}
+
+/** Dias corridos de uma duração (mês = 30 dias). */
+export function duracaoEmDias(duracao: string): number | null {
+  const p = partesDaDuracao(duracao);
+  return p ? p.n * p.unidade.dias : null;
+}
+
+function somarDias(dia: string, n: number): string {
+  const [a, m, d] = dia.split("-").map(Number);
+  return new Date(Date.UTC(a, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/**
+ * Data prevista de cada entrega para a execução (GAB-95). As durações são etapas em
+ * sequência, como no modelo da IJ: cada uma conta a partir do fim da anterior, e a
+ * primeira a partir de `inicio`; entrega com data fica na data e passa a ser o novo
+ * ponto de partida. Mesma ordem e mesmo tamanho da entrada: nenhuma entrega some.
+ */
+export function datasPrevistas(entregas: readonly Entrega[], inicio: string): { titulo: string; dia: string; valor: string | null }[] {
+  let base = inicio;
+  return entregas.map((e) => {
+    const dias = e.duracao === null ? null : duracaoEmDias(e.duracao);
+    const dia = e.dia ?? somarDias(base, dias ?? 0);
+    base = dia;
+    return { titulo: e.titulo, dia, valor: e.valor };
+  });
 }
 
 function prazo(bruto: string | number | undefined): { ok: true; v: number | null } | { ok: false } {
@@ -83,11 +137,16 @@ export function interpretarEstruturado(bruto: unknown): ResultadoEstruturado {
     const rotulo = `Entrega ${i + 1}`;
     const titulo = en.titulo.replace(/\s+/g, " ").trim();
     if (titulo === "" || titulo.length > TITULO_ENTREGA_MAX) return { ok: false, erro: `${rotulo}: dê um nome (até ${TITULO_ENTREGA_MAX} caracteres).` };
-    const dia = en.dia.trim();
-    if (!diaValido(dia)) return { ok: false, erro: `${rotulo}: data inválida (use AAAA-MM-DD).` };
+    const dia = (en.dia ?? "").trim();
+    const durBruta = (en.duracao ?? "").trim();
+    if (dia && durBruta) return { ok: false, erro: `${rotulo}: informe a data ou a duração, não as duas.` };
+    if (!dia && !durBruta) return { ok: false, erro: `${rotulo}: informe a data ou a duração (como "2 semanas").` };
+    if (dia && !diaValido(dia)) return { ok: false, erro: `${rotulo}: data inválida (use AAAA-MM-DD).` };
+    const duracao = durBruta ? normalizarDuracao(durBruta) : null;
+    if (durBruta && !duracao) return { ok: false, erro: `${rotulo}: duração inválida (use dias, semanas ou meses, como "2 semanas").` };
     const v = lerDinheiro(en.valor ?? "");
     if (!v.ok) return { ok: false, erro: `${rotulo}: valor inválido (formato 12.500,00, não negativo).` };
-    entregas.push({ titulo, dia, valor: v.valor });
+    entregas.push({ titulo, dia: dia || null, duracao, valor: v.valor });
   }
 
   return { ok: true, valor: { valor: valor.valor, prazoDias: pz.v, escopoResumo: escopo || null, entregas } };
@@ -100,7 +159,10 @@ export function lerEstruturadoGravado(json: unknown): Estruturado {
   const entregas = Array.isArray(o.entregas)
     ? o.entregas.flatMap((x) => {
         const e = x as Record<string, unknown>;
-        return typeof e?.titulo === "string" && typeof e?.dia === "string" ? [{ titulo: e.titulo, dia: e.dia, valor: typeof e.valor === "string" ? e.valor : null }] : [];
+        // Antiga só tem `dia`. Sem data nem duração é linha estranha: nunca passa pela validação de gravação.
+        const dia = typeof e?.dia === "string" && e.dia !== "" ? e.dia : null;
+        const duracao = typeof e?.duracao === "string" && e.duracao !== "" ? e.duracao : null;
+        return typeof e?.titulo === "string" && (dia !== null || duracao !== null) ? [{ titulo: e.titulo, dia, duracao, valor: typeof e.valor === "string" ? e.valor : null }] : [];
       })
     : [];
   return {
@@ -124,7 +186,7 @@ export function valorParaCampo(v: string | null): string {
 }
 
 /** O formulário da tela: tudo texto, tudo presente. */
-export type FormularioEstruturado = { valor: string; prazoDias: string; escopoResumo: string; entregas: { titulo: string; dia: string; valor: string }[] };
+export type FormularioEstruturado = { valor: string; prazoDias: string; escopoResumo: string; entregas: { titulo: string; dia: string; duracao: string; valor: string }[] };
 
 /** Forma gravada → entrada (para o formulário começar do que está salvo). */
 export function estruturadoParaEntrada(e: Estruturado): FormularioEstruturado {
@@ -132,7 +194,7 @@ export function estruturadoParaEntrada(e: Estruturado): FormularioEstruturado {
     valor: valorParaCampo(e.valor),
     prazoDias: e.prazoDias === null ? "" : String(e.prazoDias),
     escopoResumo: e.escopoResumo ?? "",
-    entregas: e.entregas.map((x) => ({ titulo: x.titulo, dia: x.dia, valor: valorParaCampo(x.valor) })),
+    entregas: e.entregas.map((x) => ({ titulo: x.titulo, dia: x.dia ?? "", duracao: x.duracao ?? "", valor: valorParaCampo(x.valor) })),
   };
 }
 

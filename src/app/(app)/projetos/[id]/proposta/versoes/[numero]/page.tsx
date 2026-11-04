@@ -2,14 +2,17 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { DocumentoView } from "@/components/propostas/documento-view";
+import { Folha } from "@/components/propostas/folha";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { formatarDataHora } from "@/lib/projetos/formatar";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { dataPorExtenso, ENDERECO_IJ } from "@/lib/propostas/pdf";
 import { podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { obterPropostaDoProjeto, obterVersao } from "@/lib/propostas/propostas";
 import { EstruturadoLeitura } from "../../estruturado-leitura";
+import { arimo, poppins } from "../../fontes-folha";
 import { HistoricoVersoes } from "../../historico-versoes";
 
 export const metadata = { title: "Versão da proposta" };
@@ -46,7 +49,11 @@ export default async function VersaoPage({ params }: { params: Promise<{ id: str
         <div className="space-y-6">
           <section className="rounded-xl border border-border bg-surface p-4">
             <h2 className="mb-3 text-sm font-medium">Texto</h2>
-            <DocumentoView documento={markdownParaDocumento(v.conteudoMd)} />
+            <div className={`${arimo.variable} ${poppins.variable}`}>
+              <Folha capa={{ empresa: r.projeto.empresa ?? r.projeto.titulo, data: dataPorExtenso(v.criadoEm), endereco: ENDERECO_IJ }}>
+                <DocumentoView documento={markdownParaDocumento(v.conteudoMd)} dados={v.estruturado} />
+              </Folha>
+            </div>
           </section>
           <section className="rounded-xl border border-border bg-surface p-4">
             <h2 className="mb-4 text-sm font-medium">Dados da proposta</h2>

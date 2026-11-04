@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useImperativeHandle, type Ref } from "react";
+import { useImperativeHandle, type ReactNode, type Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControleEditor } from "@/components/propostas/editor-texto";
 import type { Documento } from "@/lib/propostas/documento";
@@ -24,22 +24,26 @@ const substituido = vi.hoisted(() => ({ doc: null as unknown }));
 
 vi.mock("./actions", () => acoes);
 vi.mock("./preencher-actions", () => ({ sugerirDeAnexoAction: vi.fn() }));
+vi.mock("./comentarios-actions", () => ({ comentarAction: vi.fn(), responderComentarioAction: vi.fn(), resolverComentarioAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 // Editor falso (o Tiptap de verdade é testado em editor-texto.test): textarea → documento de um parágrafo.
 vi.mock("next/dynamic", () => ({
   default: () =>
-    function EditorFalso({ aoMudar, controle }: { aoMudar: (d: Documento) => void; controle?: Ref<ControleEditor> }) {
+    function EditorFalso({ aoMudar, controle, barraFim }: { aoMudar: (d: Documento) => void; controle?: Ref<ControleEditor>; barraFim?: ReactNode }) {
       const doc = (t: string): Documento => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: t }] }] });
       let atual = doc("inicial");
       useImperativeHandle(controle, () => ({ documento: () => atual, substituir: (d) => (substituido.doc = d) }));
       return (
-        <textarea
-          aria-label="texto"
-          onChange={(e) => {
-            atual = doc(e.target.value);
-            aoMudar(atual);
-          }}
-        />
+        <>
+          {barraFim}
+          <textarea
+            aria-label="texto"
+            onChange={(e) => {
+              atual = doc(e.target.value);
+              aoMudar(atual);
+            }}
+          />
+        </>
       );
     },
 }));
@@ -64,7 +68,7 @@ describe("PainelProposta", () => {
     expect(screen.getByText("Alterações não salvas…")).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(1500));
     expect(acoes.salvarTextoAction).toHaveBeenCalledWith("p1", 4, { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "olá" }] }] });
-    expect(screen.getByText(/Rascunho salvo às/)).toBeInTheDocument();
+    expect(screen.getByText(/Salvo há \d+ s/)).toBeInTheDocument();
   });
 
   it("conflito: avisa quem mexeu, não grava de novo sozinho, e deixa escolher", async () => {
@@ -123,7 +127,7 @@ describe("PainelProposta", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
-  it("manter o meu texto: dados sem alteração local passam a ser os do servidor (o próximo 'Salvar dados' não desfaz a mudança do outro)", async () => {
+  it("manter o meu texto: dados sem alteração local passam a ser os do servidor (a próxima gravação não desfaz a mudança do outro)", async () => {
     const dadosServidor = { valor: "25.000,00", prazoDias: "", escopoResumo: "", entregas: [] };
     acoes.salvarTextoAction.mockResolvedValueOnce({
       ok: false,
@@ -141,8 +145,7 @@ describe("PainelProposta", () => {
 
     acoes.salvarEstruturadoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
     fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar dados" }));
-    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(1500));
     expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "25.000,00", prazoDias: "30" }));
   });
 
@@ -153,16 +156,90 @@ describe("PainelProposta", () => {
       conflito: { revisao: 6, por: "Gil", viaMcp: false, em: null, documento: { type: "doc", content: [] }, estruturado: { ...vazio, valor: "25.000,00" } },
     });
     montar();
-    fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "30.000,00" } });
     fireEvent.change(screen.getByLabelText("texto"), { target: { value: "meu" } });
     await act(() => vi.advanceTimersByTimeAsync(1500));
+    // Com o conflito aberto, nada grava sozinho: nem o texto, nem os dados.
+    fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "30.000,00" } });
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
     acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 7 });
     acoes.salvarEstruturadoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
     fireEvent.click(screen.getByRole("button", { name: "Manter os meus (texto e dados) e sobrescrever" }));
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(acoes.salvarTextoAction).toHaveBeenLastCalledWith("p1", 6, expect.anything());
     expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "30.000,00" }));
-    expect(screen.queryByText("Dados alterados, não salvos")).toBeNull();
+  });
+
+  describe("cartão Dados da proposta (GAB-100)", () => {
+    it("salva sozinho pela mesma revisão, sem botão e sem travar o campo enquanto grava", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      montar();
+      expect(screen.queryByRole("button", { name: "Salvar dados" })).toBeNull();
+      const valor = screen.getByPlaceholderText("12.500,00");
+      fireEvent.change(valor, { target: { value: "12.500,00" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ valor: "12.500,00" }));
+      expect(valor.closest("fieldset")).not.toBeDisabled();
+      // A próxima gravação usa a revisão que a anterior devolveu.
+      acoes.salvarTextoAction.mockResolvedValue({ ok: true, revisao: 6 });
+      fireEvent.change(screen.getByLabelText("texto"), { target: { value: "x" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarTextoAction).toHaveBeenCalledWith("p1", 5, expect.anything());
+    });
+
+    it("dado incompleto não vai para o servidor: fica no cartão com o motivo e salva quando completar", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      montar();
+      fireEvent.click(screen.getByRole("button", { name: "Adicionar entrega" }));
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
+      expect(screen.getByRole("status")).toHaveTextContent(/Ainda não salvo: Entrega 1: dê um nome/);
+      fireEvent.change(screen.getByLabelText("Entrega 1: nome"), { target: { value: "Levantamento" } });
+      fireEvent.change(screen.getByLabelText("Entrega 1: duração"), { target: { value: "2 semanas" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ entregas: [{ titulo: "Levantamento", dia: "", duracao: "2 semanas", valor: "" }] }));
+    });
+
+    it("mudou de novo enquanto gravava: continua sujo e grava a versão mais nova", async () => {
+      let terminar: (r: unknown) => void = () => undefined;
+      acoes.salvarEstruturadoAction.mockImplementationOnce(() => new Promise((res) => (terminar = res))).mockResolvedValue({ ok: true, revisao: 6 });
+      montar();
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "31" } });
+      await act(async () => terminar({ ok: true, revisao: 5 }));
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenLastCalledWith("p1", 5, expect.objectContaining({ prazoDias: "31" }));
+    });
+
+    it("documento que só mudou no que o Markdown não guarda não agenda gravação (abrir a folha não é editar)", async () => {
+      montar();
+      // O editor falso manda o mesmo documento vazio que a página abriu: parágrafo vazio não vai para o Markdown.
+      fireEvent.change(screen.getByLabelText("texto"), { target: { value: "" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarTextoAction).not.toHaveBeenCalled();
+    });
+
+    it("passar a caneta grava antes os dados pendentes; incompleto segura a ação", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      acoes.passarCanetaAction.mockResolvedValue({ ok: true, revisao: 6 });
+      const caneta = { acoes: ["passar"] as "passar"[], mesmoLado: [{ id: "bia", nome: "Bia" }], outroLado: [], rotuloOutroLado: "Projetos" };
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "abc" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar a caneta" }));
+      fireEvent.change(screen.getByLabelText("Passar para"), { target: { value: "bia" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.passarCanetaAction).not.toHaveBeenCalled();
+      expect(screen.getByRole("alert")).toHaveTextContent(/Dados da proposta: Prazo inválido/);
+
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ prazoDias: "30" }));
+      expect(acoes.passarCanetaAction).toHaveBeenCalledWith("p1", "bia");
+    });
   });
 
   describe("caneta (GAB-87)", () => {

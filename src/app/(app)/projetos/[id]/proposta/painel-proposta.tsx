@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FolhaProvider } from "@/components/propostas/bloco-dados-view";
 import type { ControleEditor } from "@/components/propostas/editor-texto";
+import type { DadosCapa } from "@/components/propostas/folha";
 import { BotaoComentarTrecho, useComentarios, useDestaquesDoEditor } from "./comentarios-contexto";
 import { Autosave, type EstadoAutosave, type RespostaGravacao } from "@/lib/propostas/autosave";
-import type { Documento } from "@/lib/propostas/documento";
+import { normalizarDocumento, type Documento } from "@/lib/propostas/documento";
+import { ESTRUTURADO_VAZIO, interpretarEstruturado, type Estruturado } from "@/lib/propostas/estruturado";
+import { urlPreviaDaProposta } from "@/lib/propostas/url";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
 import type { AcaoCaneta } from "@/lib/propostas/caneta";
 import type { AcaoEnvio } from "@/lib/propostas/envio";
@@ -16,6 +20,7 @@ import { AcoesCaneta, type AcaoTela, type PessoaCaneta, type Preparo } from "./a
 import { mesclarSugestao, type CamposSugeridos } from "@/lib/propostas/sugestao";
 import { salvarEstruturadoAction, salvarTextoAction, salvarVersaoAction, type ConflitoUI } from "./actions";
 import { FormEstruturado, type FormEstruturadoValor } from "./form-estruturado";
+import { GradeFolha } from "./grade-folha";
 import { PreencherDeArquivo, type AnexoBase } from "./preencher-de-arquivo";
 
 // Tiptap só no navegador e só nesta página (fora do bundle do resto do app).
@@ -25,7 +30,25 @@ const EditorTexto = dynamic(() => import("@/components/propostas/editor-texto"),
 });
 
 const ATRASO_AUTOSAVE_MS = 1200;
-const HORA = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+/** Dados como os blocos da folha mostram; enquanto o cartão está inválido, fica o último válido. */
+const dadosDoForm = (f: FormEstruturadoValor, antes: Estruturado = ESTRUTURADO_VAZIO): Estruturado => {
+  const r = interpretarEstruturado(f);
+  return r.ok ? r.valor : antes;
+};
+
+/** Forma canônica: só mudança que vai para o Markdown agenda gravação (o parágrafo vazio de depois do bloco não vai). */
+const canonico = (d: Documento) => JSON.stringify(normalizarDocumento(d));
+
+function SalvoHa({ em }: { em: Date }) {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const s = Math.max(0, Math.floor((agora - em.getTime()) / 1000));
+  return <span className="text-fg-mute">Salvo há {s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h`}</span>;
+}
 
 /** Resposta da action → forma do Autosave (`INESPERADO` vira texto com a ref do log). */
 function paraGravacao(r: Awaited<ReturnType<typeof salvarTextoAction>>): RespostaGravacao {
@@ -37,7 +60,7 @@ function paraGravacao(r: Awaited<ReturnType<typeof salvarTextoAction>>): Respost
 function Status({ estado, tentar }: { estado: EstadoAutosave; tentar: () => void }) {
   switch (estado.tipo) {
     case "salvo":
-      return <span className="text-fg-faint">{estado.em ? `Rascunho salvo às ${HORA.format(estado.em)}` : "Rascunho salvo"}</span>;
+      return estado.em ? <SalvoHa key={estado.em.getTime()} em={estado.em} /> : <span className="text-fg-faint">Rascunho salvo</span>;
     case "pendente":
       return <span className="text-fg-mute">Alterações não salvas…</span>;
     case "salvando":
@@ -78,6 +101,9 @@ export function PainelProposta({
   ultimaVersao,
   caneta,
   anexos = [],
+  capa,
+  cartaoProposta,
+  cartoesFim,
 }: {
   projetoId: string;
   revisao: number;
@@ -87,6 +113,10 @@ export function PainelProposta({
   caneta?: { acoes: AcaoCaneta[]; mesmoLado: PessoaCaneta[]; outroLado: PessoaCaneta[]; rotuloOutroLado: string; envio?: AcaoEnvio[]; versaoPdf?: number | null };
   /** Anexos do Projeto para "Usar arquivo como base" (GAB-90). */
   anexos?: AnexoBase[];
+  /** GAB-100: capa da folha e os cartões da coluna direita que vêm do servidor. */
+  capa?: DadosCapa;
+  cartaoProposta?: ReactNode;
+  cartoesFim?: ReactNode;
 }) {
   const router = useRouter();
   const editor = useRef<ControleEditor>(null);
@@ -98,12 +128,15 @@ export function PainelProposta({
   useEffect(() => registrarSelecao?.(() => editor.current?.selecao?.() ?? null), [registrarSelecao]);
   const [estado, setEstado] = useState<EstadoAutosave>({ tipo: "salvo", em: null });
   // Props só na montagem: o `router.refresh()` (depois de salvar versão) traz props novas
-  // e elas não podem atropelar o que está no editor/formulário.
+  // e elas não podem atropelar o que está no editor/cartão.
   const [inicial] = useState(documento);
   // O texto do editor é o que vale para "trecho alterado" nesta tela.
   useEffect(() => informarTexto?.(inicial), [informarTexto, inicial]);
   const [form, setForm] = useState(estruturado);
+  const [dados, setDados] = useState(() => dadosDoForm(estruturado));
   const [formSujo, setFormSujo] = useState(false);
+  const [dadosPendentes, setDadosPendentes] = useState<string | null>(null);
+  const [gravandoDados, setGravandoDados] = useState(false);
   const [nota, setNota] = useState("");
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, startTransition] = useTransition();
@@ -116,37 +149,86 @@ export function PainelProposta({
         aoMudar: setEstado,
       }),
   );
+  // O que as gravações em andamento leem depois de um `await`: o estado do render já pode estar velho.
+  const atual = useRef({ form: estruturado, sujo: false, versao: 0 });
+  const timerDados = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Último texto canônico que passou pelo editor: o parágrafo depois do bloco e a abertura não são edição.
+  const ultimoTexto = useRef(canonico(documento));
+  const folha = useMemo(() => ({ dados, comentar: comentarios?.citar }), [dados, comentarios?.citar]);
+
+  const pararTimerDados = () => {
+    if (timerDados.current) clearTimeout(timerDados.current);
+    timerDados.current = null;
+  };
+  useEffect(() => pararTimerDados, []);
+
+  function marcarLimpo(versao?: number) {
+    if (versao !== undefined && versao !== atual.current.versao) return; // mudou de novo enquanto gravava
+    atual.current.sujo = false;
+    setFormSujo(false);
+  }
+
+  /** Grava os dados do cartão pela mesma fila e `revisao` do texto. Incompleto não vai: fica no cartão com o motivo. */
+  async function gravarDados(): Promise<{ erro: string } | null> {
+    pararTimerDados();
+    if (!atual.current.sujo) return null;
+    const { form: f, versao } = atual.current;
+    const v = interpretarEstruturado(f);
+    if (!v.ok) {
+      setDadosPendentes(v.erro);
+      return { erro: v.erro };
+    }
+    setDadosPendentes(null);
+    setGravandoDados(true);
+    const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, f)));
+    setGravandoDados(false);
+    if (r?.ok) {
+      marcarLimpo(versao);
+      return null;
+    }
+    return { erro: r?.erro ?? "Os dados da proposta não foram salvos (veja o aviso no texto)." };
+  }
+
+  function mudarForm(v: FormEstruturadoValor) {
+    atual.current = { form: v, sujo: true, versao: atual.current.versao + 1 };
+    setForm(v);
+    setFormSujo(true);
+    setDados((a) => dadosDoForm(v, a));
+    setAviso(null);
+    pararTimerDados();
+    timerDados.current = setTimeout(() => void gravarDados(), ATRASO_AUTOSAVE_MS);
+  }
+
+  function formDoServidor(v: FormEstruturadoValor) {
+    pararTimerDados();
+    atual.current = { form: v, sujo: false, versao: atual.current.versao + 1 };
+    setForm(v);
+    setFormSujo(false);
+    setDados((a) => dadosDoForm(v, a));
+    setDadosPendentes(null);
+  }
 
   // Fechar/recarregar com texto ainda não gravado: o navegador pergunta.
   useEffect(() => {
     const antes = (e: BeforeUnloadEvent) => {
-      if (autosave.temPendencia || formSujo) e.preventDefault();
+      if (autosave.temPendencia || atual.current.sujo) e.preventDefault();
     };
     window.addEventListener("beforeunload", antes);
     return () => window.removeEventListener("beforeunload", antes);
-  }, [autosave, formSujo]);
+  }, [autosave]);
 
   const conflito = estado.tipo === "conflito" ? (estado.conflito as unknown as ConflitoUI) : null;
 
-  function salvarDados(dados: FormEstruturadoValor = form) {
-    setAviso(null);
-    startTransition(async () => {
-      const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, dados)));
-      if (r?.ok) {
-        setFormSujo(false);
-        setAviso("Dados salvos no rascunho.");
-      }
-    });
-  }
-
   function salvarVersao() {
     setAviso(null);
+    pararTimerDados();
     startTransition(async () => {
       let numero: number | undefined;
+      const { versao, sujo, form: f } = atual.current;
       const r = await autosave.executar(async (rev) => {
         const resp = await salvarVersaoAction(projetoId, rev, {
           documento: editor.current?.documento(),
-          ...(formSujo ? { estruturado: form } : {}),
+          ...(sujo ? { estruturado: f } : {}),
           nota,
         });
         if (resp.ok === true) numero = resp.numero;
@@ -154,152 +236,180 @@ export function PainelProposta({
       }, true);
       if (r?.ok) {
         setNota("");
-        setFormSujo(false);
+        marcarLimpo(versao);
+        setDadosPendentes(null);
         setAviso(`Versão v${numero} salva.`);
         router.refresh();
       }
     });
   }
 
+  /** Prévia do que está na folha. Abre a aba antes do `await`: depois dele o navegador bloquearia. */
+  async function verPdf() {
+    const aba = window.open("about:blank", "_blank");
+    await autosave.agora();
+    const f = await gravarDados();
+    if (f) setAviso(`Os dados do cartão não entraram na prévia: ${f.erro}`);
+    if (aba) aba.location.href = urlPreviaDaProposta("", projetoId);
+    else setAviso("O navegador bloqueou a nova aba: permita pop-ups para ver o PDF.");
+  }
+
   /**
    * Antes de passar/devolver/concordar: grava o texto pendente (a caneta vai sair
    * da mão) e confere que o rascunho está são. Devolver leva o editor e os dados
-   * alterados junto (a versão entregue é o que está na tela).
+   * alterados junto (a versão entregue é o que está na tela). Nas demais, os dados
+   * pendentes são gravados antes, e dado incompleto segura a ação: sumiria ao remontar.
    */
   async function preparar(acao: AcaoTela): Promise<Preparo> {
     await autosave.agora();
     const e = autosave.situacao;
     if (e.tipo === "conflito") return { erro: "Resolva o conflito de edição do rascunho antes." };
     if (e.tipo === "erro") return { erro: "O rascunho não foi salvo (veja o aviso no texto). Tente de novo antes." };
-    if (acao === "concordar" && formSujo) return { erro: "Há dados da proposta alterados e não salvos: concordar é aceitar sem editar. Descarte-os ou devolva." };
+    if (acao === "concordar" && atual.current.sujo) return { erro: "Há dados da proposta alterados e não salvos: concordar é aceitar sem editar. Descarte-os ou devolva." };
     // Devolver e concluir a revisão (GAB-89) salvam a versão do que está na tela.
-    if (acao !== "devolver" && acao !== "concluirRevisao") return { revisao: autosave.revisaoAtual };
-    return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(formSujo ? { estruturado: form } : {}) };
+    if (acao === "devolver" || acao === "concluirRevisao") {
+      pararTimerDados();
+      return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(atual.current.sujo ? { estruturado: atual.current.form } : {}) };
+    }
+    const falha = await gravarDados();
+    if (falha) return { erro: `Dados da proposta: ${falha.erro}` };
+    return { revisao: autosave.revisaoAtual };
   }
 
   /**
-   * GAB-90: a sugestão revisada entra no editor e no formulário e é gravada
-   * pelos MESMOS caminhos da edição manual (autosave do texto + "Salvar dados",
-   * na mesma fila e com a revisão atual). Dados que a sugestão não preenche
-   * ficam como estão.
+   * GAB-90: a sugestão revisada entra no editor e no cartão e é gravada pelos MESMOS
+   * caminhos da edição manual (autosave do texto e dos dados, na mesma fila e com a
+   * revisão atual). Dados que a sugestão não preenche ficam como estão.
    */
   function aplicarSugestao(s: { documento: Documento; campos: CamposSugeridos }) {
     editor.current?.substituir(s.documento);
     informarTexto?.(s.documento);
+    ultimoTexto.current = canonico(s.documento);
     autosave.alterou(s.documento);
-    const dados = mesclarSugestao(form, s.campos);
-    setForm(dados);
-    setFormSujo(true);
-    salvarDados(dados);
+    mudarForm(mesclarSugestao(atual.current.form, s.campos));
+    void gravarDados();
   }
 
   function usarDoServidor(c: ConflitoUI) {
     editor.current?.substituir(c.documento);
     informarTexto?.(c.documento);
-    setForm(c.estruturado);
-    setFormSujo(false);
+    ultimoTexto.current = canonico(c.documento);
+    formDoServidor(c.estruturado);
     autosave.usarDoServidor(c.revisao);
   }
 
   /**
    * Mantém o que é MEU por cima da revisão nova. Dados sem alteração local passam a
-   * ser os do servidor (senão o formulário velho, já com a revisão nova, desfaria a
-   * mudança do outro no próximo "Salvar dados"). Dados alterados aqui: a escolha diz
+   * ser os do servidor (senão o cartão velho, já com a revisão nova, desfaria a
+   * mudança do outro na próxima gravação). Dados alterados aqui: a escolha diz
    * que sobrescreve também, e eles são gravados logo em seguida.
    */
   function manterMeu(c: ConflitoUI) {
     const doc = editor.current?.documento();
-    const meusDados = formSujo ? form : null;
-    if (!meusDados) setForm(c.estruturado);
+    if (!atual.current.sujo) formDoServidor(c.estruturado);
     startTransition(async () => {
       if (doc) await autosave.manterMeu(c.revisao, doc);
-      if (meusDados) {
-        const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, meusDados)));
-        if (r?.ok) setFormSujo(false);
-      }
+      await gravarDados();
     });
   }
 
-  return (
-    <div className="space-y-6">
+  const tentarDeNovo = () => {
+    void autosave.agora().then(() => gravarDados());
+  };
+
+  const statusSalvo = (
+    <span className="font-mono text-[11px]" aria-live="polite">
+      <Status estado={estado} tentar={tentarDeNovo} />
+    </span>
+  );
+
+  const centro = (
+    <div className="min-w-0 space-y-3">
       <PreencherDeArquivo projetoId={projetoId} anexos={anexos} aoAplicar={aplicarSugestao} desativado={ocupado || conflito !== null} />
-      <section className="rounded-xl border border-border bg-surface p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-medium">Texto</h2>
-          <span className="flex-1" />
-          <BotaoComentarTrecho />
-          <span className="font-mono text-[11px]" aria-live="polite">
-            <Status estado={estado} tentar={() => void autosave.agora()} />
-          </span>
-        </div>
-
-        {conflito ? (
-          <div role="alert" className="mb-3 rounded-lg border border-warn/60 bg-warn-soft p-3 text-sm">
-            <p className="text-foreground">{mensagemConflito(conflito)}</p>
-            <p className="mt-1 text-xs text-fg-mute">O seu texto continua no editor e não foi gravado. Escolha:</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button type="button" size="xs" variant="outline" onClick={() => usarDoServidor(conflito)}>
-                Carregar a versão atual (descarta a minha)
-              </Button>
-              <Button type="button" size="xs" variant="ghost" onClick={() => manterMeu(conflito)}>
-                {formSujo ? "Manter os meus (texto e dados) e sobrescrever" : "Manter o meu texto e sobrescrever"}
-              </Button>
-            </div>
+      {conflito ? (
+        <div role="alert" className="rounded-lg border border-warn/60 bg-warn-soft p-3 text-sm">
+          <p className="text-foreground">{mensagemConflito(conflito)}</p>
+          <p className="mt-1 text-xs text-fg-mute">O seu texto continua no editor e não foi gravado. Escolha:</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="button" size="xs" variant="outline" onClick={() => usarDoServidor(conflito)}>
+              Carregar a versão atual (descarta a minha)
+            </Button>
+            <Button type="button" size="xs" variant="ghost" onClick={() => manterMeu(conflito)}>
+              {formSujo ? "Manter os meus (texto e dados) e sobrescrever" : "Manter o meu texto e sobrescrever"}
+            </Button>
           </div>
-        ) : null}
-
+        </div>
+      ) : null}
+      <FolhaProvider value={folha}>
         <EditorTexto
           inicial={inicial}
           aoMudar={(d) => {
+            const c = canonico(d);
+            if (c === ultimoTexto.current) return;
+            ultimoTexto.current = c;
             autosave.alterou(d);
             comentarios?.informarTexto(d);
           }}
           controle={editor}
           destaques={destaques}
+          capa={capa}
+          barraFim={
+            <>
+              <BotaoComentarTrecho />
+              {statusSalvo}
+            </>
+          }
         />
-        <p className="mt-2 text-xs text-fg-faint">
-          Rascunho salvo sozinho enquanto você escreve (não vira versão). Atalhos: <code className="font-mono"># </code> título,{" "}
-          <code className="font-mono">- </code> lista, <code className="font-mono">**negrito**</code>.
-        </p>
-      </section>
+      </FolhaProvider>
+    </div>
+  );
 
-      <section className="rounded-xl border border-border bg-surface p-4">
-        <h2 className="mb-4 text-sm font-medium">Dados da proposta</h2>
-        <FormEstruturado
-          valor={form}
-          onChange={(v) => {
-            setForm(v);
-            setFormSujo(true);
-          }}
-          desativado={ocupado}
-        />
-        <div className="mt-4 flex items-center justify-end gap-2">
-          {formSujo ? <span className="text-xs text-fg-mute">Dados alterados, não salvos</span> : null}
-          <Button type="button" size="sm" variant="outline" disabled={ocupado || !formSujo || conflito !== null} onClick={() => salvarDados()}>
-            Salvar dados
-          </Button>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-border bg-surface p-4">
-        <h2 className="mb-1 text-sm font-medium">Salvar versão</h2>
-        <p className="mb-3 text-xs text-fg-mute">
-          Congela o texto e os dados de agora como {ultimaVersao ? `v${ultimaVersao + 1}` : "v1"} (imutável, vai para a Timeline do projeto).
+  const secundarias = (
+    <>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Button type="button" size="sm" variant="outline" className="min-w-0" disabled={ocupado || conflito !== null} onClick={salvarVersao}>
+          Salvar versão
+        </Button>
+        <Button type="button" size="sm" variant="outline" className="min-w-0" onClick={() => void verPdf()}>
+          Ver PDF
+        </Button>
+      </div>
+      <Input aria-label="Nota da versão (opcional)" placeholder="Nota da versão (opcional)" maxLength={NOTA_VERSAO_MAX} value={nota} onChange={(e) => setNota(e.target.value)} />
+      <p className="text-[11px] text-fg-faint">Salvar versão congela o texto e os dados como {ultimaVersao ? `v${ultimaVersao + 1}` : "v1"}.</p>
+      {aviso ? (
+        <p role="status" className="text-xs text-fg-soft">
+          {aviso}
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} onChange={(e) => setNota(e.target.value)} className="min-w-48 flex-1" />
-          <Button type="button" size="sm" disabled={ocupado || conflito !== null} onClick={salvarVersao}>
-            Salvar versão
-          </Button>
+      ) : null}
+    </>
+  );
+
+  const direita = (
+    <>
+      {caneta ? (
+        <AcoesCaneta projetoId={projetoId} revisao={revisao} preparar={preparar} aoConcluir={(r) => autosave.adotarRevisao(r)} secundarias={secundarias} {...caneta} />
+      ) : (
+        <section className="space-y-2 rounded-xl border border-border bg-surface p-3" aria-label="Ações">
+          {secundarias}
+        </section>
+      )}
+      {cartaoProposta}
+      <section className="rounded-xl border border-border bg-surface p-3" aria-label="Dados da proposta">
+        <div className="mb-2 flex items-baseline gap-2">
+          <h2 className="eyebrow">Dados da proposta</h2>
+          <span className="flex-1" />
+          {gravandoDados ? <span className="font-mono text-[11px] text-fg-mute">Salvando…</span> : null}
         </div>
-        {aviso ? (
-          <p role="status" className="mt-2 text-xs text-fg-soft">
-            {aviso}
+        <FormEstruturado valor={form} onChange={mudarForm} desativado={ocupado} />
+        {dadosPendentes ? (
+          <p role="status" className="mt-2 text-xs text-warn">
+            Ainda não salvo: {dadosPendentes}
           </p>
         ) : null}
       </section>
-
-      {caneta ? <AcoesCaneta projetoId={projetoId} revisao={revisao} preparar={preparar} aoConcluir={(r) => autosave.adotarRevisao(r)} {...caneta} /> : null}
-    </div>
+      {cartoesFim}
+    </>
   );
+
+  return <GradeFolha centro={centro} direita={direita} />;
 }

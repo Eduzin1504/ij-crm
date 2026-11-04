@@ -124,7 +124,7 @@ describe("comentários ao vivo", () => {
     fireEvent.change(screen.getByLabelText("Comentário sobre o trecho"), { target: { value: "pouco" } });
     acoes.comentarAction.mockResolvedValueOnce({ ok: true });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Comentar" })));
-    expect(acoes.comentarAction).toHaveBeenCalledWith("p1", "pouco", { trecho: "30 dias", antes: "Prazo de ", depois: " para o site." });
+    expect(acoes.comentarAction).toHaveBeenCalledWith("p1", "pouco", { trecho: "30 dias", antes: "Prazo de ", depois: " para o site.\nCronograma\nInvestimento" });
   });
 
   it("resolver, reabrir e responder chamam as actions", async () => {

@@ -8,7 +8,11 @@
  * Custo limitado: prefixo/sufixo iguais saem antes; se o miolo ainda passar de
  * `CELULAS_MAX` (texto enorme todo diferente), vira "removeu tudo / adicionou
  * tudo" — legível e sem travar o servidor.
+ *
+ * Marcador de bloco móvel (GAB-100) aparece em palavras, não como comentário HTML,
+ * e nunca é pareado com texto: mover o bloco não é "texto alterado".
  */
+import { MARCADORES_BLOCO, rotuloDaEntrega } from "./blocos-dados";
 import type { Estruturado } from "./estruturado";
 
 export type Trecho = { tipo: "igual" | "removido" | "adicionado"; texto: string };
@@ -89,6 +93,8 @@ function diffPalavras(antes: string, depois: string): { antes: Trecho[]; depois:
 }
 
 const linhas = (md: string) => md.split("\n").filter((l) => l.trim() !== "");
+const ehBloco = (l: string) => Object.hasOwn(MARCADORES_BLOCO, l);
+const legivel = (l: string) => (ehBloco(l) ? MARCADORES_BLOCO[l] : l);
 
 export function diffMarkdown(antes: string, depois: string): LinhaDiff[] {
   const ops = diffSequencia(linhas(antes), linhas(depois));
@@ -96,7 +102,7 @@ export function diffMarkdown(antes: string, depois: string): LinhaDiff[] {
   let i = 0;
   while (i < ops.length) {
     if (ops[i].tipo === "igual") {
-      out.push({ tipo: "igual", texto: ops[i].item });
+      out.push({ tipo: "igual", texto: legivel(ops[i].item) });
       i++;
       continue;
     }
@@ -107,10 +113,14 @@ export function diffMarkdown(antes: string, depois: string): LinhaDiff[] {
       (ops[i].tipo === "removido" ? rem : adi).push(ops[i].item);
       i++;
     }
-    const pares = Math.min(rem.length, adi.length);
-    for (let k = 0; k < pares; k++) out.push({ tipo: "alterada", ...diffPalavras(rem[k], adi[k]) });
-    for (const t of rem.slice(pares)) out.push({ tipo: "removida", texto: t });
-    for (const t of adi.slice(pares)) out.push({ tipo: "adicionada", texto: t });
+    const remTexto = rem.filter((l) => !ehBloco(l));
+    const adiTexto = adi.filter((l) => !ehBloco(l));
+    const pares = Math.min(remTexto.length, adiTexto.length);
+    for (let k = 0; k < pares; k++) out.push({ tipo: "alterada", ...diffPalavras(remTexto[k], adiTexto[k]) });
+    for (const t of remTexto.slice(pares)) out.push({ tipo: "removida", texto: t });
+    for (const t of adiTexto.slice(pares)) out.push({ tipo: "adicionada", texto: t });
+    for (const t of rem.filter(ehBloco)) out.push({ tipo: "removida", texto: legivel(t) });
+    for (const t of adi.filter(ehBloco)) out.push({ tipo: "adicionada", texto: legivel(t) });
   }
   return out;
 }
@@ -137,11 +147,9 @@ export type MudancaCampo = { campo: string; antes: string; depois: string };
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dinheiro = (v: string | null) => (v === null ? "—" : BRL.format(Number(v)).replace(/\s/g, " "));
-const dia = (d: string) => d.split("-").reverse().join("/");
-
 function textoEntregas(e: Estruturado["entregas"]): string {
   if (e.length === 0) return "—";
-  return e.map((x) => [x.titulo, dia(x.dia), ...(x.valor ? [dinheiro(x.valor)] : [])].join(" · ")).join("\n");
+  return e.map((x) => [x.titulo, rotuloDaEntrega(x), ...(x.valor ? [dinheiro(x.valor)] : [])].join(" · ")).join("\n");
 }
 
 /** Campos da parte estruturada que mudaram, já formatados como a tela mostra. */

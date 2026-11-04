@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +55,7 @@ const VERBO: Record<AcaoTela, string> = {
 };
 
 const CLASSE_SELECT =
-  "h-8 min-w-48 flex-1 rounded-lg border border-input bg-input/30 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+  "h-8 w-full min-w-0 flex-1 rounded-lg border border-input bg-input/30 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /**
  * Botões da caneta (GAB-87): só aparecem as ações que o servidor diz que a
@@ -74,6 +74,7 @@ export function AcoesCaneta({
   aoConcluir,
   envio = [],
   versaoPdf = null,
+  secundarias,
 }: {
   projetoId: string;
   acoes: readonly AcaoCaneta[];
@@ -88,6 +89,8 @@ export function AcoesCaneta({
   preparar?: (acao: AcaoTela) => Promise<Preparo>;
   /** Revisão nova devolvida pelo servidor (o editor adota antes do refresh). */
   aoConcluir?: (revisao: number) => void;
+  /** GAB-100: logo abaixo da ação principal ("Salvar versão", "Ver PDF"). */
+  secundarias?: ReactNode;
 }) {
   const router = useRouter();
   const base = useId();
@@ -102,8 +105,11 @@ export function AcoesCaneta({
   const [falha, setFalha] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
 
-  const todas: AcaoTela[] = [...envio, ...acoes];
-  if (todas.length === 0) return null;
+  const lista: AcaoTela[] = [...envio, ...acoes];
+  if (lista.length === 0 && !secundarias) return null;
+  // Coral só na ação principal (§4.5.1): a do envio, se houver; senão "Passar a caneta" (spec proposta-folha §3).
+  const principal: AcaoTela | undefined = envio[0] ?? (acoes.includes("passar") ? "passar" : lista[0]);
+  const demais = lista.filter((a) => a !== principal);
 
   function abrir(a: AcaoTela) {
     setFalha(null);
@@ -173,10 +179,18 @@ export function AcoesCaneta({
     </select>
   );
 
+  const botao = (a: AcaoTela, destaque: boolean) => (
+    <Button key={a} type="button" size="sm" className="w-full" variant={destaque ? "default" : a === "inviavel" ? "destructive" : "outline"} aria-expanded={aberta === a} disabled={pendente} onClick={() => abrir(a)}>
+      {ROTULO[a]}
+    </Button>
+  );
+
   return (
-    <section className="rounded-xl border border-border bg-surface p-4" aria-label="Caneta">
-      <h2 className="mb-1 text-sm font-medium">Caneta</h2>
-      <p className="mb-3 text-xs text-fg-mute">
+    <section className="space-y-2 rounded-xl border border-border bg-surface p-3" aria-label="Caneta">
+      {principal ? botao(principal, true) : null}
+      {secundarias}
+      {demais.length ? <div className="grid grid-cols-1 gap-1.5">{demais.map((a) => botao(a, false))}</div> : null}
+      <p className="text-xs text-fg-mute">
         {envio.includes("concluirRevisao")
           ? "O cliente pediu revisão. Mudou só o texto? Conclua a revisão e reenvie. Mudou valor, prazo, escopo ou entregas? Devolva para projetos avaliar."
           : envio.includes("responder")
@@ -187,22 +201,6 @@ export function AcoesCaneta({
                 ? `Terminou? Devolva para ${rotuloOutroLado.toLowerCase()} avaliar (salva uma versão) ou, se a última versão veio de lá e está boa, concorde.`
                 : "O que você pode fazer na proposta agora:"}
       </p>
-      <div className="flex flex-wrap gap-2">
-        {todas.map((a) => (
-          <Button
-            key={a}
-            type="button"
-            size="sm"
-            variant={a === "devolver" || a === "concordar" || a === "enviar" || a === "responder" || a === "concluirRevisao" ? "default" : a === "inviavel" ? "destructive" : "outline"}
-            aria-expanded={aberta === a}
-            disabled={pendente}
-            onClick={() => abrir(a)}
-          >
-            {ROTULO[a]}
-          </Button>
-        ))}
-      </div>
-
       {aberta === "passar" ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {seletor(mesmoLado, "Passar para")}
@@ -216,7 +214,7 @@ export function AcoesCaneta({
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">{seletor(outroLado, `Devolver para (${rotuloOutroLado.toLowerCase()})`)}</div>
           <div className="flex flex-wrap items-center gap-2">
-            <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} disabled={pendente} onChange={(e) => setNota(e.target.value)} className="min-w-48 flex-1" />
+            <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} disabled={pendente} onChange={(e) => setNota(e.target.value)} className="min-w-0 flex-1 basis-full" />
             <Button type="button" size="sm" disabled={pendente || !paraId} onClick={() => confirmar("devolver")}>
               Salvar versão e devolver
             </Button>
@@ -278,7 +276,7 @@ export function AcoesCaneta({
             Salva uma versão com o que está no editor e a proposta volta a Pronta para envio, sem passar por projetos — só se valor, prazo, escopo e entregas são os mesmos da versão enviada.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} disabled={pendente} onChange={(e) => setNota(e.target.value)} className="min-w-48 flex-1" />
+            <Input aria-label="Nota da versão (opcional)" placeholder="Nota (opcional): o que mudou" maxLength={NOTA_VERSAO_MAX} value={nota} disabled={pendente} onChange={(e) => setNota(e.target.value)} className="min-w-0 flex-1 basis-full" />
             <Button type="button" size="sm" disabled={pendente} onClick={() => confirmar("concluirRevisao")}>
               Concluir revisão
             </Button>

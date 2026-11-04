@@ -1,40 +1,37 @@
 /**
- * Conteúdo do PDF da proposta (GAB-89): a versão final (o documento do
- * editor, do Markdown canônico) + a parte estruturada (valor, prazo, escopo
- * resumido e cronograma de entregas). Só CONTEÚDO — a cara é do template
- * (`@/lib/pdf/templates`), trocável pelo oficial da IJ sem mexer aqui.
+ * Conteúdo do PDF da proposta (GAB-89, modelo da IJ no GAB-100): capa, o documento
+ * do editor (Markdown canônico) e os blocos móveis Cronograma e Investimento no
+ * lugar em que estão na folha. Proposta antiga, sem bloco posicionado, sai com os
+ * dois no fim. Só CONTEÚDO: a cara é do template (`@/lib/pdf/templates`).
  * Puro (sem banco): o serviço lê a versão e chama `documentoPdfDaProposta`.
  */
 import type { BlocoPdf, DocumentoPdf, Trecho } from "@/lib/pdf/tipos";
-import type { Bloco, ItemLista, NoTexto } from "./documento";
+import { linhasInvestimento, tabelaCronograma, TITULO_BLOCO_DADOS } from "./blocos-dados";
+import { documentoComBlocos, type Bloco, type ItemLista, type NoTexto, type TipoBlocoDados } from "./documento";
 import type { Estruturado } from "./estruturado";
 import { markdownParaDocumento } from "./markdown";
+
+export { formatarDia, formatarReais } from "./blocos-dados";
 
 export type DadosPdfProposta = {
   projeto: string;
   empresa: string | null;
-  numero: number;
-  /** Quando a versão foi salva. */
+  /** Número da versão; null = prévia do rascunho ("Ver PDF" enquanto se escreve). */
+  numero: number | null;
+  /** Quando a versão foi salva (na prévia, quando o rascunho mudou). */
   data: Date;
   markdown: string;
   estruturado: Estruturado;
 };
 
-const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+/** Endereço da IJ na capa. */
+export const ENDERECO_IJ = "Avenida Prof. Almeida 520, Butantã - São Paulo/SP - 05508-070.";
+export const TITULO_PROPOSTA = "Proposta Comercial de Projeto";
 
-/** "12500.00" → "R$ 12.500,00" (espaço comum: a fonte não precisa do NBSP). */
-export function formatarReais(v: string): string {
-  return BRL.format(Number(v)).replace(/\s/g, " ");
-}
-
-/** "2026-12-01" → "01/12/2026" (dia de calendário, sem fuso). */
-export function formatarDia(dia: string): string {
-  const [a, m, d] = dia.split("-");
-  return `${d}/${m}/${a}`;
-}
-
-function dataBr(d: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Sao_Paulo" }).format(d);
+/** "São Paulo, 4 de novembro de 2026" no fuso da IJ. */
+export function dataPorExtenso(d: Date): string {
+  const data = new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" }).format(d);
+  return `São Paulo, ${data}`;
 }
 
 function trechos(nos: NoTexto[] | undefined): Trecho[] {
@@ -45,7 +42,17 @@ function trechos(nos: NoTexto[] | undefined): Trecho[] {
   }));
 }
 
-function blocosDoDocumento(blocos: Bloco[], nivel = 0): BlocoPdf[] {
+function blocosDeDados(tipo: TipoBlocoDados, e: Estruturado): BlocoPdf[] {
+  const titulo: BlocoPdf = { tipo: "titulo", nivel: 2, trechos: [{ texto: TITULO_BLOCO_DADOS[tipo] }] };
+  if (tipo === "cronograma") {
+    const t = tabelaCronograma(e);
+    return t ? [titulo, { tipo: "tabela", colunas: t.colunas, linhas: t.linhas, total: t.total ?? undefined }] : [];
+  }
+  const linhas = linhasInvestimento(e);
+  return linhas.length ? [titulo, ...linhas.map((l): BlocoPdf => ({ tipo: "paragrafo", semRecuo: true, trechos: [{ texto: `${l.rotulo}: ${l.valor}`, negrito: l.forte || undefined }] }))] : [];
+}
+
+function blocosDoDocumento(blocos: Bloco[], e: Estruturado, nivel = 0): BlocoPdf[] {
   const saida: BlocoPdf[] = [];
   for (const b of blocos) {
     switch (b.type) {
@@ -60,11 +67,16 @@ function blocosDoDocumento(blocos: Bloco[], nivel = 0): BlocoPdf[] {
       case "horizontalRule":
         saida.push({ tipo: "linha" });
         break;
+      case "blocoDados":
+        saida.push(...blocosDeDados(b.attrs.tipo, e));
+        break;
+      case "semBlocos":
+        break;
       case "bulletList":
       case "orderedList":
         b.content.forEach((item: ItemLista, i) => {
           const marcador = b.type === "bulletList" ? (nivel % 2 === 0 ? "•" : "–") : `${(b.attrs.start ?? 1) + i}.`;
-          saida.push(...itemDaLista(item, marcador, nivel));
+          saida.push(...itemDaLista(item, marcador, e, nivel));
         });
         break;
     }
@@ -72,7 +84,7 @@ function blocosDoDocumento(blocos: Bloco[], nivel = 0): BlocoPdf[] {
   return saida;
 }
 
-function itemDaLista(item: ItemLista, marcador: string, nivel: number): BlocoPdf[] {
+function itemDaLista(item: ItemLista, marcador: string, e: Estruturado, nivel: number): BlocoPdf[] {
   const [primeiro, ...resto] = item.content;
   const saida: BlocoPdf[] = [];
   if (primeiro?.type === "paragraph") saida.push({ tipo: "item", marcador, nivel, trechos: trechos(primeiro.content) });
@@ -80,50 +92,22 @@ function itemDaLista(item: ItemLista, marcador: string, nivel: number): BlocoPdf
     saida.push({ tipo: "item", marcador, nivel, trechos: [] });
     if (primeiro) resto.unshift(primeiro);
   }
-  saida.push(...blocosDoDocumento(resto, nivel + 1));
+  saida.push(...blocosDoDocumento(resto, e, nivel + 1));
   return saida;
 }
 
 /** Nome do arquivo: "Proposta - <projeto> - v3.pdf" (o download sanitiza para o header). */
-export function nomeArquivoPdf(projeto: string, numero: number): string {
+export function nomeArquivoPdf(projeto: string, numero: number | null): string {
   const titulo = projeto.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "projeto";
-  return `Proposta - ${titulo} - v${numero}.pdf`;
+  return `Proposta - ${titulo} - ${numero === null ? "rascunho" : `v${numero}`}.pdf`;
 }
 
 export function documentoPdfDaProposta(d: DadosPdfProposta): DocumentoPdf {
-  const e = d.estruturado;
-  const campos: { rotulo: string; valor: string }[] = [];
-  if (e.valor !== null) campos.push({ rotulo: "Investimento", valor: formatarReais(e.valor) });
-  if (e.prazoDias !== null) campos.push({ rotulo: "Prazo", valor: `${e.prazoDias} ${e.prazoDias === 1 ? "dia corrido" : "dias corridos"}` });
-  if (e.escopoResumo) campos.push({ rotulo: "Escopo", valor: e.escopoResumo });
-
-  const blocos: BlocoPdf[] = [];
-  if (campos.length) blocos.push({ tipo: "campos", linhas: campos }, { tipo: "linha" });
-  blocos.push(...blocosDoDocumento(markdownParaDocumento(d.markdown).content));
-  if (e.entregas.length) {
-    const comValor = e.entregas.some((x) => x.valor !== null);
-    blocos.push({ tipo: "titulo", nivel: 2, trechos: [{ texto: "Cronograma de entregas" }] });
-    blocos.push({
-      tipo: "tabela",
-      colunas: comValor
-        ? [
-            { titulo: "Entrega", largura: 0.56 },
-            { titulo: "Data", largura: 0.2 },
-            { titulo: "Valor", largura: 0.24, alinhar: "direita" },
-          ]
-        : [
-            { titulo: "Entrega", largura: 0.75 },
-            { titulo: "Data", largura: 0.25 },
-          ],
-      linhas: e.entregas.map((x) => (comValor ? [x.titulo, formatarDia(x.dia), x.valor !== null ? formatarReais(x.valor) : "—"] : [x.titulo, formatarDia(x.dia)])),
-    });
-  }
-
   return {
-    titulo: "Proposta comercial",
-    subtitulo: [[d.empresa, d.projeto].filter(Boolean).join(" · "), `Versão ${d.numero} · ${dataBr(d.data)}`],
-    blocos,
+    titulo: TITULO_PROPOSTA,
+    capa: { titulo: "PROPOSTA COMERCIAL", empresa: d.empresa ?? d.projeto, data: dataPorExtenso(d.data), endereco: ENDERECO_IJ },
+    blocos: blocosDoDocumento(documentoComBlocos(markdownParaDocumento(d.markdown)).content, d.estruturado),
     autor: "Inteli Júnior",
-    assunto: `Proposta — ${d.projeto} (v${d.numero})`,
+    assunto: d.numero === null ? `Proposta — ${d.projeto} (prévia do rascunho)` : `Proposta — ${d.projeto} (v${d.numero})`,
   };
 }
