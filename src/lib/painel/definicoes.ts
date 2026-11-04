@@ -16,17 +16,17 @@ export type IndicadorProjetos = "execucao" | "atrasados" | "alertas" | "caneta";
 
 export const DEFINICOES_PROJETOS: Record<IndicadorProjetos, string[]> = {
   execucao: [
-    "Em execução = card aberto no quadro Projetos, de Execução em diante. Handoff ainda não começou. Finalizado e Perdido são registro: aparecem só em \"Encerrados no período\", pela entrada na fase, e não entram em nenhuma conta.",
-    "Previstas no período = entregas ativas com o previsto ORIGINAL (o combinado na proposta) no período. Feitas no período = entregas ativas com a data real no período: uma entrega atrasada de outro período conta nas feitas do período em que saiu.",
+    "Em execução = card aberto no quadro Projetos, de Execução em diante. Handoff ainda não começou. Finalizado e Perdido são registro: aparecem em \"Encerrados\", se encerraram no período ou têm entrega nele, e ficam fora de atraso e alertas. Perdido antes de começar, sem execução nem entrega, não aparece.",
+    "Previstas no período = entregas ativas com o previsto ORIGINAL (o combinado na proposta) no período. Feitas no período = entregas ativas com a data real no período: uma entrega atrasada de outro período conta nas feitas do período em que saiu. As duas somam também as entregas de cards já encerrados, à parte na tabela de encerrados, para um período passado não mudar quando um card encerra.",
     "Atrasadas = pendentes com o previsto atual antes de hoje (a mesma conta do cronograma).",
-    "Atraso acumulado = soma dos dias além do previsto ORIGINAL em cada entrega ativa. Feita: até a data real. Pendente: até hoje ou até a nova data prevista, o que vier depois, porque ajustar a data não apaga o atraso. Entrega adiantada não compensa outra.",
+    "Atraso acumulado = soma dos dias além do previsto ORIGINAL em cada entrega ativa. Feita: até a data real. Pendente: até hoje ou até a nova data prevista, o que vier depois, porque ajustar a data não apaga o atraso. Por isso a conta inclui dias que ainda não passaram quando a data foi empurrada para o futuro. Entrega adiantada não compensa outra.",
     "Ajustes = mudanças de data das entregas ativas. Entrega cancelada não entra em nenhuma conta, nem os ajustes dela.",
     "Sem previsto = nenhuma entrega ativa (projeto migrado sem cronograma ou com tudo cancelado): não conta como atrasado.",
-    "Só previstas e feitas dependem do período; o resto é a situação de agora. Dias de São Paulo. O filtro por GP usa quem responde pela execução: o GP designado que ainda vale, senão o responsável do card.",
+    "Só previstas, feitas e encerrados dependem do período; o resto é a situação de agora. Dias de São Paulo. O filtro por GP usa quem responde pela execução: o GP designado que ainda vale, senão o responsável do card.",
   ],
   atrasados: [
     "Atrasado = projeto em execução com ao menos uma entrega pendente com o previsto atual antes de hoje. Do mais atrasado para o menos, pelo atraso acumulado frente ao previsto original.",
-    "Projeto sem previsto não tem como atrasar: vem contado à parte.",
+    "Projeto sem previsto não tem como atrasar: vem contado à parte. O atraso em dias desta lista soma só os projetos atrasados; o da tela soma todos os em execução.",
   ],
   alertas: [
     "Vermelho e amarelo = cor do último check-in de cada projeto em execução, mesmo de semanas anteriores.",
@@ -34,9 +34,9 @@ export const DEFINICOES_PROJETOS: Record<IndicadorProjetos, string[]> = {
     "Semanas cobradas = semanas em que o lembrete já avisou o GP da falta de check-in.",
   ],
   caneta: [
-    "Parada agora = propostas com a caneta com a pessoa, em curso ou prontas para envio, com o card aberto em Vendas. Conta desde que a caneta chegou até ela, mesmo que ela tenha editado o rascunho. Enviada é a vez do cliente e não conta; em Projetos a proposta já congelou.",
-    "No período = tempo com a caneta dentro do período, em todos os períodos que a pessoa teve, sem a espera pela resposta do último envio ao cliente. Em proposta reenviada, a espera dos envios anteriores não é conhecida e conta.",
-    "Sem ninguém = propostas em curso sem ninguém com a caneta: o GP do lado pega. No filtro, a tela e a ferramenta mostram só as linhas da pessoa.",
+    "Parada agora = propostas com a caneta com a pessoa, em curso ou prontas para envio, com o card aberto em Vendas. Conta desde que a caneta chegou até ela, mesmo que ela tenha editado o rascunho; a última edição aparece ao lado, como informação secundária. Enviada é a vez do cliente e não conta; em Projetos a proposta já congelou.",
+    "No período = tempo com a caneta dentro do período, sem as esperas pela resposta do cliente (cada envio até a resposta, pela Timeline). Caneta que ficou aberta com o card encerrado ou fora de Vendas para de contar na entrada na fase atual do card.",
+    "Sem ninguém = propostas em curso sem ninguém com a caneta: o GP do lado pega. Não acompanha o filtro, porque não há pessoa. O resto, no filtro, mostra só as linhas da pessoa.",
   ],
 };
 

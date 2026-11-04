@@ -39,8 +39,8 @@ export default async function PainelProjetosPage({ searchParams }: { searchParam
   const { gp, execucao, caneta } = v;
 
   const periodoAtual: Record<string, string> = { periodo: tipo, ...(periodo.atual ? {} : { ref: periodo.primeiroDia }) };
-  // Quem veio pelo link e não tem projeto em execução continua aparecendo no filtro.
-  const opcoes = gp && !execucao.gps.some((o) => o.id === gp.id) ? [...execucao.gps, gp] : execucao.gps;
+  // GPs com projeto, quem tem linha na caneta e quem veio pelo link: sem o filtro aplicado, para dar para trocar.
+  const opcoes = [...new Map([...execucao.gps, ...(caneta?.caneta.pessoas ?? []), ...(gp ? [gp] : [])].map((o) => [o.id, o])).values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
   return (
     <>
@@ -50,8 +50,8 @@ export default async function PainelProjetosPage({ searchParams }: { searchParam
         description="Previsto × feito, atraso, check-in e com quem a caneta está parada. Também pelo Claude (MCP): “quais projetos estão atrasados?”."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <AbasPainel atual="projetos" />
-            <FiltroVendedor parametro="gp" rotulo="gp" atualId={gp?.id ?? null} opcoes={opcoes.map((o) => ({ id: o.id, nome: o.nome }))} periodo={periodoAtual} />
+            <AbasPainel atual="projetos" periodo={periodoAtual} />
+            <FiltroVendedor parametro="gp" rotulo="gp ou pessoa" atualId={gp?.id ?? null} opcoes={opcoes.map((o) => ({ id: o.id, nome: o.nome }))} periodo={periodoAtual} />
             <NavegacaoPeriodo caminho="/painel/projetos" tipo={tipo} periodo={periodo} parametros={gp ? { gp: gp.id } : {}} />
           </div>
         }
@@ -61,7 +61,7 @@ export default async function PainelProjetosPage({ searchParams }: { searchParam
         <SecaoAlertas a={execucao.alertas} />
         {caneta ? <SecaoCaneta c={caneta.caneta} visao={caneta.visao} /> : null}
         <SecaoEncerrados e={execucao.encerrados} />
-        <p className="text-xs text-fg-faint">Dias de São Paulo. Só previstas, feitas, encerrados e o tempo no período dependem do período escolhido; o resto é a situação de agora. {VISIBILIDADE_PAINEL_PROJETOS}</p>
+        <p className="text-xs text-fg-faint">Dias de São Paulo. Só previstas, feitas, encerrados e o tempo com a caneta no período dependem do período escolhido; o resto é a situação de agora. {VISIBILIDADE_PAINEL_PROJETOS}</p>
       </div>
     </>
   );

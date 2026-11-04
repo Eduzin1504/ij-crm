@@ -60,9 +60,9 @@ export function SecaoExecucao({ e }: { e: ExecucaoProjetos }) {
   const t = e.totais;
   return (
     <Secao titulo="execução" pergunta="O projeto está andando de acordo com a proposta?" id="execucao" definicoes={DEFINICOES_PROJETOS.execucao}>
-      <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <Kpi rotulo="Em execução" valor={fmtInteiro(t.emExecucao)} dica={t.semPrevisto > 0 ? `${fmtInteiro(t.semPrevisto)} ${SEM_PREVISTO}` : undefined} />
-        <Kpi rotulo="Previstas × feitas" valor={`${fmtInteiro(t.previstasNoPeriodo)} × ${fmtInteiro(t.feitasNoPeriodo)}`} dica="entregas no período" />
+        <Kpi rotulo="Previstas × feitas" valor={`${fmtInteiro(t.previstasNoPeriodo)} × ${fmtInteiro(t.feitasNoPeriodo)}`} dica={t.previstasEncerrados + t.feitasEncerrados > 0 ? `no período, com ${fmtInteiro(t.previstasEncerrados)} × ${fmtInteiro(t.feitasEncerrados)} de encerrados` : "entregas no período"} />
         <Kpi rotulo="Com atraso" valor={fmtInteiro(t.comAtraso)} ponto={t.comAtraso > 0 ? "danger" : undefined} dica={`${fmtInteiro(t.atrasadas)} ${t.atrasadas === 1 ? "entrega vencida" : "entregas vencidas"}`} />
         <Kpi rotulo="Atraso acumulado" valor={fmtAtraso(t.atrasoDias)} dica="frente ao previsto original" />
         <Kpi rotulo="Vermelho / amarelo" valor={`${fmtInteiro(t.vermelhos)} / ${fmtInteiro(t.amarelos)}`} ponto={t.vermelhos > 0 ? "danger" : t.amarelos > 0 ? "warn" : undefined} dica={`${fmtInteiro(t.semCheckin)} sem check-in na semana`} />
@@ -122,7 +122,7 @@ function ListaAlerta({ titulo, vazio, itens, detalhe }: { titulo: string; vazio:
 export function SecaoAlertas({ a }: { a: ExecucaoProjetos["alertas"] }) {
   return (
     <Secao titulo="alertas · agora" pergunta="Quais projetos pedem atenção?" id="alertas" definicoes={DEFINICOES_PROJETOS.alertas}>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <ListaAlerta
           titulo="no vermelho ou no amarelo"
           vazio="Nenhum projeto no vermelho ou no amarelo."
@@ -151,13 +151,13 @@ export function SecaoCaneta({ c, visao }: { c: TempoCaneta; visao: VisaoDaCaneta
   return (
     <Secao titulo="caneta" pergunta="Com quem a proposta está parada?" id="caneta" definicoes={DEFINICOES_PROJETOS.caneta}>
       {recorte ? <p className="text-sm text-fg-mute">{recorte}</p> : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi rotulo="Paradas agora" valor={fmtInteiro(c.paradas)} />
         <Kpi rotulo="Tempo médio parada" valor={c.mediaDias === null ? TRACO : fmtDias(c.mediaDias)} />
         <Kpi rotulo="No período" valor={fmtAtraso(c.noPeriodoDias)} dica="tempo com a caneta, somado" />
-        <Kpi rotulo="Sem ninguém" valor={fmtInteiro(c.semDono)} ponto={c.semDono > 0 ? "warn" : undefined} dica="o GP do lado pega" />
+        <Kpi rotulo="Sem ninguém" valor={fmtInteiro(c.semDono)} ponto={c.semDono > 0 ? "warn" : undefined} dica="o GP do lado pega · não acompanha o filtro" />
       </div>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Tabela
           minimo="28rem"
           cabecalho={[
@@ -210,7 +210,10 @@ export function SecaoCaneta({ c, visao }: { c: TempoCaneta; visao: VisaoDaCaneta
                       {ROTULO_STATUS_PROPOSTA[m.status]}
                     </span>
                   </span>
-                  <span className="shrink-0 font-mono text-xs tabular text-fg-soft">{fmtDias(m.dias)}</span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-mono text-xs tabular text-fg-soft">{fmtDias(m.dias)}</span>
+                    <span className="block text-xs text-fg-faint">última edição há {m.ultimaEdicaoDias < 1 ? "menos de 1 dia" : fmtDias(m.ultimaEdicaoDias)}</span>
+                  </span>
                 </li>
               ))}
             </ol>
@@ -226,9 +229,20 @@ export function SecaoEncerrados({ e }: { e: ExecucaoProjetos["encerrados"] }) {
   return (
     <section aria-labelledby="painel-encerrados" className="space-y-3">
       <h2 id="painel-encerrados" className="eyebrow">
-        encerrados no período · registro, fora das contas
+        encerrados · fora de atraso e alertas; previstas e feitas entram no total do período
       </h2>
-      <Tabela minimo="32rem" cabecalho={[{ rotulo: "Projeto" }, { rotulo: "Fase" }, { rotulo: "GP" }, { rotulo: "Entregas", numerica: true }, { rotulo: "Em", numerica: true }]}>
+      <Tabela
+        minimo="44rem"
+        cabecalho={[
+          { rotulo: "Projeto" },
+          { rotulo: "Fase" },
+          { rotulo: "GP" },
+          { rotulo: "Entregas", numerica: true },
+          { rotulo: "Previstas", numerica: true, titulo: "previsto original no período" },
+          { rotulo: "Feitas", numerica: true, titulo: "data real no período" },
+          { rotulo: "Encerrado em", numerica: true },
+        ]}
+      >
         {e.map((p) => (
           <tr key={p.id} className="border-b border-border last:border-0">
             <td className={TD}>
@@ -239,6 +253,8 @@ export function SecaoEncerrados({ e }: { e: ExecucaoProjetos["encerrados"] }) {
             <td className={TD}>{p.fase}</td>
             <td className={TD}>{nome(p.gp)}</td>
             <td className={TDN}>{p.semPrevisto ? SEM_PREVISTO : `${fmtInteiro(p.feitas)}/${fmtInteiro(p.totalEntregas)}`}</td>
+            <td className={TDN}>{fmtInteiro(p.previstasNoPeriodo)}</td>
+            <td className={TDN}>{fmtInteiro(p.feitasNoPeriodo)}</td>
             <td className={TDN}>{formatarDataHora(p.encerradoEm)}</td>
           </tr>
         ))}

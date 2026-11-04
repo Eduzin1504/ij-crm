@@ -7,11 +7,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Area, Cargo, Papel, StatusProposta } from "@prisma/client";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { executarFerramenta, FERRAMENTAS } from "@/lib/mcp/ferramentas";
+import { LIMITE_LISTA_MCP } from "@/lib/mcp/painel-projetos";
 import { resolverPeriodo } from "@/lib/ranking/periodo";
 import { CONFIG_RANKING_PADRAO } from "@/lib/ranking/config";
 import { salvarConfigRanking } from "@/lib/ranking/servico";
 import { dbTeste, limparBanco } from "@/test/db";
-import { carregarCanetaPara, carregarExecucaoProjetos } from "./projetos-servico";
+import { carregarCanetaPara, carregarExecucaoProjetos, pessoaDoFiltro } from "./projetos-servico";
 
 const db = dbTeste();
 const dia = (d: string) => new Date(`${d}T00:00:00Z`);
@@ -196,6 +197,37 @@ describe("execução: o que conta", () => {
     ]);
   });
 
+  it("mês passado: encerrado depois, com entrega naquele mês, entra em previstas e feitas e na tabela à parte", async () => {
+    const OUTUBRO = resolverPeriodo("mes", "2026-10-15", AGORA);
+    const fechado = await s.card("Fechou em novembro", "finalizado", s.p.gil.id, { faseDesde: sp("2026-11-05T12:00:00") });
+    await s.entrega(fechado.id, 0, "2026-10-05", { feita: "2026-10-06" });
+    await s.entrega(fechado.id, 1, "2026-10-10", { cancelada: true });
+    const perdido = await s.card("Caiu em novembro", "perdido", s.p.gil.id, { faseDesde: sp("2026-11-06T12:00:00") });
+    await s.entrega(perdido.id, 0, "2026-10-20");
+    await s.card("Sem nada em outubro", "finalizado", s.p.gil.id, { faseDesde: sp("2026-11-07T12:00:00") });
+    const e = await carregarExecucaoProjetos({ periodo: OUTUBRO, gpId: null }, AGORA);
+    expect(e.totais).toMatchObject({ emExecucao: 0, previstasNoPeriodo: 2, feitasNoPeriodo: 1, previstasEncerrados: 2, feitasEncerrados: 1, atrasadas: 0, atrasoDias: 0 });
+    expect(e.encerrados.map((x) => [x.titulo, x.previstasNoPeriodo, x.feitasNoPeriodo])).toEqual([
+      ["Caiu em novembro", 1, 0],
+      ["Fechou em novembro", 1, 1],
+    ]);
+  });
+
+  it("Perdido antes de começar (de Handoff, sem execução nem entrega) fica fora de Encerrados; quem teve algo de execução fica", async () => {
+    const quando = { faseDesde: sp("2026-11-05T12:00:00") };
+    await s.card("Caiu no handoff", "perdido", s.p.gil.id, { execucaoDesde: null, ...quando });
+    const comExecucao = await s.card("Caiu executando", "perdido", s.p.gil.id, quando);
+    const migrado = await s.card("Migrado com check-in", "perdido", s.p.gil.id, { execucaoDesde: null, ...quando });
+    await db.projetoCheckin.create({ data: { projetoId: migrado.id, status: "VERDE", motivo: "ok", semana: dia("2026-10-26"), porId: s.p.gil.id, em: sp("2026-10-27T12:00:00") } });
+    const finalizado = await s.card("Finalizado isento", "finalizado", s.p.gil.id, { execucaoDesde: null, ...quando });
+    const e = await carregarExecucaoProjetos({ periodo: NOVEMBRO, gpId: null }, AGORA);
+    expect(e.encerrados.map((x) => x.id).sort()).toEqual([comExecucao.id, migrado.id, finalizado.id].sort());
+  });
+
+  it("id com \\0 no filtro é pessoa desconhecida, sem erro do Postgres", async () => {
+    expect(await pessoaDoFiltro("a\0b")).toBeNull();
+  });
+
   it("filtro por GP: o designado que vale, ou o responsável quando o designado saiu", async () => {
     const doGil = await s.card("Do Gil", "execucao", s.p.rui.id, { gpId: s.p.gil.id });
     const gpSaiu = await s.card("GP saiu", "execucao", s.p.rui.id, { gpId: s.p.saiu.id });
@@ -280,11 +312,37 @@ describe("tempo com a caneta: quem vê o quê", () => {
     expect(v?.caneta.semDono).toBe(1);
   });
 
-  it("filtro por pessoa", async () => {
+  it("filtro por pessoa: as opções continuam todas, e sem dono não acompanha", async () => {
     await cenario();
+    await proposta("Sem dono", s.p.vera, "EM_ANALISE", "contato", []);
     const v = await carregarCanetaPara(s.p.gp, { periodo: NOVEMBRO, gpId: s.p.vera.id }, AGORA);
     expect(v?.caneta.porPessoa.map((l) => l.usuario.nome)).toEqual(["Vera"]);
     expect(v?.caneta.paradas).toBe(1);
+    expect(v?.caneta.pessoas.map((x) => x.nome)).toEqual(["Outra", "Vera"]);
+    expect(v?.caneta.semDono).toBe(1);
+  });
+
+  it("reenvio: os eventos da Timeline tiram a espera de cada envio; Timeline de outro projeto não interfere", async () => {
+    const criar = (titulo: string) =>
+      proposta(titulo, s.p.vera, "ACEITA", "contato", [{ usuarioId: s.p.vera.id, lado: "VENDAS", inicio: sp("2026-11-01T12:00:00"), fim: sp("2026-11-10T12:00:00") }]);
+    const p = await criar("Reenviada");
+    await db.proposta.update({ where: { id: p.id }, data: { enviadaEm: sp("2026-11-06T12:00:00"), respondidaEm: sp("2026-11-10T12:00:00") } });
+    const evento = (projetoId: string, nome: string, em: Date) => db.timeline.create({ data: { projetoId, tipo: "PROPOSTA", payload: { evento: nome }, usuarioId: s.p.vera.id, em } });
+    await evento(p.projetoId, "enviada", sp("2026-11-02T12:00:00"));
+    await evento(p.projetoId, "revisao_pedida", sp("2026-11-04T12:00:00"));
+    await evento(p.projetoId, "versao_salva", sp("2026-11-05T12:00:00"));
+    await evento(p.projetoId, "enviada", sp("2026-11-06T12:00:00"));
+    await evento(p.projetoId, "aceita", sp("2026-11-10T12:00:00"));
+    const v = await carregarCanetaPara(s.p.gp, { periodo: NOVEMBRO, gpId: null }, AGORA);
+    // 9 dias com a caneta, menos 2 e 4 de espera.
+    expect(v?.caneta.noPeriodoDias).toBe(3);
+  });
+
+  it("caneta aberta com o card já em Projetos: conta até a entrada na fase, e não cresce", async () => {
+    const c = await proposta("Congelada", s.p.vera, "EM_AJUSTE", "execucao", [{ usuarioId: s.p.vera.id, lado: "VENDAS", inicio: sp("2026-11-02T12:00:00") }]);
+    await db.projeto.update({ where: { id: c.projetoId }, data: { faseDesde: sp("2026-11-05T12:00:00") } });
+    const v = await carregarCanetaPara(s.p.gp, { periodo: NOVEMBRO, gpId: null }, AGORA);
+    expect(v?.caneta).toMatchObject({ paradas: 0, noPeriodoDias: 3 });
   });
 });
 
@@ -315,30 +373,60 @@ describe("MCP: os mesmos números da tela, só leitura", () => {
     const visual = s.p.visual;
     const execucao = dados(await executarFerramenta("consultar_execucao_projetos", {}, visual));
     expect(execucao.totais).toEqual(e.totais);
-    expect(execucao.projetos).toEqual(e.projetos);
-    expect(execucao.projetos.find((x: { titulo: string }) => x.titulo === "Migrado").semPrevisto).toBe(true);
+    expect(execucao.projetos).toEqual({ itens: e.projetos, total: 2, foraDaLista: 0 });
+    expect(execucao.projetos.itens.find((x: { titulo: string }) => x.titulo === "Migrado").semPrevisto).toBe(true);
     expect(execucao.definicoes.execucao.length).toBeGreaterThan(0);
     expect(execucao.tela).toContain("/painel/projetos?");
 
     const atrasados = dados(await executarFerramenta("listar_projetos_atrasados", {}, visual));
-    expect(atrasados.atrasados).toEqual(e.atrasados);
-    expect(atrasados.atrasados.map((x: { titulo: string }) => x.titulo)).toEqual(["Atrasado"]);
+    expect(atrasados.atrasados.itens).toEqual(e.atrasados);
+    expect(atrasados.atrasados.itens.map((x: { titulo: string }) => x.titulo)).toEqual(["Atrasado"]);
     expect(atrasados).toMatchObject({ comAtraso: 1, semPrevisto: 1 });
 
     const alertas = dados(await executarFerramenta("listar_projetos_em_alerta", {}, visual));
-    expect(alertas.vermelhos).toEqual(e.alertas.vermelhos);
-    expect(alertas.semCheckin).toEqual(e.alertas.semCheckin);
-    expect(alertas.vermelhos.map((x: { titulo: string }) => x.titulo)).toEqual(["Atrasado"]);
+    expect(alertas.vermelhos.itens).toEqual(e.alertas.vermelhos);
+    expect(alertas.semCheckin.itens).toEqual(e.alertas.semCheckin);
+    expect(alertas.vermelhos.itens.map((x: { titulo: string }) => x.titulo)).toEqual(["Atrasado"]);
   });
 
   it("gp_id: \"eu\" e pessoa desconhecida", async () => {
     await s.card("Do Gil", "execucao", s.p.gil.id);
     await s.card("Do Rui", "execucao", s.p.rui.id);
     const meu = dados(await executarFerramenta("consultar_execucao_projetos", { gp_id: "eu" }, s.p.gil));
-    expect(meu.projetos.map((x: { titulo: string }) => x.titulo)).toEqual(["Do Gil"]);
+    expect(meu.projetos.itens.map((x: { titulo: string }) => x.titulo)).toEqual(["Do Gil"]);
     const r = await executarFerramenta("listar_projetos_atrasados", { gp_id: "ninguem" }, s.p.gil);
     expect(r.isError).toBe(true);
     expect((r.content[0] as { text: string }).text).toMatch(/não encontrada/);
+  });
+
+  it("ref inválido é recusado com mensagem clara; \\0 no id é recusado pelo zod", async () => {
+    for (const ref of ["0001-01-01", "1999-12-31", "2026-02-30", "2999-01-01"]) {
+      const r = await executarFerramenta("consultar_execucao_projetos", { ref }, s.p.gil);
+      expect(r.isError, ref).toBe(true);
+      expect((r.content[0] as { text: string }).text, ref).toMatch(/ref inválido/);
+    }
+    const r = await executarFerramenta("listar_projetos_em_alerta", { gp_id: "a\0b" }, s.p.gil);
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as { text: string }).text).toMatch(/Argumento inválido em gp_id/);
+  });
+
+  it("listas limitadas: totais completos e quantos ficaram de fora; atrasoDias só dos atrasados", async () => {
+    const f = s.fase("execucao");
+    const base = { pipelineId: f.pipelineId, faseId: f.id, responsavelId: s.p.gil.id, criadoVia: "UI" as const, execucaoDesde: new Date(hoje.getTime() - 60 * 86_400_000) };
+    await db.projeto.createMany({ data: Array.from({ length: LIMITE_LISTA_MCP + 2 }, (_, i) => ({ ...base, titulo: `P${i}` })) });
+    const execucao = dados(await executarFerramenta("consultar_execucao_projetos", {}, s.p.gil));
+    expect(execucao.totais.emExecucao).toBe(LIMITE_LISTA_MCP + 2);
+    expect(execucao.projetos.itens).toHaveLength(LIMITE_LISTA_MCP);
+    expect(execucao.projetos).toMatchObject({ total: LIMITE_LISTA_MCP + 2, foraDaLista: 2 });
+
+    const empurrado = await s.card("Só empurrou", "execucao", s.p.rui.id, { gpId: s.p.rui.id });
+    const futuro = new Date(hoje.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+    await s.entrega(empurrado.id, 0, passado, { atual: futuro });
+    const atrasado = await s.card("Atrasado", "execucao", s.p.rui.id, { gpId: s.p.rui.id });
+    await s.entrega(atrasado.id, 0, passado);
+    const a = dados(await executarFerramenta("listar_projetos_atrasados", { gp_id: s.p.rui.id }, s.p.gil));
+    expect(a.atrasados.itens.map((x: { titulo: string }) => x.titulo)).toEqual(["Atrasado"]);
+    expect(a.atrasoDias).toBe(a.atrasados.itens[0].atrasoDias);
   });
 
   it("caneta: visualizador é recusado na guarda; membro recebe o mesmo recorte da tela", async () => {

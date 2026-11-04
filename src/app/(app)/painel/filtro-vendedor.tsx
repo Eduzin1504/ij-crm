@@ -24,7 +24,7 @@ export function FiltroVendedor({ atualId, opcoes, periodo, parametro = "vendedor
           const s = q.toString();
           startTransition(() => router.push(s ? `${pathname}?${s}` : pathname));
         }}
-        className="h-8 rounded-lg border border-input bg-input/30 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="h-8 max-w-44 min-w-0 rounded-lg border border-input bg-input/30 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <option value="">Todo o time</option>
         {opcoes.map((o) => (

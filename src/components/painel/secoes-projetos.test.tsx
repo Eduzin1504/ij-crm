@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { montarCaneta, montarExecucao, type ProjetoEmExecucao, type ProjetoEncerrado } from "@/lib/painel/projetos-calculo";
+import { montarCaneta, montarExecucao, type ProjetoEmExecucao, type SituacaoEncerrado } from "@/lib/painel/projetos-calculo";
 import { SecaoAlertas, SecaoCaneta, SecaoEncerrados, SecaoExecucao } from "./secoes-projetos";
 
 const AGORA = new Date("2026-11-11T15:00:00Z");
@@ -46,17 +46,35 @@ describe("seções do painel de projetos (GAB-96)", () => {
   });
 
   it("caneta: membro vê o recorte dito na tela; quem vê todas, não", () => {
-    const c = montarCaneta([{ projetoId: "p", titulo: "Site", usuario: ANA, lado: "VENDAS", status: "EM_AJUSTE", inicio: new Date("2026-11-09T15:00:00Z"), fim: null, parada: true, envio: null }], 1, NOVEMBRO, null, AGORA);
+    const c = montarCaneta([{ projetoId: "p", titulo: "Site", usuario: ANA, lado: "VENDAS", status: "EM_AJUSTE", inicio: new Date("2026-11-09T15:00:00Z"), fim: null, parada: true, fimDoCard: null, esperas: [], rascunhoEm: new Date("2026-11-10T15:00:00Z") }], 1, NOVEMBRO, null, AGORA);
     const { rerender } = render(<SecaoCaneta c={c} visao="escaladas" />);
     expect(screen.getByText("Só as propostas em que você está escalado.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Site" })).toHaveAttribute("href", "/projetos/p/proposta");
+    expect(screen.getByText("última edição há 1 dia")).toBeInTheDocument();
+    expect(screen.getByText(/não acompanha o filtro/)).toBeInTheDocument();
     rerender(<SecaoCaneta c={c} visao="todas" />);
     expect(screen.queryByText(/escalado/)).toBeNull();
   });
 
-  it("encerrados: perdido aparece como registro; sem nenhum, a seção some", () => {
-    const perdido: ProjetoEncerrado = { id: "x", titulo: "Caiu", fase: "Perdido", tipo: "PERDIDO", gp: ANA, encerradoEm: AGORA, totalEntregas: 0, feitas: 0 };
-    const { rerender, container } = render(<SecaoEncerrados e={[{ ...perdido, semPrevisto: true }]} />);
+  it("no celular: grids com coluna que encolhe, para a tabela rolar por dentro e o truncate funcionar", () => {
+    const e = montarExecucao([projeto({})], [], NOVEMBRO, null, AGORA);
+    const c = montarCaneta([], 0, NOVEMBRO, null, AGORA);
+    const { container } = render(
+      <>
+        <SecaoExecucao e={e} />
+        <SecaoAlertas a={e.alertas} />
+        <SecaoCaneta c={c} visao="todas" />
+      </>,
+    );
+    const grids = [...container.querySelectorAll(".grid")];
+    expect(grids.length).toBeGreaterThan(0);
+    for (const g of grids) expect(g.className).toContain("grid-cols-1");
+  });
+
+  it("encerrados: perdido aparece à parte, com previstas e feitas; sem nenhum, a seção some", () => {
+    const perdido: SituacaoEncerrado = { id: "x", titulo: "Caiu", fase: "Perdido", tipo: "PERDIDO", gp: ANA, encerradoEm: AGORA, semPrevisto: true, totalEntregas: 0, feitas: 0, previstasNoPeriodo: 0, feitasNoPeriodo: 0 };
+    const { rerender, container } = render(<SecaoEncerrados e={[perdido]} />);
+    expect(screen.getByRole("heading", { name: /encerrados/ })).toHaveTextContent("entram no total");
     expect(screen.getByText("Caiu")).toBeInTheDocument();
     expect(screen.getByText("sem previsto")).toBeInTheDocument();
     rerender(<SecaoEncerrados e={[]} />);

@@ -97,7 +97,7 @@ export function situacaoDoProjeto(p: ProjetoEmExecucao, periodo: PeriodoDoPainel
   };
 }
 
-/** Finalizado ou Perdido no período: registro, fora de todas as contas de execução. */
+/** Card em Finalizado ou Perdido, encerrado no período ou com entrega nele. */
 export type ProjetoEncerrado = {
   id: string;
   titulo: string;
@@ -105,16 +105,28 @@ export type ProjetoEncerrado = {
   tipo: "FINALIZADO" | "PERDIDO";
   gp: Pessoa;
   encerradoEm: Date;
+  entregas: Pick<EntregaAtiva, "previstoOriginal" | "realizado">[];
+};
+
+/** Registro: fora de atraso e alertas. Só previstas e feitas entram no total, para o mês passado não mudar quando um card encerra. */
+export type SituacaoEncerrado = Omit<ProjetoEncerrado, "entregas"> & {
+  semPrevisto: boolean;
   totalEntregas: number;
   feitas: number;
+  previstasNoPeriodo: number;
+  feitasNoPeriodo: number;
 };
 
 export type TotaisExecucao = {
   emExecucao: number;
   semPrevisto: number;
   comAtraso: number;
+  /** Com os encerrados: é o que mantém um período passado estável. */
   previstasNoPeriodo: number;
   feitasNoPeriodo: number;
+  /** A parte dos encerrados nas duas somas acima. */
+  previstasEncerrados: number;
+  feitasEncerrados: number;
   atrasadas: number;
   atrasoDias: number;
   vermelhos: number;
@@ -129,7 +141,7 @@ export type ExecucaoProjetos = {
   /** Com entrega pendente vencida. */
   atrasados: SituacaoProjeto[];
   alertas: { vermelhos: SituacaoProjeto[]; amarelos: SituacaoProjeto[]; semCheckin: SituacaoProjeto[] };
-  encerrados: (ProjetoEncerrado & { semPrevisto: boolean })[];
+  encerrados: SituacaoEncerrado[];
   /** Opções do filtro: todos os GPs com projeto em execução. */
   gps: (Pessoa & { projetos: number })[];
 };
@@ -151,13 +163,28 @@ export function montarExecucao(projetos: readonly ProjetoEmExecucao[], encerrado
   const comStatus = (status: StatusCheckin) => linhas.filter((s) => s.ultimoCheckin?.status === status);
   const atrasados = linhas.filter((s) => s.atrasadas > 0);
   const alertas = { vermelhos: comStatus("VERMELHO"), amarelos: comStatus("AMARELO"), semCheckin: linhas.filter((s) => s.semCheckinNaSemana) };
+  const fechados = encerrados
+    .filter(doFiltro)
+    .map(({ entregas, ...e }): SituacaoEncerrado => ({
+      ...e,
+      semPrevisto: entregas.length === 0,
+      totalEntregas: entregas.length,
+      feitas: entregas.filter((x) => x.realizado !== null).length,
+      previstasNoPeriodo: entregas.filter((x) => noPeriodo(x.previstoOriginal, periodo)).length,
+      feitasNoPeriodo: entregas.filter((x) => x.realizado !== null && noPeriodo(x.realizado, periodo)).length,
+    }))
+    .sort((a, b) => b.encerradoEm.getTime() - a.encerradoEm.getTime());
+  const previstasEncerrados = fechados.reduce((t, e) => t + e.previstasNoPeriodo, 0);
+  const feitasEncerrados = fechados.reduce((t, e) => t + e.feitasNoPeriodo, 0);
   return {
     totais: {
       emExecucao: linhas.length,
       semPrevisto: linhas.filter((s) => s.semPrevisto).length,
       comAtraso: atrasados.length,
-      previstasNoPeriodo: soma((s) => s.previstasNoPeriodo),
-      feitasNoPeriodo: soma((s) => s.feitasNoPeriodo),
+      previstasNoPeriodo: soma((s) => s.previstasNoPeriodo) + previstasEncerrados,
+      feitasNoPeriodo: soma((s) => s.feitasNoPeriodo) + feitasEncerrados,
+      previstasEncerrados,
+      feitasEncerrados,
       atrasadas: soma((s) => s.atrasadas),
       atrasoDias: soma((s) => s.atrasoDias),
       vermelhos: alertas.vermelhos.length,
@@ -167,10 +194,7 @@ export function montarExecucao(projetos: readonly ProjetoEmExecucao[], encerrado
     projetos: linhas,
     atrasados,
     alertas,
-    encerrados: encerrados
-      .filter(doFiltro)
-      .map((e) => ({ ...e, semPrevisto: e.totalEntregas === 0 }))
-      .sort((a, b) => b.encerradoEm.getTime() - a.encerradoEm.getTime()),
+    encerrados: fechados,
     gps: [...gps.values()].sort((a, b) => porNome(a.nome, b.nome)),
   };
 }
@@ -198,9 +222,37 @@ export type PeriodoCaneta = {
   fim: Date | null;
   /** `propostaParada`. */
   parada: boolean;
-  /** Último envio ao cliente: a espera pela resposta não é tempo parado com a pessoa. */
-  envio: { de: Date; ate: Date | null } | null;
+  /** Card encerrado ou fora de Vendas: desde quando (`fase_desde`). A caneta aberta para de contar aí. */
+  fimDoCard: Date | null;
+  /** Esperas pela resposta do cliente nesta proposta (`esperasDoCliente`): não são tempo parado com a pessoa. */
+  esperas: EsperaDoCliente[];
+  /** Última gravação do rascunho. */
+  rascunhoEm: Date | null;
 };
+
+export type EsperaDoCliente = { de: Date; ate: Date | null };
+
+/** Eventos da Timeline que abrem e fecham a espera pelo cliente. */
+export const EVENTOS_DE_ENVIO = ["enviada", "revisao_pedida", "aceita", "recusada"] as const;
+
+/**
+ * Cada envio até a resposta, pela Timeline (eventos em ordem). Proposta sem o evento (dado anterior a
+ * ele) cai nas colunas, que só guardam o último envio.
+ */
+export function esperasDoCliente(eventos: readonly { evento: string; em: Date }[], colunas: { enviadaEm: Date | null; respondidaEm: Date | null }): EsperaDoCliente[] {
+  const esperas: EsperaDoCliente[] = [];
+  let aberta: Date | null = null;
+  for (const e of eventos) {
+    if (e.evento === "enviada") aberta ??= e.em;
+    else if (aberta) {
+      esperas.push({ de: aberta, ate: e.em });
+      aberta = null;
+    }
+  }
+  if (aberta) esperas.push({ de: aberta, ate: null });
+  if (esperas.length === 0 && colunas.enviadaEm) return [{ de: colunas.enviadaEm, ate: colunas.respondidaEm }];
+  return esperas;
+}
 
 export type LinhaCaneta = {
   usuario: Pessoa;
@@ -212,14 +264,26 @@ export type LinhaCaneta = {
   noPeriodoDias: number;
 };
 
-export type PropostaParada = { projetoId: string; titulo: string; usuario: Pessoa; lado: Area; status: StatusProposta; dias: number };
+export type PropostaParada = {
+  projetoId: string;
+  titulo: string;
+  usuario: Pessoa;
+  lado: Area;
+  status: StatusProposta;
+  /** Desde que a caneta chegou: a métrica principal. */
+  dias: number;
+  /** Desde a última edição do rascunho, ou desde a chegada, se foi antes dela. */
+  ultimaEdicaoDias: number;
+};
 
 export type TempoCaneta = {
   paradas: number;
   mediaDias: number | null;
   noPeriodoDias: number;
-  /** Em curso sem ninguém com a caneta: o GP do lado precisa pegar. */
+  /** Em curso sem ninguém com a caneta: o GP do lado precisa pegar. Não acompanha o filtro por pessoa: não há pessoa. */
   semDono: number;
+  /** Quem tem linha, sem o filtro: opções do filtro por pessoa. */
+  pessoas: Pessoa[];
   /** Quem segura há mais tempo primeiro. */
   porPessoa: LinhaCaneta[];
   /** As `LIMITE_PARADAS` há mais tempo paradas. */
@@ -233,18 +297,19 @@ const sobreposicao = (a: number, b: number, c: number, d: number) => Math.max(0,
 
 /** Tempo do período de caneta dentro do intervalo do painel, sem a espera pelo cliente. */
 function msNoPeriodo(p: PeriodoCaneta, intervalo: PeriodoDoPainel, agora: Date): number {
-  // Aberto: até agora se está parado; até o envio se está com o cliente; senão não conta (encerrada ou congelada).
-  const fim = p.fim ?? (p.parada ? agora : p.envio && p.envio.ate === null ? p.envio.de : null);
+  // Aberto: até o card encerrar ou sair de Vendas; senão até agora, se está parado ou com o cliente (a espera sai abaixo).
+  const fim = p.fim ?? p.fimDoCard ?? (p.parada || p.status === "ENVIADA" ? agora : null);
   if (!fim) return 0;
   const de = intervalo.inicio.getTime();
   const ate = Math.min(intervalo.fim.getTime(), agora.getTime());
   const total = sobreposicao(p.inicio.getTime(), fim.getTime(), de, ate);
-  if (!p.envio) return total;
-  const espera = sobreposicao(Math.max(p.inicio.getTime(), p.envio.de.getTime()), Math.min(fim.getTime(), (p.envio.ate ?? agora).getTime()), de, ate);
+  const espera = p.esperas.reduce((s, e) => s + sobreposicao(Math.max(p.inicio.getTime(), e.de.getTime()), Math.min(fim.getTime(), (e.ate ?? agora).getTime()), de, ate), 0);
   return Math.max(0, total - espera);
 }
 
 export function montarCaneta(periodos: readonly PeriodoCaneta[], semDono: number, intervalo: PeriodoDoPainel, pessoaId: string | null, agora: Date): TempoCaneta {
+  const temLinha = (p: PeriodoCaneta) => (p.fim === null && p.parada) || msNoPeriodo(p, intervalo, agora) > 0;
+  const comLinha = new Map(periodos.filter(temLinha).map((p) => [p.usuario.id, p.usuario]));
   const doFiltro = periodos.filter((p) => pessoaId === null || p.usuario.id === pessoaId);
   const paradas = doFiltro.filter((p) => p.fim === null && p.parada).map((p) => ({ p, ms: Math.max(0, agora.getTime() - p.inicio.getTime()) }));
   const noPeriodo = new Map<string, { usuario: Pessoa; ms: number }>();
@@ -272,10 +337,19 @@ export function montarCaneta(periodos: readonly PeriodoCaneta[], semDono: number
     mediaDias: media(paradas.map((x) => x.ms)),
     noPeriodoDias: umaCasa([...noPeriodo.values()].reduce((s, n) => s + n.ms, 0)),
     semDono,
+    pessoas: [...comLinha.values()].sort((a, b) => porNome(a.nome, b.nome)),
     porPessoa,
     maisParadas: [...paradas]
       .sort((a, b) => b.ms - a.ms)
       .slice(0, LIMITE_PARADAS)
-      .map(({ p, ms }) => ({ projetoId: p.projetoId, titulo: p.titulo, usuario: p.usuario, lado: p.lado, status: p.status, dias: umaCasa(ms) })),
+      .map(({ p, ms }) => ({
+        projetoId: p.projetoId,
+        titulo: p.titulo,
+        usuario: p.usuario,
+        lado: p.lado,
+        status: p.status,
+        dias: umaCasa(ms),
+        ultimaEdicaoDias: umaCasa(Math.max(0, agora.getTime() - Math.max(p.inicio.getTime(), p.rascunhoEm?.getTime() ?? 0))),
+      })),
   };
 }

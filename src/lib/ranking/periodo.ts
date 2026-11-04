@@ -42,9 +42,14 @@ function inicio(dia: string): Date {
 
 const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
+/** `ref` que vale como dia de um período: dia real, de 2000 para cá e não no futuro. */
+export function refValida(ref: string, agora: Date): boolean {
+  return ref >= "2000-01-01" && inicioDoDia(ref) !== null && ref <= diaEmFuso(agora);
+}
+
 export function resolverPeriodo(tipo: TipoPeriodo, ref: string | undefined, agora: Date): Periodo {
   const hoje = diaEmFuso(agora);
-  const dia = ref && inicioDoDia(ref) && ref <= hoje ? ref : hoje;
+  const dia = ref && refValida(ref, agora) ? ref : hoje;
 
   let primeiroDia: string;
   let seguinte: string;

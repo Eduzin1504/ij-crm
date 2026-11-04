@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   atrasoDaEntrega,
+  esperasDoCliente,
   montarCaneta,
   montarExecucao,
   propostaParada,
@@ -125,7 +126,7 @@ describe("montarExecucao", () => {
 
   it("totais, atrasados (o mais atrasado primeiro) e alertas", () => {
     const e = montarExecucao(projetos, [], NOVEMBRO, null, AGORA);
-    expect(e.totais).toEqual({ emExecucao: 4, semPrevisto: 1, comAtraso: 2, previstasNoPeriodo: 3, feitasNoPeriodo: 0, atrasadas: 2, atrasoDias: 12, vermelhos: 1, amarelos: 1, semCheckin: 1 });
+    expect(e.totais).toEqual({ emExecucao: 4, semPrevisto: 1, comAtraso: 2, previstasNoPeriodo: 3, feitasNoPeriodo: 0, previstasEncerrados: 0, feitasEncerrados: 0, atrasadas: 2, atrasoDias: 12, vermelhos: 1, amarelos: 1, semCheckin: 1 });
     expect(e.projetos.map((p) => p.id)).toEqual(["vermelho", "amarelo", "migrado", "verde"]);
     expect(e.atrasados.map((p) => p.id)).toEqual(["vermelho", "amarelo"]);
     expect(e.alertas.vermelhos.map((p) => p.id)).toEqual(["vermelho"]);
@@ -147,13 +148,35 @@ describe("montarExecucao", () => {
     ]);
   });
 
-  it("encerrados são registro: nunca entram nos totais; respeitam o filtro", () => {
-    const encerrado: ProjetoEncerrado = { id: "x", titulo: "Perdido", fase: "Perdido", tipo: "PERDIDO", gp: ANA, encerradoEm: new Date("2026-11-05T12:00:00Z"), totalEntregas: 3, feitas: 1 };
+  it("encerrados: fora de atraso e alertas, mas previstas e feitas somam no total, à parte; respeitam o filtro", () => {
+    const encerrado: ProjetoEncerrado = {
+      id: "x",
+      titulo: "Perdido",
+      fase: "Perdido",
+      tipo: "PERDIDO",
+      gp: ANA,
+      encerradoEm: new Date("2026-11-05T12:00:00Z"),
+      entregas: [
+        { previstoOriginal: "2026-11-02", realizado: "2026-11-02" },
+        { previstoOriginal: "2026-11-03", realizado: null },
+        { previstoOriginal: "2026-10-03", realizado: "2026-10-03" },
+      ],
+    };
     const e = montarExecucao(projetos, [encerrado], NOVEMBRO, null, AGORA);
-    expect(e.encerrados).toEqual([{ ...encerrado, semPrevisto: false }]);
-    expect(e.totais.emExecucao).toBe(4);
+    expect(e.encerrados[0]).toMatchObject({ id: "x", semPrevisto: false, totalEntregas: 3, feitas: 2, previstasNoPeriodo: 2, feitasNoPeriodo: 1 });
+    expect(e.totais).toMatchObject({ emExecucao: 4, previstasNoPeriodo: 5, feitasNoPeriodo: 1, previstasEncerrados: 2, feitasEncerrados: 1, atrasadas: 2, atrasoDias: 12, comAtraso: 2 });
     expect(e.projetos.map((p) => p.id)).not.toContain("x");
-    expect(montarExecucao(projetos, [encerrado], NOVEMBRO, "bia", AGORA).encerrados).toEqual([]);
+    const daBia = montarExecucao(projetos, [encerrado], NOVEMBRO, "bia", AGORA);
+    expect(daBia.encerrados).toEqual([]);
+    expect(daBia.totais.previstasEncerrados).toBe(0);
+  });
+
+  it("o mês passado não muda quando o projeto encerra", () => {
+    const entregas = [entrega("2026-10-05", { realizado: "2026-10-06" }), entrega("2026-10-10")];
+    const OUTUBRO = { primeiroDia: "2026-10-01", ultimoDia: "2026-10-31", inicio: new Date("2026-10-01T03:00:00Z"), fim: new Date("2026-11-01T03:00:00Z") };
+    const aberto = montarExecucao([projeto({ entregas })], [], OUTUBRO, null, AGORA).totais;
+    const fechado = montarExecucao([], [{ id: "p1", titulo: "Site", fase: "Finalizado", tipo: "FINALIZADO", gp: ANA, encerradoEm: AGORA, entregas }], OUTUBRO, null, AGORA).totais;
+    expect([fechado.previstasNoPeriodo, fechado.feitasNoPeriodo]).toEqual([aberto.previstasNoPeriodo, aberto.feitasNoPeriodo]);
   });
 });
 
@@ -181,7 +204,9 @@ describe("montarCaneta", () => {
     inicio: new Date("2026-11-09T15:00:00Z"),
     fim: null,
     parada: true,
-    envio: null,
+    fimDoCard: null,
+    esperas: [],
+    rascunhoEm: null,
     ...extra,
   });
 
@@ -221,7 +246,7 @@ describe("montarCaneta", () => {
 
   it("espera pelo cliente não conta: tira o intervalo entre o envio e a resposta", () => {
     const c = montarCaneta(
-      [periodo({ inicio: new Date("2026-11-02T15:00:00Z"), fim: new Date("2026-11-08T15:00:00Z"), parada: false, status: "ACEITA", envio: { de: new Date("2026-11-03T15:00:00Z"), ate: new Date("2026-11-08T15:00:00Z") } })],
+      [periodo({ inicio: new Date("2026-11-02T15:00:00Z"), fim: new Date("2026-11-08T15:00:00Z"), parada: false, status: "ACEITA", esperas: [{ de: new Date("2026-11-03T15:00:00Z"), ate: new Date("2026-11-08T15:00:00Z") }] })],
       0,
       NOVEMBRO,
       null,
@@ -231,15 +256,49 @@ describe("montarCaneta", () => {
   });
 
   it("enviada, ainda sem resposta: não está parada e o tempo depois do envio não conta", () => {
-    const c = montarCaneta([periodo({ inicio: new Date("2026-11-08T15:00:00Z"), parada: false, status: "ENVIADA", envio: { de: new Date("2026-11-09T15:00:00Z"), ate: null } })], 0, NOVEMBRO, null, AGORA);
+    const c = montarCaneta([periodo({ inicio: new Date("2026-11-08T15:00:00Z"), parada: false, status: "ENVIADA", esperas: [{ de: new Date("2026-11-09T15:00:00Z"), ate: null }] })], 0, NOVEMBRO, null, AGORA);
     expect(c.paradas).toBe(0);
     expect(c.maisParadas).toEqual([]);
     expect(c.noPeriodoDias).toBe(1);
   });
 
-  it("aberta em proposta encerrada ou congelada não conta em nada", () => {
-    const c = montarCaneta([periodo({ parada: false })], 0, NOVEMBRO, null, AGORA);
+  it("aberta em proposta encerrada, com o card em Vendas: não conta em nada", () => {
+    const c = montarCaneta([periodo({ parada: false, status: "ACEITA" })], 0, NOVEMBRO, null, AGORA);
     expect(c).toMatchObject({ paradas: 0, noPeriodoDias: 0, porPessoa: [] });
+  });
+
+  it("aberta com o card encerrado ou fora de Vendas: conta até lá, e não some nem cresce depois", () => {
+    const congelada = periodo({ parada: false, inicio: new Date("2026-11-02T15:00:00Z"), fimDoCard: new Date("2026-11-05T15:00:00Z") });
+    expect(montarCaneta([congelada], 0, NOVEMBRO, null, AGORA)).toMatchObject({ paradas: 0, noPeriodoDias: 3 });
+    expect(montarCaneta([congelada], 0, NOVEMBRO, null, new Date("2026-11-20T15:00:00Z")).noPeriodoDias).toBe(3);
+  });
+
+  it("reenvio: tira a espera de cada envio, não só a do último", () => {
+    const c = montarCaneta(
+      [
+        periodo({
+          inicio: new Date("2026-11-01T15:00:00Z"),
+          fim: new Date("2026-11-10T15:00:00Z"),
+          parada: false,
+          esperas: [
+            { de: new Date("2026-11-02T15:00:00Z"), ate: new Date("2026-11-04T15:00:00Z") },
+            { de: new Date("2026-11-06T15:00:00Z"), ate: new Date("2026-11-09T15:00:00Z") },
+          ],
+        }),
+      ],
+      0,
+      NOVEMBRO,
+      null,
+      AGORA,
+    );
+    expect(c.noPeriodoDias).toBe(4);
+  });
+
+  it("última edição: secundária, desde o rascunho, ou desde a chegada se o rascunho é anterior", () => {
+    const editou = montarCaneta([periodo({ rascunhoEm: new Date("2026-11-10T15:00:00Z") })], 0, NOVEMBRO, null, AGORA).maisParadas[0];
+    expect(editou).toMatchObject({ dias: 2, ultimaEdicaoDias: 1 });
+    const antes = montarCaneta([periodo({ rascunhoEm: new Date("2026-10-10T15:00:00Z") })], 0, NOVEMBRO, null, AGORA).maisParadas[0];
+    expect(antes).toMatchObject({ dias: 2, ultimaEdicaoDias: 2 });
   });
 
   it("filtro por pessoa: só as linhas dela", () => {
@@ -247,9 +306,37 @@ describe("montarCaneta", () => {
     expect(c.porPessoa.map((l) => l.usuario.id)).toEqual(["bia"]);
     expect(c.paradas).toBe(1);
     expect(c.maisParadas.map((m) => m.projetoId)).toEqual(["p2"]);
+    expect(c.pessoas.map((p) => p.id)).toEqual(["ana", "bia"]);
   });
 
   it("sem dados: tudo zerado, sem quebrar", () => {
-    expect(montarCaneta([], 0, NOVEMBRO, null, AGORA)).toEqual({ paradas: 0, mediaDias: null, noPeriodoDias: 0, semDono: 0, porPessoa: [], maisParadas: [] });
+    expect(montarCaneta([], 0, NOVEMBRO, null, AGORA)).toEqual({ paradas: 0, mediaDias: null, noPeriodoDias: 0, semDono: 0, pessoas: [], porPessoa: [], maisParadas: [] });
+  });
+});
+
+describe("esperasDoCliente", () => {
+  const d = (dia: string) => new Date(`${dia}T12:00:00Z`);
+  const SEM_COLUNA = { enviadaEm: null, respondidaEm: null };
+
+  it("cada envio até a resposta, em qualquer resposta", () => {
+    const eventos = [
+      { evento: "enviada", em: d("2026-11-01") },
+      { evento: "revisao_pedida", em: d("2026-11-03") },
+      { evento: "enviada", em: d("2026-11-05") },
+      { evento: "recusada", em: d("2026-11-06") },
+    ];
+    expect(esperasDoCliente(eventos, { enviadaEm: d("2026-11-05"), respondidaEm: d("2026-11-06") })).toEqual([
+      { de: d("2026-11-01"), ate: d("2026-11-03") },
+      { de: d("2026-11-05"), ate: d("2026-11-06") },
+    ]);
+  });
+
+  it("envio sem resposta fica aberto", () => {
+    expect(esperasDoCliente([{ evento: "enviada", em: d("2026-11-01") }], SEM_COLUNA)).toEqual([{ de: d("2026-11-01"), ate: null }]);
+  });
+
+  it("dado sem evento cai nas colunas; sem envio nenhum, vazio", () => {
+    expect(esperasDoCliente([], { enviadaEm: d("2026-11-01"), respondidaEm: d("2026-11-02") })).toEqual([{ de: d("2026-11-01"), ate: d("2026-11-02") }]);
+    expect(esperasDoCliente([], SEM_COLUNA)).toEqual([]);
   });
 });

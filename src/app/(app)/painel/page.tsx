@@ -46,7 +46,7 @@ export default async function PainelPage({ searchParams }: { searchParams: Promi
 
   const navegacao = (
     <div className="flex flex-wrap items-center gap-2">
-      <AbasPainel atual="vendas" />
+      <AbasPainel atual="vendas" periodo={periodoAtual} />
       {v.modo === "completo" ? <FiltroVendedor atualId={filtro} opcoes={p.vendedores.map((x) => ({ id: x.id, nome: x.nome }))} periodo={periodoAtual} /> : null}
       <NavegacaoPeriodo caminho="/painel" tipo={tipo} periodo={periodo} parametros={parametros} />
     </div>

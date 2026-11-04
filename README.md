@@ -893,10 +893,10 @@ cor funcional só em ponto e borda.
 - **Execução:** cada projeto aberto de Execução em diante, com entregas previstas × feitas no período, atrasadas, atraso
   acumulado, ajustes e último check-in. Entrega cancelada, e os ajustes dela, não entra em nenhuma conta (`ENTREGA_ATIVA`).
   Projeto sem entrega ativa aparece como "sem previsto" e não conta como atrasado.
-- **Atraso acumulado:** soma dos dias além do previsto ORIGINAL, o que a proposta combinou. Ajustar a data não apaga o atraso, e entrega adiantada não compensa outra. `atrasadas` é a mesma conta do `ver_cronograma` (previsto atual antes de hoje).
+- **Atraso acumulado:** soma dos dias além do previsto ORIGINAL, o que a proposta combinou. Ajustar a data não apaga o atraso, então a conta inclui dias ainda não passados quando a data foi empurrada para o futuro; entrega adiantada não compensa outra. `atrasadas` é a mesma conta do `ver_cronograma` (previsto atual antes de hoje).
 - **Alertas:** vermelho e amarelo pelo último check-in, e sem check-in na semana corrente, com a mesma regra de início do lembrete (`inicioDoAcompanhamento`).
-- **Tempo com a caneta:** propostas paradas por pessoa agora (em curso ou prontas para envio, com o card aberto em Vendas) e tempo no período, sem a espera pelo cliente do último envio.
-- **Handoff, Finalizado e Perdido** não são execução. Finalizado e Perdido no período aparecem só em "Encerrados no período", fora das contas.
+- **Tempo com a caneta:** propostas paradas por pessoa agora (em curso ou prontas para envio, com o card aberto em Vendas), desde a chegada da caneta e com a última edição ao lado, e tempo no período, sem as esperas pelo cliente (eventos da Timeline). Caneta aberta em card encerrado ou fora de Vendas para de contar em `fase_desde`.
+- **Handoff, Finalizado e Perdido** não são execução. Finalizado e Perdido aparecem em "Encerrados" se encerraram no período ou têm entrega nele: fora de atraso e alertas, mas com previstas e feitas somadas ao total do período, para um mês passado não mudar. Perdido antes de começar não aparece.
 
 | Quem | Execução e alertas | Tempo com a caneta |
 |---|---|---|
@@ -910,7 +910,7 @@ proposta. `podeVerPainelCompleto` não governa a caneta sozinho, porque abre tud
 
 Cálculo puro em `src/lib/painel/projetos-calculo.ts`, fórmulas em `definicoes.ts`, leitura em `projetos-servico.ts`, com poucas
 consultas e índices existentes, sem migration. Pelo MCP, com os mesmos números: `consultar_execucao_projetos`,
-`listar_projetos_atrasados`, `listar_projetos_em_alerta` e `consultar_tempo_caneta_proposta`.
+`listar_projetos_atrasados`, `listar_projetos_em_alerta` e `consultar_tempo_caneta_proposta`, com listas limitadas a 50 itens, totais completos e `foraDaLista`.
 
 ## Admin: configuração técnica e logs
 
