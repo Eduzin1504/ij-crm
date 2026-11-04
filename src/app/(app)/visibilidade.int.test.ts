@@ -38,6 +38,7 @@ import { CampoInline } from "./projetos/[id]/campo-inline";
 import DiffPage from "./projetos/[id]/proposta/diff/page";
 import PropostaPage from "./projetos/[id]/proposta/page";
 import VersaoPage from "./projetos/[id]/proposta/versoes/[numero]/page";
+import { HandoffDoProjeto } from "./projetos/[id]/handoff";
 import { marcarItemAction, moverParaExecucaoAction } from "./projetos/[id]/handoff-actions";
 import { POST as handoffContratoPOST } from "@/app/api/projetos/[id]/handoff/contrato/route";
 import { vincularAction } from "./projetos/[id]/vinculos-actions";
@@ -50,6 +51,9 @@ import RankingPage from "./ranking/page";
 import SemanaPage from "./semana/page";
 import { GET as csvGET } from "./tabela/csv/route";
 import TabelaPage from "./tabela/page";
+
+// Truncar todas as tabelas leva mais que o padrão em máquina ocupada. Causa da instabilidade vista não confirmada.
+vi.setConfig({ hookTimeout: 30_000 });
 
 let m: Mundo;
 let dirAnexos: string;
@@ -243,14 +247,23 @@ describe("casos que a matriz não cobre", () => {
     expect(await comentar("nao-existe", { texto: "oi" }, m.p.membroProjetos)).toEqual(semProposta);
   });
 
-  it("handoff na tela: itens seguem a área dona; o PDF do contrato também", async () => {
+  it("handoff na tela: etapa conjunta nos itens e no PDF; Execução segue a área dona; visualizador fora", async () => {
     await como(m.p.vendedor);
-    expect(await marcarItemAction(m.cardP.id, "kickoff", true)).toMatchObject({ erro: expect.stringMatching(/outra área/) });
+    expect(await marcarItemAction(m.cardP.id, "kickoff", true)).toEqual({ ok: true });
     expect(await moverParaExecucaoAction(m.cardP.id)).toMatchObject({ erro: expect.stringMatching(/outra área/) });
     const pdf = await handoffContratoPOST(new Request("http://x", { method: "POST", headers: { "x-nome-arquivo": "c.pdf" }, body: "x" }), { params: params({ id: m.cardP.id }) });
-    expect(pdf.status).toBe(403);
+    expect(pdf.status).toBe(422); // passou da permissão: recusado por não ser PDF
     await como(m.p.membroProjetos);
-    expect(await marcarItemAction(m.cardP.id, "kickoff", true)).toEqual({ ok: true });
+    expect(await marcarItemAction(m.cardP.id, "contatos", true)).toEqual({ ok: true });
+    await como(m.p.visualizador);
+    expect(await destino(() => marcarItemAction(m.cardP.id, "acessos", true))).toBe("/403");
+    const dele = await handoffContratoPOST(new Request("http://x", { method: "POST", headers: { "x-nome-arquivo": "c.pdf" }, body: "x" }), { params: params({ id: m.cardP.id }) });
+    expect(dele.status).toBe(403);
+
+    // A tela usa a mesma regra: vendedor não responsável vê o checklist editável, sem Mover para Execução.
+    await como(m.p.vendedor);
+    const h = acharPorTipo((await CardPage({ params: params({ id: m.cardP.id }) })) as ReactElement, HandoffDoProjeto)[0];
+    expect(h.props).toMatchObject({ podeEditar: true, podeMover: false });
   });
 
   it("lixeira: gestor de outra área não restaura; da área, sem área e admin restauram", async () => {

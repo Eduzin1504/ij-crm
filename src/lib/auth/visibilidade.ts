@@ -136,6 +136,15 @@ export function podeEditarCard(p: PessoaComId, card: { responsavelId: string; qu
 }
 
 /**
+ * Checklist e PDF do contrato enquanto o card está em Handoff: etapa conjunta de Projetos + Vendas
+ * (§2 e §4.7). Quem edita o card, e quem é de Vendas e escreve. Fora de Handoff o serviço recusa;
+ * Mover para Execução continua em `podeEditarCard`.
+ */
+export function podeEditarChecklistHandoff(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
+  return podeEditarCard(p, card) || (podeEscrever(p.papel) && ehDaArea(p, "VENDAS"));
+}
+
+/**
  * Trocar o responsável (dá acesso à proposta, então é mais estrito que editar): o responsável
  * atual, o GP do lado dono, gestor da área dona ou sem área, e admin. A automação fica de fora.
  */

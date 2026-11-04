@@ -701,7 +701,8 @@ Tudo no servidor: página, action, rota de API e MCP, com as regras puras de
 | Criar card | quem é da área do quadro, gestor sem área e admin |
 | Trocar o responsável | o responsável atual, GP do lado dono, gestor da área dona ou sem área, e admin |
 | Restaurar card da lixeira | gestor da área dona ou sem área, e admin (e o responsável, se for gestor) |
-| Handoff: itens, contrato e Mover para Execução | área dona ou responsável. O resumo continua de vendas |
+| Handoff: itens e PDF do contrato | em Handoff, quem edita o card e quem é de Vendas (etapa conjunta, §4.7). O resumo continua de vendas |
+| Handoff: Mover para Execução | Projetos, responsável, gestor sem área e admin |
 | `propostaUrl` | ler e gravar só com acesso à proposta |
 | Comentar, criar prazo e anexar em card de outra área | todo mundo que escreve |
 | Proposta (lista, página, versões, diff, PDF, comentários, badge, eventos na Timeline, link) | responsável do card, dono e ex-dono da caneta, quem a criou, GP, gestor com ou sem área e admin. VISUALIZADOR: nenhuma |

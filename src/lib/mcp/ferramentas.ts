@@ -93,7 +93,7 @@ import { recusaDeCriarNoQuadro } from "@/lib/projetos/acesso-card";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
 import { quadroPadrao } from "@/lib/auth/visibilidade";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
-import { camposEditaveis, cardEditavel, propostaVisivel } from "./guardas";
+import { camposEditaveis, cardEditavel, checklistHandoffEditavel, propostaVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -1041,7 +1041,7 @@ const marcarItemHandoffMcp = ferramenta({
   descricao:
     "Marca (feito=true) ou desmarca um item manual do checklist de handoff: contatos, kickoff ou acessos. Proposta congelada é automática e o PDF do contrato usa definir_contrato_handoff. Só com o projeto na coluna Handoff.",
   escrita: true,
-  guarda: cardEditavel,
+  guarda: checklistHandoffEditavel,
   entrada: { id, item: z.enum(ITENS_MANUAIS), feito: z.boolean() },
   executar: async (a, eu) => {
     const r = await marcarItemHandoff(a.id, a.item, a.feito, eu);
@@ -1082,7 +1082,7 @@ const definirContratoHandoff = ferramenta({
   descricao:
     "Cumpre o item PDF do contrato assinado do checklist. anexo_id aponta um PDF já anexado ao projeto (listar_anexos); pdf_base64 (PDF de até 7,8 MB; maior que isso, use a tela) anexa o arquivo, com pdf_nome opcional. Envie um dos dois. Substitui o contrato definido antes. Só com o projeto na coluna Handoff.",
   escrita: true,
-  guarda: cardEditavel,
+  guarda: checklistHandoffEditavel,
   entrada: {
     id,
     anexo_id: id.optional(),

@@ -11,7 +11,7 @@ import { usuarioAtual } from "@/lib/auth/atual";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { registrarErro } from "@/lib/erros/registrar";
 import { lerCorpo, mesmoSite } from "@/lib/http/upload";
-import { recusaDeEdicaoNoCard } from "@/lib/projetos/acesso-card";
+import { recusaDoChecklistHandoff } from "@/lib/projetos/acesso-card";
 import { anexarContratoNoHandoff, MENSAGEM_ERRO_HANDOFF, type ErroHandoff } from "@/lib/projetos/handoff";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!mesmoSite(req)) return falha(403, "Origem não permitida.");
     const { id } = await params;
     if (id.length > 64) return falha(404, MENSAGEM_ERRO_HANDOFF.CARD_NAO_ENCONTRADO);
-    const recusa = await recusaDeEdicaoNoCard(id, u);
+    const recusa = await recusaDoChecklistHandoff(id, u);
     if (recusa) return falha(403, recusa);
 
     let nome = "";

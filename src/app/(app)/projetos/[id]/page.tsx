@@ -29,7 +29,7 @@ import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
-import { podeEditarCard, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
+import { podeEditarCard, podeEditarChecklistHandoff, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
 import { listarPrazosDoCard } from "@/lib/prazos/prazos";
 import { PrazosProvider } from "../../_calendario/editor-prazo";
@@ -157,7 +157,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           cardId={card.id}
           handoff={handoff}
           somenteLeitura={leitura}
-          podeEditar={!soLeituraDados}
+          podeEditar={podeEditarChecklistHandoff(ator, { responsavelId: card.responsavelId, quadro: card.pipeline.chave })}
+          podeMover={!soLeituraDados}
           veProposta={veProposta}
           podeDesignar={designa}
           podeResumo={!!pessoa && pessoa.ativo && podeEscreverResumo(pessoa)}
@@ -174,6 +175,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             <div className="grid gap-4 sm:grid-cols-2">
               <MoverFase
                 somenteLeitura={soLeituraDados}
+                veProposta={veProposta}
+                responsavelNome={card.responsavel.nome}
                 ganhoId={ganhoParaAssinar}
                 cardId={card.id}
                 titulo={card.titulo}

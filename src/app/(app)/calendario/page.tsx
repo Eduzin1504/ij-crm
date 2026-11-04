@@ -78,7 +78,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
           <div data-testid="calendario-agenda" className="border-b border-border pb-5 lg:border-r lg:border-b-0 lg:pr-5 lg:pb-0">
-            <Agenda dias={dias} hoje={periodo.hoje} rotulo={periodo.rotuloAgenda} vazio={periodo.periodo === "semana" ? "Nada nesta semana." : "Nada neste período."} />
+            <Agenda dias={dias} hoje={periodo.hoje} donoDaAgenda={donoDaAgenda} rotulo={periodo.rotuloAgenda} vazio={periodo.periodo === "semana" ? "Nada nesta semana." : "Nada neste período."} />
           </div>
           <div className="min-w-0">
             {periodo.periodo === "semana" ? (

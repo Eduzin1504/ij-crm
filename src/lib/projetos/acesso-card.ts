@@ -7,7 +7,7 @@
  * Card que não existe não é recusa: quem chamou segue e o serviço responde
  * CARD_NAO_ENCONTRADO, com a mensagem de sempre.
  */
-import { podeCriarCardNoQuadro, podeEditarCard, podeTrocarResponsavel, type PessoaComId } from "@/lib/auth/visibilidade";
+import { podeCriarCardNoQuadro, podeEditarCard, podeEditarChecklistHandoff, podeTrocarResponsavel, type PessoaComId } from "@/lib/auth/visibilidade";
 import type { PessoaComLado } from "@/lib/auth/areas";
 import { db } from "@/lib/db";
 import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
@@ -35,6 +35,13 @@ export async function recusaDeEdicaoNoCard(cardId: string, p: PessoaComId, opts:
   if (opts.campos?.includes("responsavelId") && !podeTrocarResponsavel(p, card)) return MENSAGEM_RESPONSAVEL;
   if (opts.campos?.includes("propostaUrl") && !(await podeVerPropostaDoProjeto(p, cardId))) return MENSAGEM_SEM_ACESSO_PROPOSTA;
   return null;
+}
+
+/** Itens e PDF do contrato no Handoff: etapa conjunta, com Vendas (`podeEditarChecklistHandoff`). */
+export async function recusaDoChecklistHandoff(cardId: string, p: PessoaComId): Promise<string | null> {
+  const achado = await db.projeto.findFirst({ where: { id: cardId, deletadoEm: null }, select: { responsavelId: true, pipeline: { select: { chave: true } } } });
+  if (!achado || podeEditarChecklistHandoff(p, { responsavelId: achado.responsavelId, quadro: achado.pipeline.chave })) return null;
+  return MENSAGEM_ERRO_PROJETO.FORA_DA_AREA;
 }
 
 /** Tirar anexo do card: quem o anexou (de fora também) ou quem edita o card. */

@@ -63,3 +63,34 @@ describe("MoverFase: botão Contrato assinado (GAB-99)", () => {
     expect(refresh).toHaveBeenCalled();
   });
 });
+
+describe("MoverFase: reabrir card perdido por proposta inviável (GAB-98)", () => {
+  const FASES = [fase("a", "Em negociação"), { ...fase("p", "Perdido"), tipoTerminal: "PERDIDO" as const, isTerminal: true }];
+  const abrir = (veProposta: boolean, motivoPerda: string) =>
+    render(<MoverFase cardId="c1" titulo="Site" faseAtualId="p" pipelineChave="vendas" fechamento={{ valorFechado: null, motivoPerda }} veProposta={veProposta} responsavelNome="Ana" fases={FASES} />);
+
+  it("quem vê a proposta é avisado de Em ajuste e do motivo; só move ao confirmar", async () => {
+    moverCardAction.mockClear();
+    abrir(true, "Outro: Proposta inviável");
+    fireEvent.change(screen.getByLabelText("Fase"), { target: { value: "a" } });
+    expect(await screen.findByText(/Em ajuste/)).toHaveTextContent(/limpa o motivo/);
+    expect(moverCardAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Reabrir" }));
+    await waitFor(() => expect(moverCardAction).toHaveBeenCalledTimes(1));
+  });
+
+  it("quem não vê a proposta recebe a sugestão de falar com o responsável", async () => {
+    abrir(false, "Outro: Proposta inviável");
+    fireEvent.change(screen.getByLabelText("Fase"), { target: { value: "a" } });
+    expect(await screen.findByText(/Fale com Ana/)).toBeInTheDocument();
+    expect(screen.queryByText(/Em ajuste/)).toBeNull();
+  });
+
+  it("perda por outro motivo reabre direto", async () => {
+    moverCardAction.mockClear();
+    abrir(true, "Preço: achou caro");
+    fireEvent.change(screen.getByLabelText("Fase"), { target: { value: "a" } });
+    await waitFor(() => expect(moverCardAction).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Em ajuste/)).toBeNull();
+  });
+});

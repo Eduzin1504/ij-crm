@@ -23,13 +23,14 @@ import { ChevronsLeftRight, Plus } from "lucide-react";
 import { cn } from "cn";
 import { EstadoVazio } from "@/components/estado-vazio";
 import { MensagemErro } from "@/components/erros/mensagem-erro";
+import { AvisoReabrir, type PedidoReabrir } from "@/components/kanban/aviso-reabrir";
 import { DialogoTerminal, type PedidoTerminal } from "@/components/kanban/dialogo-terminal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FALHA_CONEXAO, executarAcao, falhaDe, type FalhaUI } from "@/lib/erros/cliente";
 import { DESCRICAO_MAX } from "@/lib/projetos/descricao";
 import { enviarContratoAssinado } from "@/lib/projetos/contrato-assinado-cliente";
-import { dialogoTerminal, type DadosTerminal } from "@/lib/projetos/terminal-regras";
+import { dialogoTerminal, reabreInviavel, textoReabrirInviavel, type DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { criarCardAction, moverCardAction, salvarVisualizacaoKanbanAction } from "./actions";
 import { CardVisual } from "./card-visual";
 import { colisaoQuadro } from "./colisao";
@@ -74,6 +75,7 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
   }
 
   const [ativo, setAtivo] = useState<CardCliente | null>(null);
+  const [reabrir, setReabrir] = useState<(PedidoReabrir & { cardId: string; faseId: string }) | null>(null);
   // Coluna sob o card arrastado (estável: ver `proximoAlvo`); null fora de arrasto.
   const [alvo, setAlvo] = useState<string | null>(null);
   // Abertas à mão + "mostrar vazias": preferência do usuário, salva no servidor.
@@ -183,10 +185,15 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
     });
   }
 
-  function aoSoltar(cardId: string, paraFaseId: string) {
+  function aoSoltar(cardId: string, paraFaseId: string, confirmado = false) {
     const card = cards.find((c) => c.id === cardId);
     const destino = faseDe(paraFaseId);
     if (!card || !destino || card.faseId === paraFaseId) return;
+    // Sem status de proposta no card: quem olha não vê a proposta (`ocultarPropostasDoQuadro`).
+    if (!confirmado && reabreInviavel(faseDe(card.faseId), destino, card.motivoPerda)) {
+      setReabrir({ cardId, faseId: paraFaseId, titulo: card.titulo, texto: textoReabrirInviavel(card.propostaStatus !== null, card.responsavelNome) });
+      return;
+    }
     // Ganho (vendas) pede valor, perdido pede motivo: só move depois do diálogo.
     // Terminal sem dados (ex.: "Finalizado" em projetos) move direto.
     const tipo = dialogoTerminal(pipelineChave, destino.tipoTerminal);
@@ -354,6 +361,14 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
         </div>
         <DragOverlay>{ativo ? <CardVisual card={ativo} fase={faseDe(ativo.faseId)} agoraMs={agoraMs} arrastando /> : null}</DragOverlay>
       </DndContext>
+      <AvisoReabrir
+        pedido={reabrir}
+        onCancelar={() => setReabrir(null)}
+        onConfirmar={() => {
+          if (reabrir) aoSoltar(reabrir.cardId, reabrir.faseId, true);
+          setReabrir(null);
+        }}
+      />
       <DialogoTerminal
         pedido={pedido}
         onCancelar={() => setPedido(null)}

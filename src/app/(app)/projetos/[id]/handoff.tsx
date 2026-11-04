@@ -18,8 +18,10 @@ type Props = {
   somenteLeitura: boolean;
   podeDesignar: boolean;
   podeResumo: boolean;
-  /** GAB-98: itens, contrato e Mover para Execução são de quem edita o card (área dona ou responsável). */
+  /** GAB-98: itens e contrato, etapa conjunta (`podeEditarChecklistHandoff`). */
   podeEditar?: boolean;
+  /** GAB-98: Mover para Execução é de quem edita o card (área dona ou responsável). */
+  podeMover?: boolean;
   /** GAB-98: link e versão da proposta só para quem a vê. */
   veProposta?: boolean;
   candidatosGp: { id: string; nome: string }[];
@@ -32,7 +34,7 @@ type Props = {
 const CAMPO = "w-full rounded-lg border border-input bg-input/30 px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /** Bloco "Handoff" do Projeto (GAB-93, spec §4.8). As regras são do servidor; aqui só se mostra o que cabe a quem vê. */
-export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, podeEditar = true, veProposta = true, candidatosGp, semGpDeProjetos, pdfs }: Props) {
+export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, podeEditar = true, podeMover = true, veProposta = true, candidatosGp, semGpDeProjetos, pdfs }: Props) {
   const router = useRouter();
   const editavel = h.emHandoff && !somenteLeitura;
   const editaItens = editavel && podeEditar;
@@ -72,7 +74,7 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
         <h2 className="text-sm font-medium">Handoff</h2>
         <span className="font-mono text-[11px] text-fg-mute uppercase">{h.completo ? "completo" : h.isento ? "dispensado" : "em aberto"}</span>
         <span className="flex-1" />
-        {editaItens ? (
+        {editavel && podeMover ? (
           <Button type="button" size="sm" disabled={pendente || (!h.completo && !h.isento)} onClick={() => agir(() => moverParaExecucaoAction(cardId), "mover para Execução")}>
             Mover para Execução
           </Button>

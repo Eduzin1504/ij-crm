@@ -4,8 +4,8 @@
  * `trava-handoff.ts`, chamada por `registrarMovimento`.
  *
  * Permissões, sempre com a pessoa RELIDA do banco:
- * - Itens manuais, PDF do contrato e Execução: quem escreve; a área dona ou o responsável é conferida
- *   antes de chamar (GAB-98, `acesso-card.ts`), nas actions e no MCP.
+ * - Itens manuais e PDF do contrato: etapa conjunta, quem edita o card ou é de Vendas; Execução: quem
+ *   edita o card. Conferido antes de chamar (GAB-98, `acesso-card.ts`), nas actions, na rota e no MCP.
  * - Resumo: lado vendas. GP do projeto: só o GP de projetos, e a pessoa é da área
  *   projetos; ela vira a responsável pelo Projeto.
  * - Proposta congelada: automática, não tem escrita aqui.
