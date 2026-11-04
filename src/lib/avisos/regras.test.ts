@@ -6,6 +6,7 @@ describe("regras dos avisos", () => {
     expect(vaiPorWhatsapp("SUA_VEZ")).toBe(true);
     expect(vaiPorWhatsapp("PROPOSTA_ACEITA")).toBe(true);
     expect(vaiPorWhatsapp("HANDOFF")).toBe(true);
+    expect(vaiPorWhatsapp("CHECKIN_ATRASADO")).toBe(false);
     expect(vaiPorWhatsapp("CANETA_PEGA")).toBe(false);
     expect(vaiPorWhatsapp("STATUS_PROPOSTA")).toBe(false);
     expect(vaiPorWhatsapp("COMENTARIO")).toBe(false);
@@ -15,6 +16,7 @@ describe("regras dos avisos", () => {
     expect(hrefAviso({ tipo: "SUA_VEZ", projetoId: "p1" })).toBe("/projetos/p1/proposta");
     expect(hrefAviso({ tipo: "COMENTARIO", projetoId: "p1" })).toBe("/projetos/p1/proposta");
     expect(hrefAviso({ tipo: "HANDOFF", projetoId: "p1" })).toBe("/projetos/p1");
+    expect(hrefAviso({ tipo: "CHECKIN_ATRASADO", projetoId: "p1" })).toBe("/projetos/p1");
     expect(hrefAviso({ tipo: "SUA_VEZ", projetoId: null })).toBeNull();
   });
 

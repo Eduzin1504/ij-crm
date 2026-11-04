@@ -7,6 +7,8 @@ import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { listarAnexos } from "@/lib/anexos/anexos";
 import { pessoaDaCaneta } from "@/lib/propostas/propostas";
 import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
+import { obterCronograma } from "@/lib/projetos/execucao";
+import { podeOperarExecucao } from "@/lib/projetos/execucao-regras";
 import { listarCandidatosGp, obterHandoff } from "@/lib/projetos/handoff";
 import { podeDesignarGp, podeEscreverResumo } from "@/lib/projetos/handoff-regras";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -16,6 +18,7 @@ import { ROTULO_ORIGEM, UFS } from "@/lib/projetos/campos";
 import { formatarDataHora, formatarDinheiro, formatarDia } from "@/lib/projetos/formatar";
 import { idDoCardQueAbsorveu, listarResponsaveis, nomesDeUsuarios, obterCard } from "@/lib/projetos/projetos";
 import { AnexosDoProjeto } from "./anexos";
+import { ExecucaoDoProjeto } from "./execucao";
 import { HandoffDoProjeto } from "./handoff";
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
@@ -59,7 +62,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   }
   const agora = new Date();
   const hoje = diaEmFuso(agora);
-  const [pipelines, responsaveis, nomes, prazos, anexos, handoff, pessoa] = await Promise.all([
+  const [pipelines, responsaveis, nomes, prazos, anexos, handoff, pessoa, cronograma] = await Promise.all([
     listarPipelines({ incluirArquivadas: true }),
     listarResponsaveis(),
     nomesDeUsuarios(idsUsuarios),
@@ -67,6 +70,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
     listarAnexos(card.id),
     obterHandoff(card.id),
     pessoaDaCaneta(ator.id),
+    obterCronograma(card.id, agora),
   ]);
   // GAB-93: fora da coluna Handoff o bloco é só registro, e some em card isento sem nada preenchido.
   const verHandoff = handoff && (handoff.emHandoff || !handoff.isento || handoff.gp || handoff.resumoEm);
@@ -154,6 +158,11 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           semGpDeProjetos={semGpDeProjetos}
           pdfs={anexos.filter((a) => a.tipo === "PDF").map((a) => ({ id: a.id, nome: a.nome }))}
         />
+      ) : null}
+
+      {/* GAB-95: em Execução, ou o registro de quem já passou por ela. Todos leem; quem opera é decidido no servidor. */}
+      {cronograma && (cronograma.emExecucao || cronograma.entregas.length > 0 || cronograma.checkins.length > 0) ? (
+        <ExecucaoDoProjeto cardId={card.id} cronograma={cronograma} hoje={hoje} podeOperar={cronograma.emExecucao && !!pessoa && podeOperarExecucao({ ...pessoa, id: ator.id }, cronograma.gp.id)} />
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

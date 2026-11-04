@@ -27,6 +27,22 @@ describe("Timeline: PRAZO (GAB-51)", () => {
   });
 });
 
+describe("Timeline: EXECUCAO (GAB-95)", () => {
+  const ver = (payload: object) => render(<Timeline entradas={[{ ...entrada(payload), tipo: "EXECUCAO" as const }]} fases={new Map()} nomes={new Map()} />);
+
+  it("cópia, entrega feita, ajuste com motivo e check-in com cor e motivo", () => {
+    ver({ evento: "cronograma_copiado", versao: 2, entregas: 3 });
+    expect(screen.getByText(/copiou o cronograma da proposta \(v2, 3 entregas\)/)).toBeInTheDocument();
+    ver({ evento: "entrega_feita", titulo: "Diagnóstico", dia: "2026-11-21", previsto: "2026-11-20" });
+    expect(screen.getByText(/em 21\/11\/2026 \(prevista para 20\/11\/2026\)/)).toBeInTheDocument();
+    ver({ evento: "data_ajustada", titulo: "Final", de: "2026-12-10", para: "2026-12-20", motivo: "Cliente atrasou" });
+    expect(screen.getByText(/de 10\/12\/2026 para 20\/12\/2026: Cliente atrasou/)).toBeInTheDocument();
+    ver({ evento: "checkin", status: "AMARELO", motivo: "Atenção ao prazo" });
+    expect(screen.getByText("Amarelo")).toBeInTheDocument();
+    expect(screen.getByText(/Atenção ao prazo/)).toBeInTheDocument();
+  });
+});
+
 describe("Timeline: pares não unidos do ciclo único (GAB-81)", () => {
   const vinculo = (payload: object) => ({ ...entrada(payload), tipo: "VINCULO_PROJETO" as const, usuarioId: null, usuario: null });
 

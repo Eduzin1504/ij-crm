@@ -19,6 +19,7 @@
  * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
  * Contrato (GAB-99): marcar assinado, com o PDF opcional.
  * Handoff (GAB-93): ler, itens, resumo, GP, PDF do contrato e mover para execução.
+ * Execução (GAB-95): cronograma, entregas e check-in, em ./execucao.ts.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -89,6 +90,7 @@ import { ROTULO_AREA } from "@/lib/auth/areas";
 import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
+import { FERRAMENTAS_EXECUCAO } from "./execucao";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -1119,6 +1121,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   concluirRevisaoMcp,
   // GAB-91: comentários na proposta (src/lib/mcp/comentarios.ts).
   ...FERRAMENTAS_COMENTARIOS,
+  // GAB-95: cronograma e check-in (src/lib/mcp/execucao.ts).
+  ...FERRAMENTAS_EXECUCAO,
 ];
 
 function resultado(r: Resposta): CallToolResult {

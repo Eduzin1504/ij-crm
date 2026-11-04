@@ -42,6 +42,7 @@ const card: CardCliente = {
   responsavelNome: "Ana Vendas",
   responsavelFotoEm: null,
   propostaStatus: null,
+  ultimoCheckin: null,
   empresaNome: null,
   origem: null,
   estado: null,

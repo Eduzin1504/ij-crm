@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip, FileText, ClipboardCheck } from "lucide-react";
-import type { TipoTimeline } from "@prisma/client";
+import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip, FileText, ClipboardCheck, CalendarCheck } from "lucide-react";
+import type { StatusCheckin, TipoTimeline } from "@prisma/client";
 import { ehCampoEditavel, ROTULO_CAMPO } from "@/lib/projetos/campos";
 import { ROTULO_CAMPO_TERMINAL, ehCampoTerminal, formatarCampoTerminal, formatarDataHora, formatarDia, formatarValorCampo } from "@/lib/projetos/formatar";
 import type { DetalheCard } from "@/lib/projetos/projetos";
 import { ehCampoVinculo, ROTULO_VINCULO } from "@/lib/projetos/vinculos";
+import { ROTULO_CHECKIN } from "@/lib/projetos/execucao-regras";
 import { ROTULO_ITEM, type ItemManual } from "@/lib/projetos/handoff-regras";
 import { BadgeSentimento, NotaContatoExibida } from "@/components/avaliacao/nota-contato";
 import { MensagemWhatsapp } from "./mensagem-whatsapp";
@@ -26,6 +27,7 @@ const ICONE: Record<TipoTimeline, typeof Plus> = {
   ANEXO: Paperclip,
   PROPOSTA: FileText,
   HANDOFF: ClipboardCheck,
+  EXECUCAO: CalendarCheck,
 };
 
 /** Card ligado a este (venda ↔ projeto), para os links da Timeline. */
@@ -221,6 +223,21 @@ function Descricao({
       if (p.evento === "resumo_salvo") return <>escreveu o resumo de handoff</>;
       if (p.evento === "contrato_definido") return <>definiu {b(p.nome, "um anexo")} como o contrato assinado</>;
       return <>atualizou o handoff</>;
+    }
+    case "EXECUCAO": {
+      // GAB-95.
+      const b = (v: unknown, resto: string) => <b className="font-medium text-foreground">{typeof v === "string" && v ? v : resto}</b>;
+      const dia = (v: unknown) => (typeof v === "string" ? formatarDia(v) : "—");
+      if (p.evento === "cronograma_copiado") return <>copiou o cronograma da proposta (v{String(p.versao ?? "?")}, {String(p.entregas ?? 0)} entregas)</>;
+      if (p.evento === "entrega_adicionada") return <>lançou a entrega {b(p.titulo, "entrega")}, prevista para {dia(p.dia)}</>;
+      if (p.evento === "entrega_feita") return <>marcou como feita a entrega {b(p.titulo, "entrega")} em {dia(p.dia)} (prevista para {dia(p.previsto)})</>;
+      if (p.evento === "entrega_desmarcada") return <>desmarcou a entrega {b(p.titulo, "entrega")}, que estava feita em {dia(p.dia)}</>;
+      if (p.evento === "data_ajustada") return <>ajustou a entrega {b(p.titulo, "entrega")} de {dia(p.de)} para {dia(p.para)}: {typeof p.motivo === "string" ? p.motivo : ""}</>;
+      if (p.evento === "checkin") {
+        const cor = typeof p.status === "string" && p.status in ROTULO_CHECKIN ? ROTULO_CHECKIN[p.status as StatusCheckin] : "?";
+        return <>fez o check-in da semana: {b(cor, "?")}. {typeof p.motivo === "string" ? p.motivo : ""}</>;
+      }
+      return <>atualizou o cronograma</>;
     }
     case "ANEXO": {
       // GAB-84. O nome fica como texto (sem link): o anexo pode já ter sido excluído.
