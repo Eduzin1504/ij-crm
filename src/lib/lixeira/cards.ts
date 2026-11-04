@@ -97,7 +97,9 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
       // nem quando a fase original continua ativa: ela pode ter sido arquivada,
       // desarquivada ou reordenada para depois do marco com o card na lixeira.
       // Origem null: só passa card isento ou com proposta ACEITA.
-      if (await travaDoContrato(tx, { projetoId: id, origem: null, destino })) throw new Falha({ erro: "PROPOSTA_NAO_ACEITA" });
+      // GAB-99: nem em fase de ganho (ex.: subfase que a Gestão virou ganho com o card na lixeira).
+      const trava = await travaDoContrato(tx, { projetoId: id, origem: null, destino });
+      if (trava) throw new Falha({ erro: trava.erro });
 
       const agora = new Date();
       const depois = new Date(agora.getTime() + 1); // MOVIMENTACAO depois da RESTAURACAO na Timeline

@@ -18,6 +18,8 @@ export type ErroLixeira =
   | "FASE_INCOMPATIVEL"
   /** GAB-89: destino em Montando contrato ou além sem a proposta aceita. */
   | "PROPOSTA_NAO_ACEITA"
+  /** GAB-99: destino é fase de ganho; ganho só a partir de Montando contrato. */
+  | "GANHO_SO_DE_MONTANDO_CONTRATO"
   | "CONFIRMACAO_NAO_CONFERE"
   | "CONTATO_TEM_MESCLADOS"
   | "EMPRESA_TEM_MESCLADOS"
@@ -82,6 +84,8 @@ export function mensagemLixeira(f: FalhaLixeira): string {
       return "A fase escolhida precisa ser do mesmo tipo da original (aberta, ganho ou perdido).";
     case "PROPOSTA_NAO_ACEITA":
       return "Este card não tem proposta aceita: ele não volta em Montando contrato nem numa fase depois dela. Escolha uma fase antes de Montando contrato.";
+    case "GANHO_SO_DE_MONTANDO_CONTRATO":
+      return "Este card não volta numa fase de ganho: ganho só a partir de Montando contrato. Reveja a fase na Gestão de fases ou escolha outro destino.";
     case "CONFIRMACAO_NAO_CONFERE":
       return "O texto digitado não confere com o título. Nada foi apagado.";
     case "CONTATO_TEM_MESCLADOS":

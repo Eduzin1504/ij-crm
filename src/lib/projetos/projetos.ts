@@ -233,7 +233,7 @@ export async function inserirCard(
  * terminal) e `origem`/`destino` relidos depois do lock. `transicao: false`
  * quando o chamador grava a TransicaoFase por outro caminho (histórico do import).
  *
- * GAB-89: a trava de Montando contrato (proposta aceita) vale para todo
+ * GAB-89/GAB-99: a trava de Montando contrato (proposta aceita; Ganho só de lá) vale para todo
  * movimento que passa aqui — Kanban, MCP, WhatsApp, aceite da proposta — menos
  * o import do Pipefy (`origemTransicao: "IMPORT"`, histórico de antes da trava).
  */
@@ -265,7 +265,7 @@ export async function registrarMovimento(
   const payload = { deFaseId: origem.id, paraFaseId: destino.id, ...(args.via ? { via: args.via } : {}) };
   await tx.timeline.create({ data: { projetoId: id, tipo: "MOVIMENTACAO", payload, usuarioId: args.porId, em } });
   // GAB-87: card reaberto (saiu de Perdido) → a proposta Inviável volta para o pingue-pongue (Em ajuste, sem caneta).
-  // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco são do GAB-89/92; aqui nada muda.
+  // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco estão em `trava-contrato.ts`; aqui nada muda.
   if (origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
     await reabrirPropostaInviavel(tx, id, args.porId, instante());
   }

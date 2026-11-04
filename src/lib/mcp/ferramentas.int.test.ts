@@ -82,6 +82,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       atualizar_projeto: { id, campos: { titulo: "Outro" } },
       definir_proxima_acao: { id, acao: "Ligar", data: "2026-11-10" },
       mover_projeto: { id, fase_id: fase(vendas, "em_negociacao").id },
+      marcar_contrato_assinado: { id },
       registrar_nota: { id, texto: "oi" },
       vincular_empresa_contato: { id, campo: "empresa", alvo_id: empresa.id },
       criar_prazo: { titulo: "Entregar", dia: "2026-11-20", projeto_id: id },
@@ -608,6 +609,65 @@ describe("avisos via MCP (GAB-88): o sino da própria pessoa", () => {
     expect(dados(await executarFerramenta("listar_avisos", { todos: true }, projetos)).avisos).toHaveLength(2);
     expect(dados(await executarFerramenta("marcar_avisos_lidos", {}, projetos))).toEqual({ marcados: 1, naoLidos: 0 });
     expect(dados(await executarFerramenta("listar_avisos", {}, projetos))).toEqual({ naoLidos: 0, avisos: [] });
+  });
+});
+
+describe("contrato assinado via MCP (GAB-99): mesmo serviço e mesma trava da tela", () => {
+  async function comContrato() {
+    const s = await semear();
+    await db.fase.update({ where: { id: fase(s.vendas, "perdido").id }, data: { ordem: 4 } });
+    const mc = await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    const ganho = await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "contrato_assinado", nome: "Contrato assinado", ordem: 3, isTerminal: true, tipoTerminal: "GANHO", marco: "GANHO" } });
+    invalidarCachePipelines();
+    const card = await criarCard({ pipelineId: s.vendas.id, faseId: fase(s.vendas, "em_negociacao").id, titulo: "Site" }, s.vendedora);
+    if (!card.ok) throw new Error("seed");
+    await db.proposta.create({ data: { projetoId: card.id, status: "ACEITA", criadoPorId: s.vendedora.id } });
+    return { ...s, id: card.id, mc, ganho };
+  }
+
+  it("trava: antes de Montando contrato, mover_projeto e marcar_contrato_assinado recusam (nem gestor)", async () => {
+    const { id, ganho, gestor, vendedora } = await comContrato();
+    for (const quem of [gestor, vendedora]) {
+      const movido = await executarFerramenta("mover_projeto", { id, fase_id: ganho.id, valor_fechado: "9.000,00" }, quem);
+      expect(movido.isError).toBe(true);
+      expect(texto(movido)).toMatch(/só a partir de Montando contrato/);
+      const marcado = await executarFerramenta("marcar_contrato_assinado", { id, valor_fechado: "9.000,00" }, quem);
+      expect(marcado.isError).toBe(true);
+      expect(texto(marcado)).toMatch(/só a partir de Montando contrato/);
+    }
+    const c = await db.projeto.findUniqueOrThrow({ where: { id } });
+    expect(c.dataGanho).toBeNull();
+    expect(c.faseId).not.toBe(ganho.id);
+  });
+
+  it("em Montando contrato, sem PDF: Ganho com data e valor, segue ao Handoff, Timeline via MCP", async () => {
+    const { id, mc, vendedora } = await comContrato();
+    expect(await executarFerramenta("mover_projeto", { id, fase_id: mc.id }, vendedora)).not.toHaveProperty("isError", true);
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, valor_fechado: "9.000,00" }, vendedora));
+    expect(r).toMatchObject({ mudou: true, anexo: null });
+    const c = await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } });
+    expect(c.fase.marco).toBe("HANDOFF");
+    expect(c.valorFechado?.toFixed(2)).toBe("9000.00");
+    expect(c.dataGanho).not.toBeNull();
+    const mov = await db.timeline.findMany({ where: { projetoId: id, tipo: "MOVIMENTACAO" }, orderBy: { em: "desc" } });
+    expect(mov[0].viaMcp).toBe(true);
+  });
+
+  it("com PDF em base64: anexa e marca; base64 inválido e arquivo que não é PDF não movem nada", async () => {
+    const { id, mc, vendedora } = await comContrato();
+    await executarFerramenta("mover_projeto", { id, fase_id: mc.id }, vendedora);
+    const invalido = await executarFerramenta("marcar_contrato_assinado", { id, pdf_base64: "@@@" }, vendedora);
+    expect(texto(invalido)).toMatch(/base64/);
+    const png = await executarFerramenta("marcar_contrato_assinado", { id, pdf_nome: "foto.png", pdf_base64: Buffer.from(PNG).toString("base64") }, vendedora);
+    expect(texto(png)).toMatch(/precisa ser um PDF/);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).faseId).toBe(mc.id);
+    expect(await db.anexo.count({ where: { projetoId: id } })).toBe(0);
+
+    const bytes = pdfDeTexto(["Contrato assinado"]);
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, pdf_base64: Buffer.from(bytes).toString("base64") }, vendedora));
+    expect(r.anexo).toMatchObject({ nome: "Contrato assinado.pdf" });
+    expect(await db.anexo.findFirstOrThrow({ where: { projetoId: id } })).toMatchObject({ tipo: "PDF", tamanho: bytes.length });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } })).fase.marco).toBe("HANDOFF");
   });
 });
 

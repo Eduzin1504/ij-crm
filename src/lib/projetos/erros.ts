@@ -17,6 +17,8 @@ export type ErroProjeto =
   | "FASE_HANDOFF_INDISPONIVEL"
   /** GAB-89: Montando contrato (ou além) só com a proposta aceita (`trava-contrato.ts`). */
   | "PROPOSTA_NAO_ACEITA"
+  /** GAB-99: Ganho só a partir de Montando contrato (`trava-contrato.ts`). */
+  | "GANHO_SO_DE_MONTANDO_CONTRATO"
   /** Ator VISUALIZADOR (somente leitura). */
   | "SEM_PERMISSAO"
   | ErroDadosTerminal;
@@ -50,5 +52,6 @@ export const MENSAGEM_ERRO_PROJETO: Record<ErroProjeto, string> = {
   SEM_PERMISSAO: "Seu acesso é só de visualização.",
   PROPOSTA_NAO_ACEITA:
     "Montando contrato (e o que vem depois dele) só com a proposta aceita pelo cliente — nem a gestão força. Registre o aceite na proposta do projeto: ele já leva o card para Montando contrato.",
+  GANHO_SO_DE_MONTANDO_CONTRATO: "Ganho (contrato assinado) só a partir de Montando contrato — nem a gestão força. Leve o card para Montando contrato e marque “Contrato assinado” de lá.",
   MOTIVO_PERDA_DETALHE_LONGO: `O detalhe do motivo pode ter até ${DETALHE_PERDA_MAX} caracteres.`,
 };

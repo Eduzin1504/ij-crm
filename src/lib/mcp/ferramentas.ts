@@ -17,10 +17,11 @@
  * Caneta (GAB-87): passar, devolver, concordar, pegar, reabrir, inviável e diff —
  * as mesmas funções de serviço da tela, com a máquina de estados de propostas/caneta.ts.
  * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
+ * Contrato (GAB-99): marcar assinado, com o PDF opcional.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
-import { ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
+import { ANEXO_MAX_BYTES, ROTULO_TIPO_ANEXO } from "@/lib/anexos/tipos";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { comViaMcp } from "@/lib/canal";
@@ -28,6 +29,7 @@ import { mensagemInesperada, registrarErro } from "@/lib/erros/registrar";
 import { listarPipelines } from "@/lib/fases/fases";
 import { ROTULO_MARCO } from "@/lib/fases/marcos";
 import { diaEmFuso } from "@/lib/projetos/aging";
+import { MENSAGEM_ERRO_CONTRATO, marcarContratoAssinado } from "@/lib/projetos/contrato-assinado";
 import { CAMPOS_EDITAVEIS, descricaoSchema, interpretarCampo, type CampoEditavel } from "@/lib/projetos/campos";
 import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { adicionarNota, criarCard, editarCard, listarQuadro, listarResponsaveis, moverCard, obterCard, type PatchCard } from "@/lib/projetos/projetos";
@@ -106,6 +108,7 @@ const id = z.string().min(1).max(64);
 const quadro = z.enum([PIPELINE_VENDAS, PIPELINE_PROJETOS]);
 const ok = (dados: unknown): Resposta => ({ ok: true, dados });
 const erro = (texto: string): Resposta => ({ ok: false, erro: texto });
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const urlProjeto = (pid: string) => `${urlBase()}/projetos/${pid}`;
 const dia = (d: Date | null) => (d ? diaEmFuso(d) : null);
 
@@ -331,7 +334,7 @@ const moverProjeto = ferramenta({
   nome: "mover_projeto",
   titulo: "Mover projeto de fase",
   descricao:
-    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
+    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card; Ganho só a partir de Montando contrato — prefira marcar_contrato_assinado). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
   escrita: true,
   entrada: {
     id,
@@ -913,6 +916,27 @@ const marcarAvisosLidosMcp = ferramenta({
   },
 });
 
+const marcarContratoAssinadoMcp = ferramenta({
+  nome: "marcar_contrato_assinado",
+  titulo: "Marcar contrato como assinado",
+  descricao:
+    "Contrato assinado: leva o projeto em Montando contrato (ou numa subfase depois dele) para Ganho e dali ao Handoff do quadro projetos, registrando a data e o valor fechado. Fora disso é recusado, nem gestor força. valor_fechado no formato 12.500,00; sem ele, mantém o valor já guardado no projeto. pdf_base64 (opcional) anexa o PDF assinado ao projeto, com o nome em pdf_nome.",
+  escrita: true,
+  entrada: {
+    id,
+    valor_fechado: z.string().max(50).optional(),
+    pdf_nome: z.string().max(1000).optional(),
+    pdf_base64: z.string().max(Math.ceil(ANEXO_MAX_BYTES / 3) * 4).optional(),
+  },
+  executar: async (a, eu) => {
+    if (a.pdf_base64 !== undefined && !BASE64.test(a.pdf_base64)) return erro("pdf_base64 não é base64 válido.");
+    const arquivo = a.pdf_base64 !== undefined ? { nome: a.pdf_nome?.trim() || "Contrato assinado.pdf", bytes: new Uint8Array(Buffer.from(a.pdf_base64, "base64")) } : null;
+    const r = await marcarContratoAssinado(a.id, { valorFechado: a.valor_fechado, arquivo }, eu);
+    if (!r.ok) return erro(MENSAGEM_ERRO_CONTRATO[r.erro]);
+    return ok({ mudou: r.mudou, anexo: r.anexo, url: urlProjeto(a.id) });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -922,6 +946,7 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   atualizarProjeto,
   definirProximaAcao,
   moverProjeto,
+  marcarContratoAssinadoMcp,
   registrarNota,
   buscarEmpresasContatos,
   vincularEmpresaContato,

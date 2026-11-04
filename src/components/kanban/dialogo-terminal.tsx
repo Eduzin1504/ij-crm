@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ANEXO_MAX_BYTES, MENSAGEM_ERRO_ANEXO } from "@/lib/anexos/tipos";
 import {
   DETALHE_PERDA_MAX,
   MOTIVOS_PERDA,
@@ -50,7 +51,8 @@ export function DialogoTerminal({
   onCancelar,
 }: {
   pedido: PedidoTerminal | null;
-  onConfirmar: (dados: DadosTerminal) => void;
+  /** `arquivo`: só no ganho, o PDF assinado, quando escolhido. */
+  onConfirmar: (dados: DadosTerminal, arquivo?: File) => void;
   onCancelar: () => void;
 }) {
   return (
@@ -64,7 +66,7 @@ export function DialogoTerminal({
   );
 }
 
-type PropsForm = { pedido: PedidoTerminal; onConfirmar: (dados: DadosTerminal) => void; onCancelar: () => void };
+type PropsForm = { pedido: PedidoTerminal; onConfirmar: (dados: DadosTerminal, arquivo?: File) => void; onCancelar: () => void };
 
 function Rodape({ onCancelar, rotulo }: { onCancelar: () => void; rotulo: string }) {
   return (
@@ -80,13 +82,18 @@ function Rodape({ onCancelar, rotulo }: { onCancelar: () => void; rotulo: string
 function FormGanho({ pedido, onConfirmar, onCancelar }: PropsForm) {
   const [valor, setValor] = useState(() => valorParaCampo(pedido.inicial?.valorFechado ?? null));
   const [erro, setErro] = useState<string | null>(null);
+  const [arquivo, setArquivo] = useState<File | undefined>();
+  const [erroArquivo, setErroArquivo] = useState<string | null>(null);
   const idValor = useId();
+  const idPdf = useId();
 
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     const r = interpretarGanho({ valorFechado: valor });
     if (!r.ok) return setErro(MENSAGEM[r.erro]);
-    onConfirmar({ valorFechado: valor });
+    if (arquivo && arquivo.size > ANEXO_MAX_BYTES) return setErroArquivo(MENSAGEM_ERRO_ANEXO.GRANDE_DEMAIS);
+    if (arquivo) onConfirmar({ valorFechado: valor }, arquivo);
+    else onConfirmar({ valorFechado: valor });
   }
 
   return (
@@ -123,6 +130,25 @@ function FormGanho({ pedido, onConfirmar, onCancelar }: PropsForm) {
         {erro ? (
           <p id={`${idValor}-erro`} className="text-xs text-danger">
             {erro}
+          </p>
+        ) : null}
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={idPdf}>Contrato assinado em PDF (opcional)</Label>
+        <Input
+          id={idPdf}
+          type="file"
+          accept=".pdf,application/pdf"
+          onChange={(e) => {
+            setArquivo(e.target.files?.[0]);
+            setErroArquivo(null);
+          }}
+          aria-invalid={erroArquivo ? true : undefined}
+          aria-describedby={erroArquivo ? `${idPdf}-erro` : undefined}
+        />
+        {erroArquivo ? (
+          <p id={`${idPdf}-erro`} className="text-xs text-danger">
+            {erroArquivo}
           </p>
         ) : null}
       </div>
