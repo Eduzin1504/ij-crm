@@ -31,6 +31,7 @@ import { ResultadoTerminal } from "./resultado-terminal";
 import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
+import { podeVerTarefas } from "@/lib/auth/areas";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
 import { podeEditarCard, podeEditarChecklistHandoff, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
 import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
@@ -283,6 +284,20 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 : "Ainda sem proposta (uma por projeto)."}
             </p>
           </section> : null}
+
+          {/* Kanban interno (tarefas do time): só time de projetos e só card no quadro de Projetos. Sem item no menu. */}
+          {podeVerTarefas(ator) && card.pipeline.chave === "projetos" ? (
+            <section className="rounded-xl border border-border bg-surface p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-medium">Tarefas do time</h2>
+                <span className="flex-1" />
+                <Link href={`/projetos/${card.id}/tarefas`} className="text-sm text-fg-soft underline decoration-fg-faint underline-offset-2 hover:text-foreground">
+                  Abrir quadro de tarefas
+                </Link>
+              </div>
+              <p className="mt-1 text-xs text-fg-mute">O que cada pessoa está fazendo neste projeto. Só o time de projetos vê.</p>
+            </section>
+          ) : null}
 
           <DescricaoCard cardId={card.id} valor={card.descricao} somenteLeitura={soLeituraDados} />
 

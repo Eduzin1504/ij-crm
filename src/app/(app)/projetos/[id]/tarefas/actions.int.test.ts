@@ -64,7 +64,7 @@ describe("actions do kanban interno", () => {
     exigirUsuario.mockResolvedValue(paula);
     const criada = await criarTarefaAction(projeto.id, { titulo: "Modelar tabela", prazo: "2026-11-10" });
     expect(criada).toEqual({ ok: true, id: expect.any(String), numero: 1 });
-    if (!("ok" in criada) || !criada.id) throw new Error();
+    if (!("ok" in criada) || criada.ok !== true || !criada.id) throw new Error();
 
     expect(await editarTarefaAction(projeto.id, criada.id, { descricao: "Turmas e matrículas", status: "EM_ANDAMENTO" })).toEqual({ ok: true });
     expect(await moverTarefaAction(projeto.id, criada.id, { status: "EM_REVISAO", posicao: 0.5 })).toEqual({ ok: true });
