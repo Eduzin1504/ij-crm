@@ -105,6 +105,7 @@ enum TipoTimeline {
   ANEXO        // GAB-84: payload.evento = "adicionado" | "excluido" | "restaurado" | "apagado"; payload.anexoId, payload.nome
   PROPOSTA     // GAB-86: proposta do Projeto; payload.evento = "criada" | "versao_salva" (+ numero, nota). A caneta (GAB-87) acrescenta eventos.
   HANDOFF      // GAB-93: payload.evento = "gp_designado" | "item_marcado" | "item_desmarcado" | "resumo_salvo" | "contrato_definido"
+  EXECUCAO     // GAB-95: payload.evento = "cronograma_copiado" | "entrega_adicionada" | "entrega_feita" | "entrega_desmarcada" | "data_ajustada" | "checkin"
 }
 
 // GAB-84: tipo do anexo, detectado pelos BYTES no servidor (src/lib/anexos/tipos.ts).
@@ -204,6 +205,8 @@ model Usuario {
   avisos            Aviso[]
   handoffsComoGp    ProjetoHandoff[] @relation("handoffGp")
   handoffsResumo    ProjetoHandoff[] @relation("handoffResumoPor")
+  ajustesDeEntrega  EntregaAjuste[]
+  checkins          ProjetoCheckin[]
   comentariosProposta   PropostaComentario[] @relation("comentarioAutor")
   comentariosResolvidos PropostaComentario[] @relation("comentarioResolvidoPor")
 
@@ -441,6 +444,9 @@ model Projeto {
   /// GAB-93: card que já estava no quadro Projetos no deploy (migration 20261104150000) ou veio do
   /// import do Pipefy: livre da trava de Execução (checklist + resumo de handoff).
   isentoTravaHandoff    Boolean    @default(false) @map("isento_trava_handoff")
+  /// GAB-95: última entrada em Execução (ou além). Conta para o lembrete de check-in. Null = nunca entrou
+  /// depois do deploy: card já em Execução naquela hora só é cobrado depois de ter entrega ou check-in.
+  execucaoDesde         DateTime?  @map("execucao_desde")
   faseDesde             DateTime   @default(now()) @map("fase_desde")
   criadoVia             CriadoVia  @map("criado_via")
   // v1 (GAB-32): card de projetos gerado pelo ganho desta venda. GAB-81: o ganho não cria mais
@@ -483,6 +489,9 @@ model Projeto {
   anexos                Anexo[]
   proposta              Proposta?
   handoff               ProjetoHandoff?
+  entregas              ProjetoEntrega[]
+  checkins              ProjetoCheckin[]
+  lembretesCheckin      LembreteCheckin[]
 
   @@index([pipelineId, faseId])
   @@index([responsavelId])
@@ -898,6 +907,99 @@ model ProjetoHandoff {
   @@map("projeto_handoff")
 }
 
+/// De onde veio a entrega do cronograma (GAB-95).
+enum OrigemEntrega {
+  PROPOSTA // copiada da versão final da proposta
+  MANUAL   // lançada pelo GP (card sem proposta, ou entrega nova)
+}
+
+enum StatusCheckin {
+  VERDE
+  AMARELO
+  VERMELHO
+}
+
+/// Cronograma do Projeto em Execução (GAB-95, spec fase 2 §4.10): previsto × realizado.
+/// `previsto_original` é imutável (trigger na migration 20261104180000); ajuste muda só `previsto_atual`
+/// e deixa uma linha em `entrega_ajuste`. Dias civis de São Paulo em colunas DATE, para o painel consultar.
+model ProjetoEntrega {
+  id               String        @id @default(cuid())
+  projetoId        String        @map("oportunidade_id")
+  /// Ordem do cronograma. Única por Projeto: copiar duas vezes falha no banco em vez de duplicar.
+  ordem            Int
+  titulo           String
+  valor            Decimal?      @db.Decimal(14, 2)
+  previstoOriginal DateTime      @map("previsto_original") @db.Date
+  previstoAtual    DateTime      @map("previsto_atual") @db.Date
+  /// Dia em que foi entregue (null = pendente). Quem marcou fica na Timeline.
+  realizadoEm      DateTime?     @map("realizado_em") @db.Date
+  origem           OrigemEntrega
+  /// Número da versão da proposta de onde veio (null em MANUAL).
+  propostaVersao   Int?          @map("proposta_versao")
+  /// Cancelada (com motivo): a linha fica, fora do cronograma ativo e das contas do painel. Quem cancelou fica na Timeline.
+  canceladaEm      DateTime?     @map("cancelada_em")
+  motivoCancelamento String?     @map("motivo_cancelamento")
+  criadoEm         DateTime      @default(now()) @map("criado_em")
+  atualizadoEm     DateTime      @updatedAt @map("atualizado_em")
+
+  projeto Projeto         @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  ajustes EntregaAjuste[]
+
+  @@unique([projetoId, ordem])
+  @@map("projeto_entrega")
+}
+
+/// Ajuste de data de uma entrega, com motivo. Append-only (trigger recusa UPDATE).
+model EntregaAjuste {
+  id        String   @id @default(cuid())
+  entregaId String   @map("entrega_id")
+  de        DateTime @db.Date
+  para      DateTime @db.Date
+  motivo    String
+  porId     String   @map("por_id")
+  em        DateTime @default(now())
+
+  entrega ProjetoEntrega @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  por     Usuario        @relation(fields: [porId], references: [id])
+
+  @@index([entregaId, em])
+  @@index([porId])
+  @@map("entrega_ajuste")
+}
+
+/// Check-in do Projeto. Append-only (trigger recusa UPDATE): quem muda de ideia na semana registra outro, e vale o último.
+model ProjetoCheckin {
+  id        String        @id @default(cuid())
+  projetoId String        @map("oportunidade_id")
+  status    StatusCheckin
+  motivo    String
+  /// Segunda-feira (São Paulo) da semana do check-in.
+  semana    DateTime      @db.Date
+  porId     String        @map("por_id")
+  em        DateTime      @default(now())
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+  por     Usuario @relation(fields: [porId], references: [id])
+
+  @@index([projetoId, em])
+  @@index([projetoId, semana])
+  @@index([porId])
+  @@map("projeto_checkin")
+}
+
+/// Lembrete de check-in já dado: a chave garante um por semana e por Projeto, a cada rodada do cron.
+model LembreteCheckin {
+  projetoId String   @map("oportunidade_id")
+  /// Segunda-feira (São Paulo) da semana que ficou sem check-in.
+  semana    DateTime @db.Date
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  @@id([projetoId, semana])
+  @@map("lembrete_checkin")
+}
+
 /// Versão da proposta: "Salvar versão" (v1, v2…). IMUTÁVEL — append-only como a
 /// Timeline; um trigger no banco recusa UPDATE (ver a migration 20261101150000).
 /// Snapshot completo: o Markdown e a parte estruturada daquele momento.
@@ -992,6 +1094,8 @@ enum TipoAviso {
   COMENTARIO      // comentário na proposta que está com você (ticket de comentários)
   PROPOSTA_ACEITA // cliente aceitou (envio)
   HANDOFF         // handoff do projeto
+  CHECKIN_ATRASADO // GAB-95: a semana passou sem check-in (só no app)
+  GP_TROCADO       // GAB-95: você deixou de ser o GP do projeto (só no app)
 }
 
 /// O que aconteceu com o WhatsApp privado de um aviso (null no aviso = tipo só do app).

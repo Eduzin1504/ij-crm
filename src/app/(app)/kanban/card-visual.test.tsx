@@ -19,6 +19,7 @@ const base: CardCliente = {
   responsavelNome: "Ana Vendas",
   responsavelFotoEm: null,
   propostaStatus: null,
+  ultimoCheckin: null,
   empresaNome: null,
   origem: null,
   estado: null,
@@ -59,5 +60,21 @@ describe("CardVisual: status da proposta (GAB-86)", () => {
     expect(screen.getByTestId("status-proposta")).toHaveAttribute("title", "Proposta: Rascunho");
     rerender(<CardVisual card={base} fase={undefined} agoraMs={AGORA} />);
     expect(screen.queryByTestId("status-proposta")).toBeNull();
+  });
+});
+
+describe("CardVisual: check-in (GAB-95)", () => {
+  const fase = { id: "f1", chave: "exec", nome: "Em execução", cor: null, limiteDiasAlerta: null, isTerminal: false, tipoTerminal: null };
+
+  it("mostra a cor do último check-in, com rótulo e motivo no título", () => {
+    render(<CardVisual card={{ ...base, ultimoCheckin: { status: "VERMELHO", motivo: "Cliente sumiu", semana: "2026-11-02" } }} fase={fase} agoraMs={AGORA} />);
+    const b = screen.getByTestId("status-checkin");
+    expect(b.textContent).toBe("Vermelho");
+    expect(b.getAttribute("title")).toBe("Check-in: Vermelho · semana de 02/11/2026 · Cliente sumiu");
+  });
+
+  it("sem check-in não mostra nada (fora de Execução aberta, `listarQuadro` não manda)", () => {
+    render(<CardVisual card={base} fase={fase} agoraMs={AGORA} />);
+    expect(screen.queryByTestId("status-checkin")).toBeNull();
   });
 });
