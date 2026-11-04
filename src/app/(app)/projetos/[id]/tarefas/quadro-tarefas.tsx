@@ -15,10 +15,11 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS as DndCSS } from "@dnd-kit/utilities";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronsLeftRight, Plus } from "lucide-react";
 import { cn } from "cn";
 import { Avatar } from "@/components/avatar";
 import { EstadoVazio } from "@/components/estado-vazio";
@@ -29,11 +30,12 @@ import { executarAcao, falhaDe, FALHA_CONEXAO, type FalhaUI } from "@/lib/erros/
 import { aplicarExibicao, ordenador, type Exibicao } from "@/lib/tarefas/exibicao";
 import { FILTROS_VAZIOS, escreverFiltros, filtrarTarefas, lerFiltros, type Filtros } from "@/lib/tarefas/filtros";
 import { PRIORIDADES, ROTULO_PRIORIDADE, TITULO_MAX, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
-import { COLUNAS, ROTULO_STATUS, SEM_ETIQUETA, SEM_RESPONSAVEL, agrupar, posicaoEntre, type Coluna, type Linha } from "@/lib/tarefas/quadro";
+import { COLUNAS, ROTULO_STATUS, SEM_ETIQUETA, SEM_RESPONSAVEL, agrupar, posicaoEntre, type Linha } from "@/lib/tarefas/quadro";
 import { colisaoQuadro } from "../../../kanban/colisao";
+import { colunasAbertas, proximoAlvo } from "../../../kanban/colunas";
 import { criarTarefaAction, editarTarefaAction, moverTarefaAction, salvarExibicaoTarefasAction } from "./actions";
 import { BarraTarefas } from "./barra-tarefas";
-import { CartaoTarefa, IconePrioridade, IconeStatus } from "./cartao-tarefa";
+import { CartaoTarefa, IconePrioridade, IconeStatus, corEtiqueta } from "./cartao-tarefa";
 import { DetalheTarefa, type PatchLocal } from "./detalhe-tarefa";
 import { ListaTarefas } from "./lista-tarefas";
 import { MenuOpcoes } from "./menu";
@@ -53,20 +55,21 @@ type Pre = { status: StatusTarefa; responsavelId: string | null; prioridade?: Pr
 type Atalho = { id: string; campo: "status" | "prio" | "resp"; ancora: HTMLElement | null } | null;
 type MenuAberto = { tipo: "filtro" | "exibicao"; ancora: HTMLElement | null } | null;
 
-const idCelula = (status: StatusTarefa, linha: string) => `cel:${status}:${linha}`;
-const lerCelula = (id: string | number | undefined): { status: StatusTarefa; linha: string } | null => {
+const idColuna = (chave: string) => `col:${chave}`;
+const colunaDe = (id: string | number | undefined): string | null => {
   const s = String(id ?? "");
-  if (!s.startsWith("cel:")) return null;
-  const [, status, ...linha] = s.split(":");
-  return { status: status as StatusTarefa, linha: linha.join(":") };
+  return s.startsWith("col:") ? s.slice(4) : null;
 };
 const ATRASO_SALVAR_EXIBICAO_MS = 600;
+/** Backlog e Cancelada começam recolhidas (spec §3), como as fases terminais no Kanban. */
+const RECOLHIDA_POR_PADRAO = new Set<string>(COLUNAS.filter((c) => c.recolhida).map((c) => c.status));
 
 /**
- * Tarefas do projeto: quadro (colunas por status × linhas do agrupamento) ou
- * lista, com filtros na URL e exibição por pessoa. Otimista: o estado parte
- * do servidor e é re-sincronizado quando chegam props novas (revalidate após
- * cada action; e ao voltar à aba).
+ * Tarefas do projeto: quadro (uma coluna por valor do agrupamento: status por
+ * padrão, ou prioridade/responsável/etiqueta) ou lista, com filtros na URL e
+ * exibição por pessoa. Colunas vazias viram faixa estreita, como no Kanban.
+ * Otimista: o estado parte do servidor e é re-sincronizado quando chegam
+ * props novas (revalidate após cada action; e ao voltar à aba).
  */
 export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquetas: etiquetasServidor, exibicaoInicial, hoje, agoraMs }: Props) {
   const [base, setBase] = useState(doServidor);
@@ -77,13 +80,14 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
   }
   const [exibicao, setExibicao] = useState(exibicaoInicial);
   const [ativa, setAtiva] = useState<TarefaLista | null>(null);
+  const [alvo, setAlvo] = useState<string | null>(null);
   const [abertaId, setAbertaId] = useState<string | null>(null);
   const [selecionada, setSelecionada] = useState<string | null>(null);
-  const [abertasManual, setAbertasManual] = useState<Set<StatusTarefa>>(new Set());
+  const [abertasManual, setAbertasManual] = useState<Set<string>>(new Set());
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<MenuAberto>(null);
   const [atalho, setAtalho] = useState<Atalho>(null);
-  const [criarEm, setCriarEm] = useState<Pre | null>(null);
+  const [criarEm, setCriarEm] = useState<{ coluna: string; pre: Pre } | null>(null);
   const [erro, setErro] = useState<FalhaUI | null>(null);
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -129,9 +133,8 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
   const etiquetas = useMemo(() => [...new Set([...etiquetasServidor, ...tarefas.flatMap((t) => t.etiquetas)])].sort((a, b) => a.localeCompare(b, "pt-BR")), [etiquetasServidor, tarefas]);
   const visiveis = useMemo(() => filtrarTarefas(aplicarExibicao(tarefas, exibicao, agoraMs), filtros, hoje), [tarefas, exibicao, filtros, agoraMs, hoje]);
   const ord = useMemo(() => ordenador(exibicao), [exibicao]);
-  const agruparPor = exibicao.vista === "lista" && exibicao.agrupar === "nenhum" ? "status" : exibicao.agrupar;
-  const linhas = useMemo(() => agrupar(visiveis, pessoas, agruparPor, ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => ({ ...l, tarefas: [...l.tarefas].sort(ord) })), [visiveis, pessoas, agruparPor, ord]);
-  const colunasVisiveis = COLUNAS.filter((c) => !c.recolhida || exibicao.recolhidos || abertasManual.has(c.status));
+  const agruparPor = exibicao.agrupar === "nenhum" ? "status" : exibicao.agrupar;
+  const grupos = useMemo(() => agrupar(visiveis, pessoas, agruparPor, ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => ({ ...l, tarefas: [...l.tarefas].sort(ord) })), [visiveis, pessoas, agruparPor, ord]);
   const aberta = abertaId ? (porId.get(abertaId) ?? null) : null;
   const subtarefasDe = useCallback(
     (id: string) => {
@@ -140,6 +143,16 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     },
     [tarefas],
   );
+
+  // Colunas abertas: regra do Kanban (vazia ou Backlog/Cancelada → faixa, salvo aberta à mão, alvo do arrasto ou preferência).
+  const arrastando = ativa !== null;
+  const abertas = colunasAbertas({
+    fases: grupos.map((g) => ({ id: g.chave, isTerminal: agruparPor === "status" && RECOLHIDA_POR_PADRAO.has(g.chave) && !exibicao.recolhidos })),
+    contagem: new Map(grupos.map((g) => [g.chave, g.tarefas.length])),
+    abertasManual,
+    alvoArrasto: arrastando ? alvo : null,
+    mostrarVazias: exibicao.vazios,
+  });
 
   function aplicar(id: string, patch: PatchLocal) {
     setTarefas((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -159,30 +172,32 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     });
   }
 
-  /** O que uma linha do agrupamento impõe à tarefa solta nela. */
-  function patchDaLinha(linha: string): { responsavelId?: string | null; prioridade?: PrioridadeTarefa } {
-    if (agruparPor === "resp") return { responsavelId: linha === SEM_RESPONSAVEL ? null : linha };
-    if (agruparPor === "prio") return { prioridade: linha as PrioridadeTarefa };
+  /** O que uma coluna do agrupamento impõe à tarefa solta nela. */
+  function patchDaColuna(chave: string): PatchLocal {
+    if (agruparPor === "status") return { status: chave as StatusTarefa };
+    if (agruparPor === "resp") return { responsavelId: chave === SEM_RESPONSAVEL ? null : chave };
+    if (agruparPor === "prio") return { prioridade: chave as PrioridadeTarefa };
     return {};
   }
 
-  function mover(id: string, status: StatusTarefa, linha: string, antesDeId: string | null) {
+  function mover(id: string, coluna: string, antesDeId: string | null) {
     const t = porId.get(id);
     if (!t) return;
-    const daLinha = patchDaLinha(linha);
-    const mudaResp = daLinha.responsavelId !== undefined && daLinha.responsavelId !== t.responsavelId;
-    const mudaPrio = daLinha.prioridade !== undefined && daLinha.prioridade !== t.prioridade;
-    const naCelula = linhas.find((l) => l.chave === linha)?.tarefas.filter((x) => x.id !== id && x.status === status) ?? [];
-    const i = antesDeId ? naCelula.findIndex((x) => x.id === antesDeId) : -1;
-    const antes = i === -1 ? (naCelula.at(-1)?.posicao ?? null) : i > 0 ? naCelula[i - 1].posicao : null;
-    const depois = i === -1 ? null : naCelula[i].posicao;
+    const patch = patchDaColuna(coluna);
+    const naColuna = grupos.find((g) => g.chave === coluna)?.tarefas.filter((x) => x.id !== id) ?? [];
+    const i = antesDeId ? naColuna.findIndex((x) => x.id === antesDeId) : -1;
+    const antes = i === -1 ? (naColuna.at(-1)?.posicao ?? null) : i > 0 ? naColuna[i - 1].posicao : null;
+    const depois = i === -1 ? null : naColuna[i].posicao;
     const posicao = posicaoEntre(antes, depois);
+    const status = patch.status ?? t.status;
+    const mudaResp = patch.responsavelId !== undefined && patch.responsavelId !== t.responsavelId;
+    const mudaPrio = patch.prioridade !== undefined && patch.prioridade !== t.prioridade;
     const snapshot = tarefas;
     setErro(null);
-    setTarefas((ts) => ts.map((x) => (x.id === id ? { ...x, status, posicao, ...(mudaResp ? { responsavelId: daLinha.responsavelId ?? null } : {}), ...(mudaPrio ? { prioridade: daLinha.prioridade! } : {}) } : x)));
+    setTarefas((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch, status, posicao } : x)));
     startTransition(async () => {
-      const falha = await executarAcao(() => moverTarefaAction(projetoId, id, { status, posicao, ...(mudaResp ? { responsavelId: daLinha.responsavelId ?? null } : {}) }), "mover a tarefa");
-      const falha2 = !falha && mudaPrio ? await executarAcao(() => editarTarefaAction(projetoId, id, { prioridade: daLinha.prioridade! }), "mudar a prioridade") : null;
+      const falha = await executarAcao(() => moverTarefaAction(projetoId, id, { status, posicao, ...(mudaResp ? { responsavelId: patch.responsavelId ?? null } : {}) }), "mover a tarefa");
+      const falha2 = !falha && mudaPrio ? await executarAcao(() => editarTarefaAction(projetoId, id, { prioridade: patch.prioridade! }), "mudar a prioridade") : null;
       if (falha || falha2) {
         setTarefas(snapshot);
         setErro(falha ?? falha2);
@@ -191,27 +206,41 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     });
   }
 
+  const colunaDoAlvo = (overId: string | number | undefined): string | null => {
+    const c = colunaDe(overId);
+    if (c) return c;
+    const t = porId.get(String(overId ?? ""));
+    return t ? (grupos.find((g) => g.tarefas.some((x) => x.id === t.id))?.chave ?? null) : null;
+  };
   function onDragStart(e: DragStartEvent) {
     setAtiva(porId.get(String(e.active.id)) ?? null);
+    setAlvo(null);
+  }
+  function onDragOver(e: DragOverEvent) {
+    setAlvo((atual) => proximoAlvo(atual, colunaDoAlvo(e.over?.id)));
+  }
+  function fimArrasto() {
+    setAtiva(null);
+    setAlvo(null);
   }
   function onDragEnd(e: DragEndEvent) {
-    setAtiva(null);
+    fimArrasto();
     const over = e.over?.id;
     if (over === undefined) return;
-    const cel = lerCelula(over);
-    if (cel) return mover(String(e.active.id), cel.status, cel.linha, null);
-    const alvo = porId.get(String(over));
-    if (alvo && alvo.id !== e.active.id) {
-      const linha = linhas.find((l) => l.tarefas.some((x) => x.id === alvo.id))?.chave ?? "all";
-      mover(String(e.active.id), alvo.status, linha, alvo.id);
+    const col = colunaDe(over);
+    if (col) return mover(String(e.active.id), col, null);
+    const alvoCard = porId.get(String(over));
+    if (alvoCard && alvoCard.id !== e.active.id) {
+      const col2 = colunaDoAlvo(alvoCard.id);
+      if (col2) mover(String(e.active.id), col2, alvoCard.id);
     }
   }
 
-  const alternarColuna = (s: StatusTarefa) =>
+  const alternarColuna = (chave: string) =>
     setAbertasManual((a) => {
       const n = new Set(a);
-      if (n.has(s)) n.delete(s);
-      else n.add(s);
+      if (n.has(chave)) n.delete(chave);
+      else n.add(chave);
       return n;
     });
   const alternarGrupo = (chave: string) =>
@@ -222,20 +251,21 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
       return n;
     });
 
-  function criarEmGrupo(l: Linha<TarefaLista>, status: StatusTarefa = "A_FAZER") {
-    const pre: Pre = { status, responsavelId: null };
+  /** Pré-preenchimento ao criar numa coluna/grupo (status, responsável, prioridade ou etiqueta do lugar). */
+  function preDe(l: Linha<TarefaLista>): Pre {
+    const pre: Pre = { status: "A_FAZER", responsavelId: null };
     if (agruparPor === "resp") pre.responsavelId = l.chave === SEM_RESPONSAVEL ? null : l.chave;
     if (agruparPor === "status") pre.status = l.chave as StatusTarefa;
     if (agruparPor === "prio") pre.prioridade = l.chave as PrioridadeTarefa;
     if (agruparPor === "etiqueta" && l.chave !== SEM_ETIQUETA) pre.etiquetas = [l.chave];
-    setCriarEm(pre);
+    return pre;
   }
 
   // Atalhos (spec §4): C cria, F filtro, D exibição, V quadro/lista, S/P/A na tarefa sob o mouse ou selecionada, 1–6 status, Esc. Nunca dentro de campos.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const alvo = e.target as HTMLElement | null;
-      if (alvo && (["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName) || alvo.isContentEditable)) return;
+      const alvoEl = e.target as HTMLElement | null;
+      if (alvoEl && (["INPUT", "TEXTAREA", "SELECT"].includes(alvoEl.tagName) || alvoEl.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
       const t = selecionada ? porId.get(selecionada) : undefined;
@@ -250,7 +280,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
       }
       if (k === "c") {
         e.preventDefault();
-        return setCriarEm({ status: "A_FAZER", responsavelId: null });
+        return setCriarEm({ coluna: "", pre: { status: "A_FAZER", responsavelId: null } });
       }
       if (k === "f") {
         e.preventDefault();
@@ -275,9 +305,12 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     return () => document.removeEventListener("keydown", onKey);
   });
 
-  const grade = { gridTemplateColumns: `repeat(${colunasVisiveis.length}, 17rem)` };
   const mostrarAvatar = agruparPor !== "resp";
   const tarefaAtalho = atalho ? porId.get(atalho.id) : undefined;
+  const aoCriar = (t?: TarefaLista) => {
+    setCriarEm(null);
+    if (t) setTarefas((ts) => [...ts, t]);
+  };
 
   return (
     <>
@@ -287,17 +320,9 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
           <MensagemErro falha={erro} className="text-sm" />
         </div>
       ) : null}
-      {criarEm ? (
+      {criarEm && criarEm.coluna === "" ? (
         <div className="mb-3 max-w-xl">
-          <NovaTarefa
-            projetoId={projetoId}
-            pre={criarEm}
-            onFim={(t) => {
-              setCriarEm(null);
-              if (t) setTarefas((ts) => [...ts, t]);
-            }}
-            onErro={setErro}
-          />
+          <NovaTarefa projetoId={projetoId} pre={criarEm.pre} onFim={aoCriar} onErro={setErro} />
         </div>
       ) : null}
       {tarefas.length === 0 ? (
@@ -318,46 +343,58 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
 
       <div ref={refQuadro} className="-mx-4 flex min-h-0 flex-1 overflow-auto px-4 pb-2 md:-mx-8 md:px-8">
         {exibicao.vista === "lista" ? (
-          <ListaTarefas linhas={linhas} porId={porId} pessoaPorId={pessoaPorId} pessoas={pessoas} exibicao={exibicao} hoje={hoje} selecionada={selecionada} fechados={fechados} onAlternarGrupo={alternarGrupo} onAbrir={setAbertaId} onSelecionar={setSelecionada} onEditar={editar} onNovo={(l) => criarEmGrupo(l)} />
+          <ListaTarefas linhas={grupos} porId={porId} pessoaPorId={pessoaPorId} pessoas={pessoas} exibicao={exibicao} hoje={hoje} selecionada={selecionada} fechados={fechados} onAlternarGrupo={alternarGrupo} onAbrir={setAbertaId} onSelecionar={setSelecionada} onEditar={editar} onNovo={(l) => setCriarEm({ coluna: "", pre: preDe(l) })} />
         ) : (
-          <DndContext id={`tarefas-${projetoId}`} sensors={sensors} collisionDetection={colisaoQuadro} measuring={{ droppable: { strategy: MeasuringStrategy.Always } }} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setAtiva(null)}>
-            <div className="flex gap-3">
-              <FaixaRecolhida coluna={COLUNAS[0]} aberta={colunasVisiveis.some((c) => c.status === "BACKLOG")} total={visiveis.filter((t) => t.status === "BACKLOG").length} onAbrir={() => alternarColuna("BACKLOG")} />
-              <div className="flex min-w-0 flex-col">
-                <div className="sticky top-0 z-10 grid gap-3 bg-background pb-1" style={grade}>
-                  {colunasVisiveis.map((c) => (
-                    <CabecalhoColuna key={c.status} coluna={c} total={visiveis.filter((t) => t.status === c.status).length} onRecolher={c.recolhida && !exibicao.recolhidos ? () => alternarColuna(c.status) : undefined} onNovo={() => setCriarEm({ status: c.status, responsavelId: null })} />
-                  ))}
-                </div>
-                {linhas.map((l) => {
-                  if (l.tarefas.length === 0 && !exibicao.vazios && agruparPor !== "nenhum") return l.nome ? <LinhaFechada key={l.chave} linha={l} /> : null;
-                  const fechada = fechados.has(l.chave);
-                  return (
-                    <section key={l.chave} aria-label={`${l.nome || "Tarefas"}, ${l.tarefas.length} tarefa(s)`}>
-                      {l.nome ? (
-                        <button type="button" onClick={() => alternarGrupo(l.chave)} aria-expanded={!fechada} className="mt-2 flex h-9 w-full items-center gap-2 rounded-md px-1 text-left text-sm font-medium text-foreground hover:bg-surface">
-                          <ChevronDown className={cn("size-3.5 text-fg-faint transition-transform", fechada && "-rotate-90")} />
-                          <MarcaLinha linha={l} />
-                          {l.nome}
-                          <span className="font-mono text-xs text-fg-faint tabular">{l.tarefas.length}</span>
-                        </button>
-                      ) : null}
-                      {fechada ? null : (
-                        <div className="grid gap-3 py-2" style={grade}>
-                          {colunasVisiveis.map((c) => (
-                            <Celula key={c.status} id={idCelula(c.status, l.chave)} tarefas={l.tarefas.filter((t) => t.status === c.status)} porId={porId} pessoaPorId={pessoaPorId} subtarefasDe={subtarefasDe} exibicao={exibicao} mostrarAvatar={mostrarAvatar} hoje={hoje} selecionada={selecionada} onAbrir={setAbertaId} onSelecionar={setSelecionada} onNovo={() => criarEmGrupo(l, c.status)} />
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
-              <FaixaRecolhida coluna={COLUNAS[5]} aberta={colunasVisiveis.some((c) => c.status === "CANCELADA")} total={visiveis.filter((t) => t.status === "CANCELADA").length} onAbrir={() => alternarColuna("CANCELADA")} />
+          <DndContext
+            id={`tarefas-${projetoId}`}
+            sensors={sensors}
+            collisionDetection={colisaoQuadro}
+            // Faixas abrem quando o arrasto passa por cima: re-mede os alvos.
+            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDragEnd={onDragEnd}
+            onDragCancel={fimArrasto}
+          >
+            <div className="flex min-h-0 flex-1 snap-x snap-mandatory gap-3 md:snap-none">
+              {grupos.map((g) => {
+                const colapsada = !abertas.has(g.chave);
+                const recolhivel = (agruparPor === "status" && RECOLHIDA_POR_PADRAO.has(g.chave) && !exibicao.recolhidos) || (!exibicao.vazios && g.tarefas.length === 0);
+                return colapsada ? (
+                  <ColunaColapsada
+                    key={g.chave}
+                    grupo={g}
+                    agruparPor={agruparPor}
+                    onExpandir={() => alternarColuna(g.chave)}
+                    onNovo={() => {
+                      alternarColuna(g.chave);
+                      setCriarEm({ coluna: g.chave, pre: preDe(g) });
+                    }}
+                  />
+                ) : (
+                  <Coluna
+                    key={g.chave}
+                    grupo={g}
+                    agruparPor={agruparPor}
+                    porId={porId}
+                    pessoaPorId={pessoaPorId}
+                    subtarefasDe={subtarefasDe}
+                    exibicao={exibicao}
+                    mostrarAvatar={mostrarAvatar}
+                    hoje={hoje}
+                    selecionada={selecionada}
+                    onAbrir={setAbertaId}
+                    onSelecionar={setSelecionada}
+                    onRecolher={recolhivel && !arrastando && abertasManual.has(g.chave) ? () => alternarColuna(g.chave) : undefined}
+                    onNovo={() => setCriarEm({ coluna: g.chave, pre: preDe(g) })}
+                    criando={criarEm?.coluna === g.chave ? <NovaTarefa projetoId={projetoId} pre={criarEm.pre} onFim={aoCriar} onErro={setErro} /> : null}
+                  />
+                );
+              })}
             </div>
             <DragOverlay>
               {ativa ? (
-                <div className="w-[17rem]">
+                <div className="w-72">
                   <CartaoTarefa tarefa={ativa} pessoa={pessoaPorId.get(ativa.responsavelId ?? "")} subtarefas={subtarefasDe(ativa.id)} mostrarAvatar={mostrarAvatar} props={exibicao.props} dens={exibicao.dens} hoje={hoje} arrastando />
                 </div>
               ) : null}
@@ -399,60 +436,19 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
   );
 }
 
-function MarcaLinha({ linha: l }: { linha: Linha<TarefaLista> }) {
-  if (l.cor) return <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: l.cor }} />;
-  if (l.pessoa) return <Avatar nome={l.pessoa.nome} usuarioId={l.pessoa.id} fotoEm={l.pessoa.fotoEm} className="size-5 text-[9px]" />;
-  return <span className="size-5 rounded-full border border-dashed border-border-strong" />;
+/** Marca da coluna/grupo: ícone de status, de prioridade, avatar da pessoa ou ponto da etiqueta. */
+function MarcaGrupo({ grupo: g, agruparPor }: { grupo: Linha<TarefaLista>; agruparPor: Exibicao["agrupar"] }) {
+  if (agruparPor === "status") return <IconeStatus status={g.chave as StatusTarefa} className="size-3.5" />;
+  if (agruparPor === "prio") return <IconePrioridade prioridade={g.chave as PrioridadeTarefa} className="size-3.5" />;
+  if (g.pessoa) return <Avatar nome={g.pessoa.nome} usuarioId={g.pessoa.id} fotoEm={g.pessoa.fotoEm} className="size-5 text-[9px]" />;
+  if (agruparPor === "etiqueta" && g.chave !== SEM_ETIQUETA) return <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: corEtiqueta(g.chave) }} />;
+  return <span className="size-2 shrink-0 rounded-full bg-fg-faint" />;
 }
 
-/** Linha sem tarefa no filtro atual: já nasce recolhida, só o nome e o zero. */
-function LinhaFechada({ linha: l }: { linha: Linha<TarefaLista> }) {
-  return (
-    <div className="mt-2 flex h-9 items-center gap-2 px-1 text-sm text-fg-mute">
-      <ChevronDown className="size-3.5 -rotate-90 text-fg-faint" />
-      <MarcaLinha linha={l} />
-      {l.nome}
-      <span className="font-mono text-xs text-fg-faint">0</span>
-    </div>
-  );
-}
-
-function CabecalhoColuna({ coluna, total, onRecolher, onNovo }: { coluna: Coluna; total: number; onRecolher?: () => void; onNovo: () => void }) {
-  return (
-    <header className="flex h-9 items-center gap-2 rounded-t-lg bg-muted/60 px-2.5">
-      <IconeStatus status={coluna.status} className="size-3.5" />
-      <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{coluna.nome}</h2>
-      <span className="font-mono text-xs text-fg-faint tabular">{total}</span>
-      {onRecolher ? (
-        <Button variant="ghost" size="icon-xs" aria-label={`Recolher ${coluna.nome}`} title="Recolher" onClick={onRecolher}>
-          <ChevronDown className="rotate-90" />
-        </Button>
-      ) : null}
-      <Button variant="ghost" size="icon-xs" aria-label={`Nova tarefa em ${coluna.nome}`} title="Nova tarefa" onClick={onNovo}>
-        <Plus />
-      </Button>
-    </header>
-  );
-}
-
-/** Backlog e Cancelada começam recolhidas: uma faixa vertical com a contagem; abrem ao clicar ou soltando um card nela. */
-function FaixaRecolhida({ coluna, aberta, total, onAbrir }: { coluna: Coluna; aberta: boolean; total: number; onAbrir: () => void }) {
-  const { setNodeRef, isOver } = useDroppable({ id: idCelula(coluna.status, "all"), disabled: aberta });
-  if (aberta) return null;
-  return (
-    <section ref={setNodeRef} aria-label={`${coluna.nome}, recolhida, ${total} tarefa(s)`} className={cn("flex w-9 shrink-0 flex-col rounded-lg border border-dashed border-border", isOver && "border-border-strong bg-surface/40")}>
-      <button type="button" onClick={onAbrir} aria-label={`Expandir ${coluna.nome}`} className="flex flex-1 flex-col items-center gap-2 rounded-md pt-2 text-fg-mute outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
-        <IconeStatus status={coluna.status} className="size-3.5" />
-        <span className="font-mono text-xs tabular">{total}</span>
-        <span className="text-xs whitespace-nowrap [writing-mode:vertical-rl]">{coluna.nome}</span>
-      </button>
-    </section>
-  );
-}
-
-function Celula({
-  id,
-  tarefas,
+/** Coluna aberta (visual do Kanban): painel com cabeçalho, ocupa a altura toda; a lista de cards rola sozinha. */
+function Coluna({
+  grupo: g,
+  agruparPor,
   porId,
   pessoaPorId,
   subtarefasDe,
@@ -462,10 +458,12 @@ function Celula({
   selecionada,
   onAbrir,
   onSelecionar,
+  onRecolher,
   onNovo,
+  criando,
 }: {
-  id: string;
-  tarefas: TarefaLista[];
+  grupo: Linha<TarefaLista>;
+  agruparPor: Exibicao["agrupar"];
   porId: Map<string, TarefaLista>;
   pessoaPorId: Map<string, PessoaTarefa>;
   subtarefasDe: (id: string) => { feitas: number; total: number } | null;
@@ -475,18 +473,59 @@ function Celula({
   selecionada: string | null;
   onAbrir: (id: string) => void;
   onSelecionar: (id: string | null) => void;
+  onRecolher?: () => void;
   onNovo: () => void;
+  criando: React.ReactNode;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
+  // A coluna inteira é o alvo do drop (inclusive o cabeçalho).
+  const { setNodeRef, isOver } = useDroppable({ id: idColuna(g.chave) });
   return (
-    <div ref={setNodeRef} className={cn("group/cel flex min-h-12 flex-col gap-2 rounded-lg p-1 transition-colors", isOver && "bg-primary-soft/20 outline-1 outline-dashed outline-primary/60")}>
-      {tarefas.map((t) => (
-        <CartaoArrastavel key={t.id} tarefa={t} pai={t.paiId ? (porId.get(t.paiId) ?? null) : null} pessoa={pessoaPorId.get(t.responsavelId ?? "")} subtarefas={subtarefasDe(t.id)} exibicao={exibicao} mostrarAvatar={mostrarAvatar} hoje={hoje} selecionada={selecionada === t.id} onAbrir={() => onAbrir(t.id)} onSelecionar={() => onSelecionar(t.id)} />
-      ))}
-      <button type="button" onClick={onNovo} className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-fg-faint opacity-0 transition-opacity group-hover/cel:opacity-100 hover:bg-surface hover:text-foreground focus-visible:opacity-100">
-        <Plus className="size-3.5" /> Nova tarefa
+    <section
+      ref={setNodeRef}
+      aria-label={`${g.nome}, ${g.tarefas.length} tarefa(s)`}
+      className={cn("flex min-h-0 w-[85vw] max-w-72 shrink-0 snap-start flex-col rounded-xl border border-border bg-muted/60 sm:w-72", isOver && "border-border-strong bg-surface/40")}
+    >
+      <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+        <MarcaGrupo grupo={g} agruparPor={agruparPor} />
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{g.nome}</h2>
+        <span className="font-mono text-xs text-fg-faint tabular">{g.tarefas.length}</span>
+        {onRecolher ? (
+          <Button variant="ghost" size="icon-xs" aria-label={`Recolher ${g.nome}`} title="Recolher" onClick={onRecolher}>
+            <ChevronsLeftRight />
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="icon-xs" aria-label={`Nova tarefa em ${g.nome}`} title="Nova tarefa" onClick={onNovo}>
+          <Plus />
+        </Button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2 pb-2">
+        {criando}
+        {g.tarefas.map((t) => (
+          <CartaoArrastavel key={t.id} tarefa={t} pai={t.paiId ? (porId.get(t.paiId) ?? null) : null} pessoa={pessoaPorId.get(t.responsavelId ?? "")} subtarefas={subtarefasDe(t.id)} exibicao={exibicao} mostrarAvatar={mostrarAvatar} hoje={hoje} selecionada={selecionada === t.id} onAbrir={() => onAbrir(t.id)} onSelecionar={() => onSelecionar(t.id)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Coluna recolhida (vazia, ou Backlog/Cancelada): faixa estreita, ainda aceita drop; abre ao clicar, ao criar ou ao arrastar por cima. */
+function ColunaColapsada({ grupo: g, agruparPor, onExpandir, onNovo }: { grupo: Linha<TarefaLista>; agruparPor: Exibicao["agrupar"]; onExpandir: () => void; onNovo: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: idColuna(g.chave) });
+  return (
+    <section
+      ref={setNodeRef}
+      aria-label={`${g.nome} (recolhida), ${g.tarefas.length} tarefa(s)`}
+      className={cn("flex w-12 shrink-0 snap-start flex-col items-center gap-1 rounded-xl border border-dashed border-border bg-muted/40 py-3 transition-colors", isOver && "border-solid border-border-strong bg-surface-hover ring-1 ring-border-strong")}
+    >
+      <Button variant="ghost" size="icon-xs" aria-label={`Nova tarefa em ${g.nome}`} title="Nova tarefa" onClick={onNovo}>
+        <Plus />
+      </Button>
+      <button type="button" onClick={onExpandir} aria-label={`Expandir ${g.nome}`} title={`Expandir ${g.nome}`} className="flex flex-1 flex-col items-center gap-2 rounded-md px-1 pt-1 text-fg-mute outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+        <MarcaGrupo grupo={g} agruparPor={agruparPor} />
+        <span className="font-mono text-xs tabular">{g.tarefas.length}</span>
+        <span className="text-xs whitespace-nowrap [writing-mode:vertical-rl]">{g.nome}</span>
       </button>
-    </div>
+    </section>
   );
 }
 

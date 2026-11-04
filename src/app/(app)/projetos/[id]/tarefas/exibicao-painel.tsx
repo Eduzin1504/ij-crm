@@ -62,10 +62,10 @@ export function ExibicaoPainel({ ancora, exibicao: e, onMudar, onFechar }: { anc
         <Select valor={e.dens} opcoes={[["compacta", "Compacta"], ["padrao", "Padrão"], ["confortavel", "Confortável"]]} onMudar={(v) => set("dens", v)} />
       </Linha>
       <label className="flex h-8 items-center gap-2 px-2 text-sm">
-        <input type="checkbox" checked={e.recolhidos} onChange={(ev) => set("recolhidos", ev.target.checked)} className="accent-primary" /> Mostrar Backlog e Cancelada abertas
+        <input type="checkbox" checked={e.recolhidos} onChange={(ev) => set("recolhidos", ev.target.checked)} className="accent-primary" /> Backlog e Cancelada abertas
       </label>
       <label className="flex h-8 items-center gap-2 px-2 text-sm">
-        <input type="checkbox" checked={e.vazios} onChange={(ev) => set("vazios", ev.target.checked)} className="accent-primary" /> Manter grupos vazios abertos
+        <input type="checkbox" checked={e.vazios} onChange={(ev) => set("vazios", ev.target.checked)} className="accent-primary" /> Mostrar colunas e grupos vazios
       </label>
       <p className="eyebrow px-2 pt-2 pb-1.5">Propriedades exibidas</p>
       <div className="flex flex-wrap gap-1.5 px-2 pb-2">

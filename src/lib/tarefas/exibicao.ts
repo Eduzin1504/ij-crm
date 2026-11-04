@@ -27,7 +27,7 @@ export type Propriedade = keyof Exibicao["props"];
 
 export const EXIBICAO_PADRAO: Exibicao = {
   vista: "quadro",
-  agrupar: "resp",
+  agrupar: "status",
   ordenar: "posicao",
   ordemDesc: false,
   concluidas: "todas",
