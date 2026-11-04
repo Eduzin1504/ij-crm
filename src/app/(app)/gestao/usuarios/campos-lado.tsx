@@ -1,20 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import type { Area, Cargo, Papel } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel } from "@prisma/client";
 import { Label } from "@/components/ui/label";
-import { AREAS, CARGOS, ROTULO_AREA, ROTULO_CARGO, regraDeArea, resolverAreaCargos } from "@/lib/auth/areas";
+import {
+  AREAS,
+  AREAS_ENTRADA,
+  CARGOS,
+  ROTULO_AREA,
+  ROTULO_AREA_ENTRADA,
+  ROTULO_CARGO,
+  regraDeArea,
+  resolverAreaCargos,
+  usaAreaDeEntrada,
+} from "@/lib/auth/areas";
 import { SelectPapel } from "./select-papel";
 
 const CLASSE_SELECT =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60";
 
 /**
- * Papel + área + cargos (GAB-82), no convite e na edição. A área acompanha o
+ * Papel + área + cargos (GAB-82) + área de entrada (GAB-97), no convite e na edição. A área acompanha o
  * papel (vendedor → vendas, projetos → projetos, visualizador → nenhuma); só
  * gestor/admin escolhem, e só explicitamente: começam em "Nenhuma" e, ao
  * trocar para gestor/admin vindo de papel com área fixa, a área e o GP zeram.
  * O servidor reaplica a mesma regra (lib/auth/areas, usuarios.ts).
+ * A área de entrada só aparece para quem a usa: admin, gestor sem área e visualizador.
  * `mostrarPapel=false`: admin editando a si mesmo — só lado/cargo, sem papel.
  */
 export function CamposPapelLado({
@@ -22,17 +33,21 @@ export function CamposPapelLado({
   papel: papelInicial,
   area: areaInicial,
   cargos: cargosIniciais,
+  areaEntrada: areaEntradaInicial = null,
   mostrarPapel = true,
 }: {
   papelAtor: Papel;
   papel: Papel;
   area: Area | null;
   cargos: readonly Cargo[];
+  areaEntrada?: AreaEntrada | null;
   mostrarPapel?: boolean;
 }) {
   const [papel, setPapel] = useState<Papel>(papelInicial);
   const [areaLivre, setAreaLivre] = useState<Area | null>(areaInicial);
   const [cargos, setCargos] = useState<Cargo[]>([...cargosIniciais]);
+  // Sem valor no banco vale Geral: o select mostra o que de fato acontece.
+  const [areaEntrada, setAreaEntrada] = useState<AreaEntrada>(areaEntradaInicial ?? "GERAL");
 
   const regra = regraDeArea(papel);
   const efetivo = resolverAreaCargos(papel, areaLivre, cargos);
@@ -104,6 +119,25 @@ export function CamposPapelLado({
             : "Gestão/admin: área só se a pessoa também responde por um lado."}{" "}
         GP age em nome do seu lado na proposta.
       </p>
+      {usaAreaDeEntrada(papel, efetivo.area) ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="areaEntrada">Área de entrada</Label>
+          <select
+            id="areaEntrada"
+            name="areaEntrada"
+            value={areaEntrada}
+            onChange={(e) => setAreaEntrada(e.currentTarget.value as AreaEntrada)}
+            className={CLASSE_SELECT}
+          >
+            {AREAS_ENTRADA.map((a) => (
+              <option key={a} value={a}>
+                {ROTULO_AREA_ENTRADA[a]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-fg-faint">Onde a pessoa cai ao abrir o CRM.</p>
+        </div>
+      ) : null}
     </>
   );
 }

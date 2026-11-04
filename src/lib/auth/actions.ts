@@ -10,6 +10,7 @@ import { freioEsqueci, limitadorLogin } from "./limitador";
 import { MENSAGEM_REDEFINICAO, pedirRedefinicao, redefinirSenha } from "./redefinicao";
 import { SESSAO_DURACAO_DIAS, criarSessao, encerrarSessao } from "./sessao";
 import { aceitarConvite, autenticar } from "./usuarios";
+import { COOKIE_AREA } from "./visibilidade";
 import { comTratamentoForm } from "@/lib/erros/registrar";
 
 export type EstadoForm = { erro?: string } | undefined;
@@ -19,6 +20,8 @@ async function abrirSessao(usuarioId: string) {
   const id = await criarSessao(usuarioId, expiraEm, (await headers()).get("user-agent"));
   const jar = await cookies();
   jar.set(COOKIE_SESSAO, id, opcoesCookieSessao(expiraEm));
+  // Quem acabou de entrar começa na própria área de entrada, não na última de quem usou este navegador.
+  jar.delete(COOKIE_AREA);
 }
 
 async function ipDoRequest(): Promise<string> {
@@ -51,6 +54,7 @@ export async function logoutAction(): Promise<void> {
   const id = jar.get(COOKIE_SESSAO)?.value;
   if (id) await encerrarSessao(id);
   jar.delete(COOKIE_SESSAO);
+  jar.delete(COOKIE_AREA);
   redirect("/login");
 }
 

@@ -1,16 +1,16 @@
 import { registrarErro } from "@/lib/erros/registrar";
-import { destinoInicio, PREFERENCIAS_PADRAO, type DestinoInicio, type Preferencias } from "./preferencias";
+import { paginaInicial, PREFERENCIAS_PADRAO, type PaginaInicial, type Preferencias } from "./preferencias";
 
 /**
- * Destino da página inicial para o logo do shell. Nunca lança: o layout de
+ * O que abre dentro da área, para a gaveta do shell. Nunca lança: o layout de
  * todas as páginas depende disso, então banco fora vira log com ref e Minha
  * Semana (o padrão), em vez de derrubar o app inteiro.
  */
-export async function resolverInicio(ler: () => Promise<Preferencias>): Promise<DestinoInicio> {
+export async function resolverPaginaInicial(ler: () => Promise<Preferencias>): Promise<PaginaInicial> {
   try {
-    return destinoInicio(await ler());
+    return paginaInicial(await ler());
   } catch (e) {
     registrarErro("layout.inicio", e);
-    return destinoInicio(PREFERENCIAS_PADRAO);
+    return paginaInicial(PREFERENCIAS_PADRAO);
   }
 }

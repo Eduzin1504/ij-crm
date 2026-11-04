@@ -1,11 +1,74 @@
 import { describe, expect, it } from "vitest";
-import { NAV_ITEMS, isActive, itemAtivo, itensParaPapel } from "./nav-config";
+import { areaDaRota, isActive, itemAtivo, itensDaGaveta, itensDoMenu } from "./nav-config";
 
-describe("itensParaPapel", () => {
-  it("vendedor não vê Gestão; gestor e admin veem", () => {
-    expect(itensParaPapel("VENDEDOR").map((i) => i.href)).not.toContain("/gestao");
-    expect(itensParaPapel("GESTOR").map((i) => i.href)).toContain("/gestao");
-    expect(itensParaPapel("ADMIN").map((i) => i.href)).toContain("/gestao");
+const pessoa = (papel: "ADMIN" | "GESTOR" | "VENDEDOR" | "PROJETOS" | "VISUALIZADOR", area: "VENDAS" | "PROJETOS" | null = null) => ({ papel, area, cargos: [], areaEntrada: null });
+const ADMIN = pessoa("ADMIN");
+const VENDEDOR = pessoa("VENDEDOR", "VENDAS");
+const MEMBRO_PROJETOS = pessoa("PROJETOS", "PROJETOS");
+
+const rotulos = (itens: { label: string }[]) => itens.map((i) => i.label);
+
+describe("itensDoMenu", () => {
+  it("Vendas, na ordem da spec, com o compartilhado no fim", () => {
+    expect(rotulos(itensDoMenu(ADMIN, "VENDAS"))).toEqual(["Minha Semana", "Kanban de vendas", "Propostas", "Tabela", "Ranking", "Contatos", "Empresas", "Calendário"]);
+  });
+
+  it("Projetos: Propostas entra; Tabela e Ranking não", () => {
+    expect(rotulos(itensDoMenu(ADMIN, "PROJETOS"))).toEqual(["Minha Semana", "Kanban de projetos", "Propostas", "Contatos", "Empresas", "Calendário"]);
+  });
+
+  it("visitante não vê Minha Semana, Tabela e Ranking", () => {
+    expect(rotulos(itensDoMenu(MEMBRO_PROJETOS, "VENDAS"))).toEqual(["Kanban de vendas", "Propostas", "Contatos", "Empresas", "Calendário"]);
+  });
+
+  it("o Kanban de cada área leva ao quadro dela", () => {
+    expect(itensDoMenu(ADMIN, "VENDAS").find((i) => i.quadro)?.href).toBe("/kanban");
+    expect(itensDoMenu(ADMIN, "PROJETOS").find((i) => i.quadro)?.href).toBe("/kanban?quadro=projetos");
+  });
+
+  it("nunca repete href", () => {
+    const hrefs = itensDoMenu(ADMIN, "VENDAS").map((i) => i.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+});
+
+describe("itensDaGaveta", () => {
+  it("Gestão só para gestor e admin", () => {
+    expect(rotulos(itensDaGaveta(VENDEDOR))).toEqual(["Painel", "Meu perfil"]);
+    expect(rotulos(itensDaGaveta(pessoa("GESTOR", "VENDAS")))).toEqual(["Painel", "Gestão", "Meu perfil"]);
+    expect(rotulos(itensDaGaveta(ADMIN))).toEqual(["Painel", "Gestão", "Meu perfil"]);
+  });
+});
+
+describe("areaDaRota", () => {
+  it("/kanban pelo quadro; sem quadro é Vendas; quadro desconhecido não define", () => {
+    expect(areaDaRota("/kanban", null, VENDEDOR)).toBe("VENDAS");
+    expect(areaDaRota("/kanban", "projetos", VENDEDOR)).toBe("PROJETOS");
+    expect(areaDaRota("/kanban", "nada", VENDEDOR)).toBeNull();
+  });
+
+  it("/projetos/[id] pelo quadro do card, inclusive nas páginas da proposta; antes de declarar, não define", () => {
+    expect(areaDaRota("/projetos/abc", "projetos", VENDEDOR)).toBe("PROJETOS");
+    expect(areaDaRota("/projetos/abc/proposta", "vendas", MEMBRO_PROJETOS)).toBe("VENDAS");
+    expect(areaDaRota("/projetos/abc", null, VENDEDOR)).toBeNull();
+  });
+
+  it("Tabela e Ranking são de Vendas", () => {
+    expect(areaDaRota("/tabela", null, ADMIN)).toBe("VENDAS");
+    expect(areaDaRota("/ranking", null, ADMIN)).toBe("VENDAS");
+  });
+
+  it("Minha Semana é da área da pessoa; de quem é das duas, não define", () => {
+    expect(areaDaRota("/semana", null, VENDEDOR)).toBe("VENDAS");
+    expect(areaDaRota("/semana", null, MEMBRO_PROJETOS)).toBe("PROJETOS");
+    expect(areaDaRota("/semana", null, pessoa("GESTOR", "PROJETOS"))).toBe("PROJETOS");
+    expect(areaDaRota("/semana", null, ADMIN)).toBeNull();
+    expect(areaDaRota("/semana", null, pessoa("ADMIN", "VENDAS"))).toBeNull();
+    expect(areaDaRota("/semana", null, pessoa("GESTOR"))).toBeNull();
+  });
+
+  it.each(["/contatos", "/empresas/x", "/calendario", "/propostas", "/painel", "/perfil", "/gestao/ranking"])("%s não define área", (rota) => {
+    expect(areaDaRota(rota, null, VENDEDOR)).toBeNull();
   });
 });
 
@@ -22,59 +85,10 @@ describe("isActive", () => {
   });
 });
 
-describe("NAV_ITEMS", () => {
-  it("Minha Semana aponta para /semana (/ redireciona pela preferência — GAB-43)", () => {
-    const semana = NAV_ITEMS.find((i) => i.label === "Minha Semana")!;
-    expect(semana.href).toBe("/semana");
-    expect(itemAtivo(semana, "/semana", null)).toBe(true);
-  });
-
-  it("Ranking aparece para todos os papéis (GAB-44)", () => {
-    for (const papel of ["VENDEDOR", "GESTOR", "ADMIN"] as const) expect(itensParaPapel(papel).map((i) => i.href)).toContain("/ranking");
-  });
-
-  it("Painel de vendas aparece para todos os papéis, logo depois do Ranking (GAB-94)", () => {
-    for (const papel of ["VISUALIZADOR", "VENDEDOR", "PROJETOS", "GESTOR", "ADMIN"] as const) {
-      const hrefs = itensParaPapel(papel).map((i) => i.href);
-      expect(hrefs.indexOf("/painel")).toBe(hrefs.indexOf("/ranking") + 1);
-    }
-  });
-
-  it("Calendário aparece para todos os papéis, logo depois da Minha Semana (GAB-51)", () => {
-    for (const papel of ["VENDEDOR", "GESTOR", "ADMIN"] as const) {
-      const hrefs = itensParaPapel(papel).map((i) => i.href);
-      expect(hrefs.indexOf("/calendario")).toBe(hrefs.indexOf("/semana") + 1);
-    }
-    const cal = NAV_ITEMS.find((i) => i.href === "/calendario")!;
-    expect(cal.label).toBe("Calendário");
-    expect(itemAtivo(cal, "/calendario", null)).toBe(true);
-  });
-
-  it("Propostas aparece para todos os papéis, logo depois dos quadros (GAB-86)", () => {
-    for (const papel of ["VISUALIZADOR", "VENDEDOR", "PROJETOS", "GESTOR", "ADMIN"] as const) {
-      const hrefs = itensParaPapel(papel).map((i) => i.href);
-      expect(hrefs.indexOf("/propostas")).toBe(hrefs.indexOf("/kanban?quadro=projetos") + 1);
-    }
-    const propostas = NAV_ITEMS.find((i) => i.href === "/propostas")!;
-    expect(itemAtivo(propostas, "/propostas", null)).toBe(true);
-    expect(itemAtivo(propostas, "/kanban", null)).toBe(false);
-  });
-
-  it("tem hrefs únicos", () => {
-    const hrefs = NAV_ITEMS.map((i) => i.href);
-    expect(new Set(hrefs).size).toBe(hrefs.length);
-  });
-});
-
-describe("alternador de quadro (Vendas / Projetos)", () => {
-  const vendas = NAV_ITEMS.find((i) => i.quadro === "vendas")!;
-  const projetos = NAV_ITEMS.find((i) => i.quadro === "projetos")!;
-
-  it("os dois quadros estão na navegação, para todos os papéis", () => {
-    expect(vendas.label).toBe("Vendas");
-    expect(projetos.label).toBe("Projetos");
-    expect(itensParaPapel("VENDEDOR")).toEqual(expect.arrayContaining([vendas, projetos]));
-  });
+describe("itemAtivo", () => {
+  const item = (rotulo: string, area: "VENDAS" | "PROJETOS" = "VENDAS") => itensDoMenu(ADMIN, area).find((i) => i.label === rotulo)!;
+  const vendas = item("Kanban de vendas");
+  const projetos = item("Kanban de projetos", "PROJETOS");
 
   it("/kanban sem quadro = Vendas; ?quadro=projetos = Projetos", () => {
     expect(itemAtivo(vendas, "/kanban", null)).toBe(true);
@@ -83,7 +97,7 @@ describe("alternador de quadro (Vendas / Projetos)", () => {
     expect(itemAtivo(projetos, "/kanban", "projetos")).toBe(true);
   });
 
-  it("no detalhe vale o ?quadro do link; sem ele nenhum quadro acende", () => {
+  it("no detalhe vale o quadro declarado; sem ele nenhum quadro acende", () => {
     expect(itemAtivo(projetos, "/projetos/abc", "projetos")).toBe(true);
     expect(itemAtivo(vendas, "/projetos/abc", "projetos")).toBe(false);
     expect(itemAtivo(vendas, "/projetos/abc", null)).toBe(false);
@@ -92,8 +106,10 @@ describe("alternador de quadro (Vendas / Projetos)", () => {
 
   it("fora do Kanban nenhum quadro acende; os outros itens seguem o prefixo", () => {
     expect(itemAtivo(vendas, "/tabela", "vendas")).toBe(false);
-    const tabela = NAV_ITEMS.find((i) => i.href === "/tabela")!;
-    expect(itemAtivo(tabela, "/tabela", null)).toBe(true);
-    expect(itemAtivo(tabela, "/kanban", null)).toBe(false);
+    expect(itemAtivo(item("Tabela"), "/tabela", null)).toBe(true);
+    expect(itemAtivo(item("Tabela"), "/kanban", null)).toBe(false);
+    expect(itemAtivo(item("Propostas"), "/propostas", null)).toBe(true);
+    expect(itemAtivo(item("Minha Semana"), "/semana", null)).toBe(true);
+    expect(itemAtivo(item("Calendário"), "/calendario", null)).toBe(true);
   });
 });

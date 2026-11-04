@@ -4,7 +4,7 @@
  *
  * Formato versionado: `{ v: 1, kanban: { [pipelineChave]: { mostrarVazias, abertas } }, inicio?, avisos? }`,
  * em que `abertas` são CHAVES de fase (estáveis entre ambientes) abertas à mão e
- * `inicio` é a página que `/` abre (semana | vendas | projetos; GAB-43) e
+ * `inicio` é o que abre dentro da área (semana | kanban; GAB-97, antes GAB-43) e
  * `avisos.whatsapp` liga/desliga o WhatsApp privado dos avisos (GAB-88; ausente = ligado).
  *
  * Leitura nunca lança: JSON inválido, de outra versão ou com chaves estranhas
@@ -24,14 +24,17 @@ export type VisualizacaoKanban = z.infer<typeof visualizacaoKanbanSchema>;
 
 export const VISUALIZACAO_PADRAO: VisualizacaoKanban = { mostrarVazias: false, abertas: [] };
 
-/** Página que `/` abre (GAB-43). Ausente = Minha Semana. Aditivo na v1: sem migração de versão. */
-export const inicioSchema = z.enum(["semana", "vendas", "projetos"]);
+/** O que abre dentro da área (GAB-97). Ausente = Minha Semana. Aditivo na v1: sem migração de versão. */
+export const inicioSchema = z.enum(["semana", "kanban"]);
 export type PaginaInicial = z.infer<typeof inicioSchema>;
+
+/** Leitura: `vendas` e `projetos` (GAB-43) escolhiam um quadro; a área agora decide qual, e eles valem como kanban. */
+const inicioGravadoSchema = z.enum(["semana", "kanban", "vendas", "projetos"]).transform((i): PaginaInicial => (i === "semana" ? "semana" : "kanban"));
 
 const preferenciasSchema = z.object({
   v: z.literal(1),
   kanban: z.record(chave, visualizacaoKanbanSchema.catch(() => ({ ...VISUALIZACAO_PADRAO, abertas: [] }))).catch(() => ({})),
-  inicio: inicioSchema.optional().catch(undefined),
+  inicio: inicioGravadoSchema.optional().catch(undefined),
   avisos: z.object({ whatsapp: z.boolean() }).optional().catch(undefined),
 });
 
@@ -54,14 +57,6 @@ export function visualizacaoKanban(p: Preferencias, pipelineChave: string, chave
 
 export function paginaInicial(p: Preferencias): PaginaInicial {
   return p.inicio ?? "semana";
-}
-
-export type DestinoInicio = "/semana" | "/kanban" | "/kanban?quadro=projetos";
-
-/** Destino do redirect de `/` e do logo do shell (sempre interno, de uma lista fixa). */
-export function destinoInicio(p: Preferencias): DestinoInicio {
-  const i = paginaInicial(p);
-  return i === "vendas" ? "/kanban" : i === "projetos" ? "/kanban?quadro=projetos" : "/semana";
 }
 
 export function comInicio(p: Preferencias, inicio: PaginaInicial): Preferencias {

@@ -66,8 +66,7 @@ export function EmailForm({ email }: { email: string }) {
 
 const OPCOES = [
   { valor: "semana", rotulo: "Minha Semana" },
-  { valor: "vendas", rotulo: "Kanban · Vendas" },
-  { valor: "projetos", rotulo: "Kanban · Projetos" },
+  { valor: "kanban", rotulo: "Kanban da área" },
 ] as const;
 
 export function PaginaInicialForm({ atual }: { atual: (typeof OPCOES)[number]["valor"] }) {
@@ -76,7 +75,7 @@ export function PaginaInicialForm({ atual }: { atual: (typeof OPCOES)[number]["v
     <form action={action} className="space-y-4 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-medium">Página inicial</h2>
       <fieldset className="space-y-2">
-        <legend className="mb-2 text-xs text-fg-faint">O que abre quando você entra no CRM. Minha Semana continua no menu.</legend>
+        <legend className="mb-2 text-xs text-fg-faint">O que abre quando você entra em uma área. Minha Semana continua no menu.</legend>
         {OPCOES.map((o) => (
           <label key={o.valor} className="flex items-center gap-2 text-sm">
             <input type="radio" name="inicio" value={o.valor} defaultChecked={o.valor === atual} className="accent-primary" />

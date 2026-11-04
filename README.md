@@ -726,8 +726,9 @@ Em **Meu perfil** cada um mexe só na própria conta:
   normaliza e respeita a unicidade.
 - **Sessões ativas**: dispositivo/navegador pelo user-agent; encerrar uma ou todas as outras.
   O "último uso" é regravado no máximo a cada 5 min (`SESSAO_TOQUE_MINUTOS`).
-- **Página inicial**: Minha Semana, Kanban Vendas ou Kanban Projetos (`preferencias.inicio`);
-  `/` redireciona no servidor.
+- **Página inicial**: o que abre dentro da área, Minha Semana ou Kanban (`preferencias.inicio`;
+  os valores antigos `vendas` e `projetos` valem como Kanban). `/` redireciona no servidor para
+  a área de entrada da pessoa. Veja a seção de áreas abaixo.
 
 **Esqueci a senha** (`/esqueci`, link no login): resposta sempre igual (sem enumerar contas),
 limite em memória de 10 pedidos por IP em 15 min e 3 por IP+email por hora (IP = último hop do
@@ -919,6 +920,22 @@ Admin, publicar o aviso de privacidade **antes** de ligar o webhook, e só por
 último `NOTIFICATIONS_ENABLED=true`.
 
 Limites de memória e medições: runbook §11.
+
+## Áreas e gaveta da IJ
+
+Spec: `docs/superpowers/specs/2026-11-03-areas-hub-design.md`. As URLs não mudam; o que muda é o menu.
+
+- **Gaveta:** o ícone da IJ (rail; topbar no mobile) abre áreas e Geral (Painel, Gestão, Meu perfil).
+  Nunca abre sozinha.
+- **Menu por área:** a regra pura está em `src/lib/auth/visibilidade.ts` (`itensDaArea`, `podeVerItem`);
+  `href` e ícones em `src/components/shell/nav-config.ts`. Hoje só o menu filtra; o bloqueio no
+  servidor é do GAB-98.
+- **Área atual:** `/kanban` pelo quadro, `/projetos/[id]` pelo quadro do card, Tabela e Ranking são de
+  Vendas, Minha Semana é da área da pessoa. Nas outras rotas vale a última área aberta (cookie
+  `ij_area`, apagado no login e no logout), e sem cookie a de entrada.
+- **Entrada (`/`):** membro e gestor com área entram na própria. ADMIN, gestor sem área e visualizador
+  entram na `usuario.area_entrada`, definida em Gestão de usuários (sem valor = Geral = `/painel`).
+  Essa coluna não dá lado na caneta; quem dá é `usuario.area`.
 
 ## Testes
 

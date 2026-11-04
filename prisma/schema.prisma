@@ -33,6 +33,13 @@ enum Area {
   PROJETOS
 }
 
+// GAB-97: onde a pessoa entra no CRM. GERAL = Painel.
+enum AreaEntrada {
+  VENDAS
+  PROJETOS
+  GERAL
+}
+
 // Cargo DENTRO da área (não é papel de permissão). Novo cargo da IJ = só
 // `ALTER TYPE "Cargo" ADD VALUE` (aditivo), sem mexer em linhas existentes.
 enum Cargo {
@@ -153,6 +160,8 @@ model Usuario {
   // (VENDEDOR → VENDAS, PROJETOS → PROJETOS, VISUALIZADOR → nenhum).
   area              Area?
   cargos            Cargo[]   @default([])
+  // GAB-97: área de entrada de ADMIN, GESTOR sem área e VISUALIZADOR (null = Geral). Não dá lado.
+  areaEntrada       AreaEntrada? @map("area_entrada")
   telefoneWhatsapp  String?   @unique @map("telefone_whatsapp")
   whatsappLid       String?   @unique @map("whatsapp_lid")
   ativo             Boolean   @default(true)

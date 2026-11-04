@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Area, Cargo, Papel } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel } from "@prisma/client";
 import { db } from "@/lib/db";
 import { registrarErro } from "@/lib/erros/registrar";
 
@@ -16,6 +16,8 @@ export type UsuarioSessao = {
   /** Lado e cargos (GAB-82). Para perguntar "de que lado"/"é GP", use `ladoDe`/`ehGpDoLado` de ./areas. */
   area: Area | null;
   cargos: Cargo[];
+  /** Área de entrada escolhida pela gestão (GAB-97). Para saber onde a pessoa entra, use `areaDeEntrada` de ./visibilidade. */
+  areaEntrada: AreaEntrada | null;
   /** `atualizado_em` da foto em ms (cache-bust da URL); null/ausente = sem foto → iniciais. */
   fotoEm?: number | null;
 };
@@ -48,14 +50,14 @@ export async function obterUsuarioDaSessao(valor: string, agora: Date = new Date
       expiraEm: true,
       ultimoUsoEm: true,
       usuario: {
-        select: { id: true, nome: true, email: true, papel: true, area: true, cargos: true, ativo: true, foto: { select: { atualizadoEm: true } } },
+        select: { id: true, nome: true, email: true, papel: true, area: true, cargos: true, areaEntrada: true, ativo: true, foto: { select: { atualizadoEm: true } } },
       },
     },
   });
   if (!s || s.expiraEm.getTime() <= agora.getTime() || !s.usuario.ativo) return null;
   await tocarSessao(id, s.ultimoUsoEm, agora);
   const u = s.usuario;
-  return { id: u.id, nome: u.nome, email: u.email, papel: u.papel, area: u.area, cargos: u.cargos, fotoEm: u.foto?.atualizadoEm.getTime() ?? null };
+  return { id: u.id, nome: u.nome, email: u.email, papel: u.papel, area: u.area, cargos: u.cargos, areaEntrada: u.areaEntrada, fotoEm: u.foto?.atualizadoEm.getTime() ?? null };
 }
 
 /**

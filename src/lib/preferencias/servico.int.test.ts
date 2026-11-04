@@ -66,17 +66,24 @@ describe("preferências de visualização (integração)", () => {
   it("página inicial: grava sem apagar o kanban; valor inválido é recusado", async () => {
     const { ana } = await semear();
     await salvarVisualizacaoKanban(ana.id, "vendas", { mostrarVazias: true, abertas: [] });
-    expect(await salvarPaginaInicial(ana.id, "projetos")).toEqual({ ok: true });
+    expect(await salvarPaginaInicial(ana.id, "kanban")).toEqual({ ok: true });
     expect(await salvarPaginaInicial(ana.id, "https://evil.test")).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
-    expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "projetos", kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
+    expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "kanban", kanban: { vendas: { mostrarVazias: true, abertas: [] } } });
+  });
+
+  it("valor antigo no JSON é lido como kanban, sem migrar, e a escrita antiga é recusada (GAB-97)", async () => {
+    const { ana } = await semear();
+    await db.usuario.update({ where: { id: ana.id }, data: { preferencias: { v: 1, kanban: {}, inicio: "projetos" } } });
+    expect((await obterPreferencias(ana.id)).inicio).toBe("kanban");
+    expect(await salvarPaginaInicial(ana.id, "projetos")).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
   });
 
   it("WhatsApp dos avisos (GAB-88): grava sem apagar o resto; valor que não é booleano é recusado", async () => {
     const { ana } = await semear();
-    expect(await salvarPaginaInicial(ana.id, "vendas")).toEqual({ ok: true });
+    expect(await salvarPaginaInicial(ana.id, "kanban")).toEqual({ ok: true });
     expect(await salvarWhatsappAvisos(ana.id, false)).toEqual({ ok: true });
     expect(await salvarWhatsappAvisos(ana.id, "false")).toEqual({ ok: false, erro: "DADOS_INVALIDOS" });
-    expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "vendas", kanban: {}, avisos: { whatsapp: false } });
+    expect(await obterPreferencias(ana.id)).toEqual({ v: 1, inicio: "kanban", kanban: {}, avisos: { whatsapp: false } });
   });
 
   it("action grava só no usuário da sessão (não aceita id de outro)", async () => {

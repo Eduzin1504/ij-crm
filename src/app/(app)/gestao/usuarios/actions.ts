@@ -26,6 +26,8 @@ const papelSchema = z.enum(["ADMIN", "GESTOR", "VENDEDOR", "PROJETOS", "VISUALIZ
 // "" = nenhuma área. Coerência com o papel é resolvida no serviço (lib/auth/areas).
 const areaSchema = z.enum(["VENDAS", "PROJETOS", ""]).transform((a) => (a === "" ? null : a));
 const cargosSchema = z.array(z.enum(["GP"]));
+// "" = campo fora do form (papel não usa área de entrada). Coerência no serviço, como a área.
+const areaEntradaSchema = z.enum(["VENDAS", "PROJETOS", "GERAL", ""]).transform((a) => (a === "" ? null : a));
 
 const conviteSchema = z.object({
   nome: z.string().trim().min(2, "Nome muito curto."),
@@ -34,16 +36,17 @@ const conviteSchema = z.object({
   telefone: z.string().trim().optional(),
   area: areaSchema.optional(),
   cargos: cargosSchema,
+  areaEntrada: areaEntradaSchema.optional(),
 });
 
 /**
- * Campos de lado do form (CamposLado): `area` + checkboxes `cargos`. O hidden
+ * Campos de lado do form (CamposLado): `area` + checkboxes `cargos` + `areaEntrada`. O hidden
  * `ladoNoForm` diferencia "nenhum cargo marcado" de "form sem esses campos"
  * (editar a si mesmo não mostra lado/cargo).
  */
-function ladoDoForm(form: FormData): { area?: unknown; cargos?: unknown[] } {
+function ladoDoForm(form: FormData): { area?: unknown; cargos?: unknown[]; areaEntrada?: unknown } {
   if (form.get("ladoNoForm") !== "1") return {};
-  return { area: form.get("area") ?? "", cargos: form.getAll("cargos") };
+  return { area: form.get("area") ?? "", cargos: form.getAll("cargos"), areaEntrada: form.get("areaEntrada") ?? "" };
 }
 
 function linkConvite(token: string, caminho: "convite" | "redefinir" = "convite"): string {
@@ -104,6 +107,7 @@ const edicaoSchema = z.object({
   papel: papelSchema.optional(),
   area: areaSchema.optional(),
   cargos: cargosSchema.optional(),
+  areaEntrada: areaEntradaSchema.optional(),
 });
 
 export type EstadoEdicao = { erro?: string; ok?: true } | undefined;

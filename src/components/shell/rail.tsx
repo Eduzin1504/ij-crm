@@ -1,39 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "cn";
-import type { Papel } from "@prisma/client";
-import { itemAtivo, itensParaPapel } from "./nav-config";
-import { useQuadroAtivo } from "./quadro-ativo";
-import { SimboloIJ } from "@/components/marca/marca";
-import type { DestinoInicio } from "@/lib/preferencias/preferencias";
+import { useNavegacaoArea } from "./area-atual";
+import { BotaoGaveta, GavetaIJ, IndicadorArea } from "./gaveta-ij";
+import { itemAtivo, itensDoMenu } from "./nav-config";
 
 /**
- * Rail lateral (desktop) + barra inferior (mobile).
+ * Rail lateral (desktop) + barra inferior (mobile), com os itens da área atual.
  * Visual: bg-subtle (sidebar) com borda, item ativo em primary-soft + coral.
- * Recebe só o papel (serializável); ícones são resolvidos aqui, no client.
+ * O ícone da IJ abre a gaveta; no mobile ele fica na topbar.
  */
-export function Rail({ papel, inicio }: { papel: Papel; inicio: DestinoInicio }) {
+export function Rail() {
   const pathname = usePathname();
-  // Vendas e Projetos são o mesmo /kanban: na lista o quadro vem do ?quadro=;
-  // no detalhe, a página declara o quadro do card (`MarcarQuadroAtivo`).
-  const parametro = useSearchParams().get("quadro");
-  const declarado = useQuadroAtivo();
-  const quadro = declarado ?? parametro;
-  const itens = itensParaPapel(papel);
+  const { pessoa, area, quadro } = useNavegacaoArea();
+  const itens = itensDoMenu(pessoa, area);
 
   return (
     <>
       {/* desktop */}
       <nav
         aria-label="Principal"
-        className="hidden md:flex fixed inset-y-0 left-0 w-[88px] flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-4"
+        className="hidden md:flex fixed inset-y-0 left-0 w-[88px] flex-col items-center gap-1 overflow-y-auto border-r border-sidebar-border bg-sidebar py-4"
       >
         {/* Rail estreito (88 px): só o símbolo; o logo inteiro ficaria ilegível. */}
-        <Link href={inicio} className="mb-4 flex size-[60px] items-center justify-center rounded-xl bg-primary-soft/40 ring-1 ring-primary/20 hover:bg-primary-soft/70" title="Início">
-          <SimboloIJ tamanho={48} />
-        </Link>
+        <BotaoGaveta
+          tamanho={48}
+          className="mb-2 flex size-[60px] shrink-0 items-center justify-center rounded-xl bg-primary-soft/40 ring-1 ring-primary/20 hover:bg-primary-soft/70"
+        />
+        <IndicadorArea className="mb-3 w-[72px] shrink-0" />
         {itens.map((item) => {
           const active = itemAtivo(item, pathname, quadro);
           const Icon = item.icon;
@@ -43,7 +39,7 @@ export function Rail({ papel, inicio }: { papel: Papel; inicio: DestinoInicio })
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 text-[11px] transition-colors",
+                "flex w-[72px] shrink-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[11px] transition-colors",
                 active
                   ? "bg-primary-soft text-primary"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
@@ -80,6 +76,8 @@ export function Rail({ papel, inicio }: { papel: Papel; inicio: DestinoInicio })
           );
         })}
       </nav>
+
+      <GavetaIJ />
     </>
   );
 }

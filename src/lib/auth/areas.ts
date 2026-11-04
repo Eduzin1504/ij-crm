@@ -1,4 +1,4 @@
-import type { Area, Cargo, Papel } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel } from "@prisma/client";
 import { podeEscrever } from "./papeis";
 
 /**
@@ -45,6 +45,22 @@ export function resolverAreaCargos(papel: Papel, area: Area | null, cargos: read
   const regra = regraDeArea(papel);
   const final = regra.tipo === "fixa" ? regra.area : regra.tipo === "nenhuma" ? null : area;
   return { area: final, cargos: final === null ? [] : CARGOS.filter((c) => cargos.includes(c)) };
+}
+
+export const AREAS_ENTRADA: readonly AreaEntrada[] = ["VENDAS", "PROJETOS", "GERAL"];
+export const ROTULO_AREA_ENTRADA: Record<AreaEntrada, string> = { VENDAS: "Vendas", PROJETOS: "Projetos", GERAL: "Geral (Painel)" };
+
+/**
+ * A área de entrada vem da coluna própria só para quem não tem uma área que a
+ * defina: ADMIN (mesmo com lado), GESTOR sem área e VISUALIZADOR. `area` = a efetiva.
+ */
+export function usaAreaDeEntrada(papel: Papel, area: Area | null): boolean {
+  return papel === "ADMIN" || papel === "VISUALIZADOR" || (papel === "GESTOR" && area === null);
+}
+
+/** Área de entrada coerente com papel e área: quem entra pela própria área não guarda valor. */
+export function resolverAreaEntrada(papel: Papel, area: Area | null, pedida: AreaEntrada | null): AreaEntrada | null {
+  return usaAreaDeEntrada(papel, area) ? pedida : null;
 }
 
 export type PessoaComLado = { papel: Papel; area: Area | null; cargos: readonly Cargo[] };
