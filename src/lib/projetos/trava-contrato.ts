@@ -19,6 +19,13 @@
  * depois": quem já está lá anda livre lá dentro (subfase → Ganho, Ganho →
  * Montando contrato). Saindo de Perdido, conta onde o card estava quando foi
  * perdido (a última TransicaoFase para o Perdido atual).
+ *
+ * Ganho (GAB-99, spec §4.2/§4.9): mesmo com a proposta aceita, só a partir de
+ * uma fase aberta em Montando contrato ou depois dele. Antes do marco ou
+ * saindo de Perdido, leve o card a Montando contrato primeiro. Vale para toda
+ * fase GANHO do quadro de Vendas, onde quer que a Gestão a tenha posto. Isentos
+ * seguem isentos. Restaurar da lixeira (origem null) também não entra em Ganho:
+ * o restaurar não passa pelo gancho do terminal (data, valor, Handoff).
  */
 import type { Fase, Prisma, StatusProposta } from "@prisma/client";
 import { ErroDeRegra } from "./erros";
@@ -26,6 +33,9 @@ import { ErroDeRegra } from "./erros";
 type Tx = Prisma.TransactionClient;
 
 type PosicaoFase = Pick<Fase, "pipelineId" | "ordem" | "criadoEm" | "tipoTerminal">;
+
+/** Por que a trava pegou. `status` = da proposta (null = sem proposta ou não vem ao caso). */
+export type TravaContrato = { erro: "PROPOSTA_NAO_ACEITA" | "GANHO_SO_DE_MONTANDO_CONTRATO"; status: StatusProposta | null };
 
 /** A fase está no marco Montando contrato ou depois dele, no quadro dele (Perdido não conta: é "em qualquer ponto"). Puro. */
 export function alemDoContrato(f: PosicaoFase, mc: Pick<Fase, "pipelineId" | "ordem" | "criadoEm">): boolean {
@@ -40,18 +50,21 @@ export async function faseMontandoContrato(tx: Tx): Promise<Fase | null> {
 /**
  * Por que o movimento/criação esbarra na trava (null = passa). `projetoId`
  * null = card novo (não tem proposta); `origem` null = card nascendo.
- * Devolve o status da proposta (null = sem proposta) para dizer o que falta.
+ * Devolve o código do erro e o status da proposta para dizer o que falta.
  */
 export async function travaDoContrato(
   tx: Tx,
   a: { projetoId: string | null; origem: Fase | null; destino: Fase },
-): Promise<{ status: StatusProposta | null } | null> {
+): Promise<TravaContrato | null> {
   const mc = await faseMontandoContrato(tx);
-  if (!mc || !alemDoContrato(a.destino, mc)) return null;
+  if (!mc) return null;
+  const vaiParaGanho = a.destino.tipoTerminal === "GANHO" && a.destino.pipelineId === mc.pipelineId;
+  if (!vaiParaGanho && !alemDoContrato(a.destino, mc)) return null;
   if (a.projetoId) {
     const isento = await tx.projeto.findUnique({ where: { id: a.projetoId }, select: { isentoTravaContrato: true } });
     if (isento?.isentoTravaContrato) return null;
   }
+  let jaPassou = false;
   if (a.origem) {
     let efetiva: PosicaoFase = a.origem;
     if (a.origem.tipoTerminal === "PERDIDO" && a.projetoId) {
@@ -62,17 +75,21 @@ export async function travaDoContrato(
       });
       if (t?.deFase) efetiva = t.deFase;
     }
-    if (alemDoContrato(efetiva, mc)) return null;
+    jaPassou = alemDoContrato(efetiva, mc);
   }
-  if (!a.projetoId) return { status: null };
-  const p = await tx.proposta.findUnique({ where: { projetoId: a.projetoId }, select: { status: true } });
-  if (p?.status === "ACEITA") return null;
-  return { status: p?.status ?? null };
+  if (!jaPassou) {
+    if (!a.projetoId) return { erro: "PROPOSTA_NAO_ACEITA", status: null };
+    const p = await tx.proposta.findUnique({ where: { projetoId: a.projetoId }, select: { status: true } });
+    if (p?.status !== "ACEITA") return { erro: "PROPOSTA_NAO_ACEITA", status: p?.status ?? null };
+  }
+  if (vaiParaGanho && !(a.origem && !a.origem.isTerminal && alemDoContrato(a.origem, mc))) return { erro: "GANHO_SO_DE_MONTANDO_CONTRATO", status: null };
+  return null;
 }
 
-/** Lança `PROPOSTA_NAO_ACEITA` (desfaz a transação) se a trava pega. */
+/** Lança o erro da trava (desfaz a transação) se ela pega. */
 export async function exigirTravaDoContrato(tx: Tx, a: { projetoId: string | null; origem: Fase | null; destino: Fase }): Promise<void> {
-  if (await travaDoContrato(tx, a)) throw new ErroDeRegra("PROPOSTA_NAO_ACEITA");
+  const trava = await travaDoContrato(tx, a);
+  if (trava) throw new ErroDeRegra(trava.erro);
 }
 
 /**

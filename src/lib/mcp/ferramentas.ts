@@ -17,6 +17,7 @@
  * Caneta (GAB-87): passar, devolver, concordar, pegar, reabrir, inviável e diff —
  * as mesmas funções de serviço da tela, com a máquina de estados de propostas/caneta.ts.
  * Avisos (GAB-88): listar os do sino e marcar como lidos — sempre os da própria pessoa.
+ * Contrato (GAB-99): marcar assinado, com o PDF opcional.
  */
 import { z } from "zod";
 import { lerTextoDoAnexo, listarAnexos } from "@/lib/anexos/anexos";
@@ -28,6 +29,7 @@ import { mensagemInesperada, registrarErro } from "@/lib/erros/registrar";
 import { listarPipelines } from "@/lib/fases/fases";
 import { ROTULO_MARCO } from "@/lib/fases/marcos";
 import { diaEmFuso } from "@/lib/projetos/aging";
+import { MENSAGEM_ERRO_CONTRATO, marcarContratoAssinado } from "@/lib/projetos/contrato-assinado";
 import { CAMPOS_EDITAVEIS, descricaoSchema, interpretarCampo, type CampoEditavel } from "@/lib/projetos/campos";
 import { MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { adicionarNota, criarCard, editarCard, listarQuadro, listarResponsaveis, moverCard, obterCard, type PatchCard } from "@/lib/projetos/projetos";
@@ -106,6 +108,7 @@ const id = z.string().min(1).max(64);
 const quadro = z.enum([PIPELINE_VENDAS, PIPELINE_PROJETOS]);
 const ok = (dados: unknown): Resposta => ({ ok: true, dados });
 const erro = (texto: string): Resposta => ({ ok: false, erro: texto });
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const urlProjeto = (pid: string) => `${urlBase()}/projetos/${pid}`;
 const dia = (d: Date | null) => (d ? diaEmFuso(d) : null);
 
@@ -331,7 +334,7 @@ const moverProjeto = ferramenta({
   nome: "mover_projeto",
   titulo: "Mover projeto de fase",
   descricao:
-    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
+    "Move o projeto para outra fase do MESMO quadro (as regras de marco valem como na tela: Montando contrato e o que vem depois só com a proposta aceita — registre o aceite com registrar_resposta_proposta, que já move o card; Ganho só a partir de Montando contrato — prefira marcar_contrato_assinado). Ganho em vendas pede valor_fechado (12.500,00) e leva o card ao Handoff do quadro projetos; Perdido pede motivo_perda (chave de listar_fases) e, em \"outro\", detalhe_perda.",
   escrita: true,
   entrada: {
     id,
@@ -913,6 +916,37 @@ const marcarAvisosLidosMcp = ferramenta({
   },
 });
 
+/**
+ * Maior `pdf_base64` aceito: o proxy do Next corta o corpo em 10 MiB (`proxyClientMaxBodySize`
+ * padrão, src/proxy.ts cobre /api/mcp) e o JSON cortado vira "Parse error". 64 KiB ficam para o
+ * envelope JSON-RPC e os outros argumentos. Dá cerca de 7,8 MB de PDF, menos que o limite da tela.
+ */
+export const PDF_BASE64_MAX = 10 * 1024 * 1024 - 64 * 1024;
+
+const marcarContratoAssinadoMcp = ferramenta({
+  nome: "marcar_contrato_assinado",
+  titulo: "Marcar contrato como assinado",
+  descricao:
+    "Contrato assinado: leva o projeto em Montando contrato (ou numa subfase depois dele) para Ganho e dali ao Handoff do quadro projetos, registrando a data e o valor fechado. Fora disso é recusado, nem gestor força. valor_fechado no formato 12.500,00; ausente ou vazio mantém o valor já guardado no projeto, e sem nenhum valor o ganho sai com um aviso na resposta. pdf_base64 (opcional, PDF de até 7,8 MB; maior que isso, anexe pela tela) anexa o PDF assinado ao projeto; pdf_nome é o nome do arquivo e só vale com pdf_base64.",
+  escrita: true,
+  entrada: {
+    id,
+    valor_fechado: z.string().max(50).optional(),
+    pdf_nome: z.string().max(1000).optional(),
+    pdf_base64: z.string().max(PDF_BASE64_MAX, "PDF grande demais para o conector: o limite é 7,8 MB. Anexe pela tela do CRM.").optional(),
+  },
+  executar: async (a, eu) => {
+    if (a.pdf_nome?.trim() && a.pdf_base64 === undefined) return erro("pdf_nome veio sem pdf_base64: envie o conteúdo do PDF em pdf_base64 ou tire pdf_nome. Nada foi alterado.");
+    if (a.pdf_base64 !== undefined && !BASE64.test(a.pdf_base64)) return erro("pdf_base64 não é base64 válido.");
+    const arquivo = a.pdf_base64 !== undefined ? { nome: a.pdf_nome?.trim() || "Contrato assinado.pdf", bytes: new Uint8Array(Buffer.from(a.pdf_base64, "base64")) } : null;
+    // Vazio aqui é "não informei", não "apague o valor" (só o campo do diálogo limpa).
+    const r = await marcarContratoAssinado(a.id, { valorFechado: a.valor_fechado?.trim() || undefined, arquivo }, eu);
+    if (!r.ok) return erro(MENSAGEM_ERRO_CONTRATO[r.erro]);
+    const aviso = r.mudou && r.valorFechado === null ? { aviso: "Ganho registrado sem valor fechado: valor_fechado não foi informado e o projeto não tinha valor guardado. Avise a pessoa." } : {};
+    return ok({ mudou: r.mudou, anexo: r.anexo, valor_fechado: r.valorFechado, ...aviso, url: urlProjeto(a.id) });
+  },
+});
+
 export const FERRAMENTAS: readonly Ferramenta[] = [
   listarFases,
   listarPessoas,
@@ -922,6 +956,7 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   atualizarProjeto,
   definirProximaAcao,
   moverProjeto,
+  marcarContratoAssinadoMcp,
   registrarNota,
   buscarEmpresasContatos,
   vincularEmpresaContato,

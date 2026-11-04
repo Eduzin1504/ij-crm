@@ -144,6 +144,35 @@ describe("soft-delete e restauração de card", () => {
     expect(await restaurarCard(novo.id, gestor)).toEqual({ ok: true, faseId: x.id });
   });
 
+  it("GAB-99: subfase vira ganho com o card na lixeira: restaurar não entra em Ganho, mesmo com a proposta aceita", async () => {
+    const { vendas, vend, gestor, cardId } = await semear();
+    await db.fase.update({ where: { id: fase(vendas, "contrato_assinado").id }, data: { ordem: 3 } });
+    await db.fase.update({ where: { id: fase(vendas, "perdido").id }, data: { ordem: 4 } });
+    await db.fase.create({ data: { pipelineId: vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    invalidarCachePipelines();
+    await db.proposta.create({ data: { projetoId: cardId, status: "ACEITA", criadoPorId: vend.id } });
+    const c = await db.projeto.findUniqueOrThrow({ where: { id: cardId } });
+    await excluirCard(cardId, vend);
+    // Gestão muda o tipo da fase: só os cards vivos contam.
+    await db.fase.update({ where: { id: c.faseId }, data: { isTerminal: true, tipoTerminal: "GANHO" } });
+    const r = await restaurarCard(cardId, gestor);
+    expect(r).toEqual({ ok: false, erro: "GANHO_SO_DE_MONTANDO_CONTRATO" });
+    if (!r.ok) {
+      expect(mensagemLixeira(r)).toMatch(/ganho só a partir de Montando contrato/);
+      expect(mensagemLixeira(r)).toMatch(/Gestão de fases/);
+      expect(mensagemLixeira(r)).not.toMatch(/outro destino/);
+    }
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: cardId } })).deletadoEm).not.toBeNull();
+    // isento segue isento
+    await db.projeto.update({ where: { id: cardId }, data: { isentoTravaContrato: true } });
+    expect(await restaurarCard(cardId, gestor)).toMatchObject({ ok: true });
+    await excluirCard(cardId, vend);
+    await db.projeto.update({ where: { id: cardId }, data: { isentoTravaContrato: false } });
+    // o que a mensagem manda fazer funciona: a fase deixa de ser de ganho e o card volta
+    await db.fase.update({ where: { id: c.faseId }, data: { isTerminal: false, tipoTerminal: null } });
+    expect(await restaurarCard(cardId, gestor)).toMatchObject({ ok: true });
+  });
+
   it("GAB-89: restaurar com a fase arquivada não fura a trava de Montando contrato (sem proposta aceita)", async () => {
     const { vendas, vend, gestor, cardId } = await semear();
     await db.fase.update({ where: { id: fase(vendas, "contrato_assinado").id }, data: { ordem: 4 } });

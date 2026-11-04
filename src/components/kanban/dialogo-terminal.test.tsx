@@ -32,6 +32,22 @@ describe("DialogoTerminal — ganho", () => {
     expect(onConfirmar).toHaveBeenCalledWith({ valorFechado: "12.500,00" });
   });
 
+  it("PDF assinado é opcional: vai junto quando escolhido; acima do limite não confirma", async () => {
+    const { onConfirmar } = montar(ganho);
+    const campo = await screen.findByLabelText("Contrato assinado em PDF (opcional)");
+    const grande = new File(["x"], "contrato.pdf", { type: "application/pdf" });
+    Object.defineProperty(grande, "size", { value: 11 * 1024 * 1024 });
+    fireEvent.change(campo, { target: { files: [grande] } });
+    fireEvent.click(screen.getByRole("button", { name: "Marcar como ganho" }));
+    expect(onConfirmar).not.toHaveBeenCalled();
+    expect(screen.getByText(/grande demais/)).toBeInTheDocument();
+
+    const pdf = new File(["%PDF-"], "contrato.pdf", { type: "application/pdf" });
+    fireEvent.change(campo, { target: { files: [pdf] } });
+    fireEvent.click(screen.getByRole("button", { name: "Marcar como ganho" }));
+    expect(onConfirmar).toHaveBeenCalledWith({ valorFechado: "" }, pdf);
+  });
+
   it("cancelar não confirma", async () => {
     const { onConfirmar, onCancelar } = montar(ganho);
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));

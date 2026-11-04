@@ -16,7 +16,7 @@ import { ErroLlm } from "@/lib/llm/tipos";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { moverCard } from "@/lib/projetos/projetos";
 import { comentar } from "@/lib/propostas/comentarios";
-import { executarFerramenta, FERRAMENTAS, SO_LEITURA } from "./ferramentas";
+import { executarFerramenta, FERRAMENTAS, PDF_BASE64_MAX, SO_LEITURA } from "./ferramentas";
 import type { UsuarioMcp } from "./oauth";
 
 const db = dbTeste();
@@ -82,6 +82,7 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
       atualizar_projeto: { id, campos: { titulo: "Outro" } },
       definir_proxima_acao: { id, acao: "Ligar", data: "2026-11-10" },
       mover_projeto: { id, fase_id: fase(vendas, "em_negociacao").id },
+      marcar_contrato_assinado: { id },
       registrar_nota: { id, texto: "oi" },
       vincular_empresa_contato: { id, campo: "empresa", alvo_id: empresa.id },
       criar_prazo: { titulo: "Entregar", dia: "2026-11-20", projeto_id: id },
@@ -608,6 +609,125 @@ describe("avisos via MCP (GAB-88): o sino da própria pessoa", () => {
     expect(dados(await executarFerramenta("listar_avisos", { todos: true }, projetos)).avisos).toHaveLength(2);
     expect(dados(await executarFerramenta("marcar_avisos_lidos", {}, projetos))).toEqual({ marcados: 1, naoLidos: 0 });
     expect(dados(await executarFerramenta("listar_avisos", {}, projetos))).toEqual({ naoLidos: 0, avisos: [] });
+  });
+});
+
+describe("contrato assinado via MCP (GAB-99): mesmo serviço e mesma trava da tela", () => {
+  async function comContrato() {
+    const s = await semear();
+    await db.fase.update({ where: { id: fase(s.vendas, "perdido").id }, data: { ordem: 4 } });
+    const mc = await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    const ganho = await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "contrato_assinado", nome: "Contrato assinado", ordem: 3, isTerminal: true, tipoTerminal: "GANHO", marco: "GANHO" } });
+    invalidarCachePipelines();
+    const card = await criarCard({ pipelineId: s.vendas.id, faseId: fase(s.vendas, "em_negociacao").id, titulo: "Site" }, s.vendedora);
+    if (!card.ok) throw new Error("seed");
+    await db.proposta.create({ data: { projetoId: card.id, status: "ACEITA", criadoPorId: s.vendedora.id } });
+    return { ...s, id: card.id, mc, ganho };
+  }
+
+  it("trava: antes de Montando contrato, mover_projeto e marcar_contrato_assinado recusam (nem gestor)", async () => {
+    const { id, ganho, gestor, vendedora } = await comContrato();
+    for (const quem of [gestor, vendedora]) {
+      const movido = await executarFerramenta("mover_projeto", { id, fase_id: ganho.id, valor_fechado: "9.000,00" }, quem);
+      expect(movido.isError).toBe(true);
+      expect(texto(movido)).toMatch(/só a partir de Montando contrato/);
+      const marcado = await executarFerramenta("marcar_contrato_assinado", { id, valor_fechado: "9.000,00" }, quem);
+      expect(marcado.isError).toBe(true);
+      expect(texto(marcado)).toMatch(/só a partir de Montando contrato/);
+    }
+    const c = await db.projeto.findUniqueOrThrow({ where: { id } });
+    expect(c.dataGanho).toBeNull();
+    expect(c.faseId).not.toBe(ganho.id);
+  });
+
+  it("em Montando contrato, sem PDF: Ganho com data e valor, segue ao Handoff, Timeline via MCP", async () => {
+    const { id, mc, vendedora } = await comContrato();
+    expect(await executarFerramenta("mover_projeto", { id, fase_id: mc.id }, vendedora)).not.toHaveProperty("isError", true);
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, valor_fechado: "9.000,00" }, vendedora));
+    expect(r).toMatchObject({ mudou: true, anexo: null });
+    const c = await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } });
+    expect(c.fase.marco).toBe("HANDOFF");
+    expect(c.valorFechado?.toFixed(2)).toBe("9000.00");
+    expect(c.dataGanho).not.toBeNull();
+    const mov = await db.timeline.findMany({ where: { projetoId: id, tipo: "MOVIMENTACAO" }, orderBy: { em: "desc" } });
+    expect(mov[0].viaMcp).toBe(true);
+  });
+
+  it("com PDF em base64: anexa e marca; base64 inválido e arquivo que não é PDF não movem nada", async () => {
+    const { id, mc, vendedora } = await comContrato();
+    await executarFerramenta("mover_projeto", { id, fase_id: mc.id }, vendedora);
+    const invalido = await executarFerramenta("marcar_contrato_assinado", { id, pdf_base64: "@@@" }, vendedora);
+    expect(texto(invalido)).toMatch(/base64/);
+    const png = await executarFerramenta("marcar_contrato_assinado", { id, pdf_nome: "foto.png", pdf_base64: Buffer.from(PNG).toString("base64") }, vendedora);
+    expect(texto(png)).toMatch(/precisa ser um PDF/);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).faseId).toBe(mc.id);
+    expect(await db.anexo.count({ where: { projetoId: id } })).toBe(0);
+
+    const bytes = pdfDeTexto(["Contrato assinado"]);
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, pdf_base64: Buffer.from(bytes).toString("base64") }, vendedora));
+    expect(r.anexo).toMatchObject({ nome: "Contrato assinado.pdf" });
+    expect(await db.anexo.findFirstOrThrow({ where: { projetoId: id } })).toMatchObject({ tipo: "PDF", tamanho: bytes.length });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } })).fase.marco).toBe("HANDOFF");
+  });
+});
+
+describe("marcar_contrato_assinado: argumentos (revisão do PR #65)", () => {
+  const MAX_PROXY = 10 * 1024 * 1024; // proxyClientMaxBodySize padrão do Next: acima disso o corpo chega cortado
+  const emMc = async (s: Awaited<ReturnType<typeof semear>>) => {
+    await db.fase.update({ where: { id: fase(s.vendas, "perdido").id }, data: { ordem: 4 } });
+    const mc = await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "montando_contrato", nome: "Montando contrato", ordem: 2, marco: "MONTANDO_CONTRATO" } });
+    await db.fase.create({ data: { pipelineId: s.vendas.id, chave: "contrato_assinado", nome: "Contrato assinado", ordem: 3, isTerminal: true, tipoTerminal: "GANHO", marco: "GANHO" } });
+    invalidarCachePipelines();
+    const card = await db.projeto.create({ data: { pipelineId: s.vendas.id, faseId: mc.id, titulo: "Site", responsavelId: s.vendedora.id, criadoVia: "UI" } });
+    await db.proposta.create({ data: { projetoId: card.id, status: "ACEITA", criadoPorId: s.vendedora.id } });
+    return { id: card.id, mc };
+  };
+
+  it("pdf_base64 no limite cabe no corte do proxy; acima dele recusa com o limite, sem mover; a descrição informa", async () => {
+    const f = FERRAMENTAS.find((x) => x.nome === "marcar_contrato_assinado")!;
+    expect(f.descricao).toContain("7,8 MB");
+    const corpo = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: f.nome, arguments: { id: "x".repeat(64), valor_fechado: "9".repeat(50), pdf_nome: "n".repeat(1000), pdf_base64: "A".repeat(PDF_BASE64_MAX) } } });
+    expect(Buffer.byteLength(corpo)).toBeLessThanOrEqual(MAX_PROXY);
+    expect((PDF_BASE64_MAX / 4) * 3).toBeGreaterThanOrEqual(7_800_000);
+
+    const s = await semear();
+    const { id, mc } = await emMc(s);
+    const r = await executarFerramenta(f.nome, { id, pdf_base64: "A".repeat(PDF_BASE64_MAX + 4) }, s.vendedora);
+    expect(r.isError).toBe(true);
+    expect(texto(r)).toContain("7,8 MB");
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).faseId).toBe(mc.id);
+  });
+
+  it("valor_fechado vazio conta como ausente: não apaga o valor guardado e não avisa", async () => {
+    const s = await semear();
+    const { id } = await emMc(s);
+    await db.projeto.update({ where: { id }, data: { valorFechado: "7000.00" } });
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, valor_fechado: "  " }, s.vendedora));
+    expect(r).toMatchObject({ mudou: true, valor_fechado: "7000.00" });
+    expect(r).not.toHaveProperty("aviso");
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).valorFechado?.toFixed(2)).toBe("7000.00");
+  });
+
+  it("ganho sem valor fechado passa, com aviso claro na resposta", async () => {
+    const s = await semear();
+    const { id } = await emMc(s);
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id }, s.vendedora));
+    expect(r).toMatchObject({ mudou: true, valor_fechado: null });
+    expect(r.aviso).toMatch(/sem valor fechado/);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } })).fase.marco).toBe("HANDOFF");
+  });
+
+  it("pdf_nome sem extensão recebe .pdf; pdf_nome sem pdf_base64 recusa sem mover", async () => {
+    const s = await semear();
+    const { id, mc } = await emMc(s);
+    const sem = await executarFerramenta("marcar_contrato_assinado", { id, pdf_nome: "contrato" }, s.vendedora);
+    expect(sem.isError).toBe(true);
+    expect(texto(sem)).toMatch(/pdf_nome.*pdf_base64/);
+    expect((await db.projeto.findUniqueOrThrow({ where: { id } })).faseId).toBe(mc.id);
+
+    const base64 = Buffer.from(pdfDeTexto(["Contrato assinado"])).toString("base64");
+    const r = dados(await executarFerramenta("marcar_contrato_assinado", { id, pdf_nome: "Contrato Padaria", pdf_base64: base64 }, s.vendedora));
+    expect(r.anexo).toMatchObject({ nome: "Contrato Padaria.pdf" });
   });
 });
 

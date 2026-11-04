@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FALHA_CONEXAO, executarAcao, falhaDe, type FalhaUI } from "@/lib/erros/cliente";
 import { DESCRICAO_MAX } from "@/lib/projetos/descricao";
+import { enviarContratoAssinado } from "@/lib/projetos/contrato-assinado-cliente";
 import { dialogoTerminal, type DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { criarCardAction, moverCardAction, salvarVisualizacaoKanbanAction } from "./actions";
 import { CardVisual } from "./card-visual";
@@ -154,7 +155,7 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
     return cards.find((c) => c.id === s)?.faseId ?? null;
   };
 
-  function mover(cardId: string, paraFaseId: string, dados?: DadosTerminal) {
+  function mover(cardId: string, paraFaseId: string, dados?: DadosTerminal, arquivo?: File) {
     const original = cards.find((c) => c.id === cardId);
     if (!original || original.faseId === paraFaseId) return;
     setErro(null);
@@ -162,7 +163,11 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
     // Otimista: vai para o topo da coluna destino, zerando os dias na fase.
     setCards((cs) => [{ ...original, faseId: paraFaseId, faseDesdeMs: Date.now() }, ...cs.filter((c) => c.id !== cardId)]);
     startTransition(async () => {
-      const falha = await executarAcao(() => moverCardAction(cardId, paraFaseId, dados), "mover o card");
+      // Com o PDF assinado (GAB-99) vai pela rota do contrato; a rota não revalida a página.
+      const falha = arquivo
+        ? await executarAcao(() => enviarContratoAssinado(cardId, dados, arquivo), "marcar o contrato como assinado")
+        : await executarAcao(() => moverCardAction(cardId, paraFaseId, dados), "mover o card");
+      if (!falha && arquivo) router.refresh();
       if (falha) {
         // Reconcilia com o estado ATUAL (outros movimentos podem ter acontecido
         // nesse meio-tempo): desfaz só este movimento, e só se o card ainda está
@@ -347,8 +352,8 @@ export function QuadroKanban({ pipelineId, fases, cards: cardsServidor, agoraMs,
       <DialogoTerminal
         pedido={pedido}
         onCancelar={() => setPedido(null)}
-        onConfirmar={(dados) => {
-          if (pedido) mover(pedido.cardId, pedido.faseId, dados);
+        onConfirmar={(dados, arquivo) => {
+          if (pedido) mover(pedido.cardId, pedido.faseId, dados, arquivo);
           setPedido(null);
         }}
       />

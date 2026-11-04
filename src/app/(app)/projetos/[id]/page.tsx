@@ -15,6 +15,7 @@ import { AnexosDoProjeto } from "./anexos";
 import { CampoInline, RevisarSwitch } from "./campo-inline";
 import { DescricaoCard } from "./descricao-card";
 import { MoverFase } from "./mover-fase";
+import { alemDoContrato } from "@/lib/projetos/trava-contrato";
 import { ResumoAvaliacaoContato } from "@/components/avaliacao/nota-contato";
 import { resumoAvaliacao } from "@/lib/projetos/avaliacao";
 import { NotaForm } from "./nota-form";
@@ -63,6 +64,11 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   const todasFases = pipelines.flatMap((p) => p.fases);
   const nomesFases = new Map(todasFases.map((f) => [f.id, f.nome]));
   const fasesDoQuadro = (pipelines.find((p) => p.id === card.pipelineId)?.fases ?? []).filter((f) => f.arquivadaEm === null || f.id === card.faseId);
+  // GAB-99: "Contrato assinado" aparece em Montando contrato ou depois (a regra mesmo é do servidor).
+  const faseAtual = fasesDoQuadro.find((f) => f.id === card.faseId);
+  const montandoContrato = fasesDoQuadro.find((f) => f.marco === "MONTANDO_CONTRATO");
+  const ganhoParaAssinar =
+    faseAtual && montandoContrato && !faseAtual.isTerminal && alemDoContrato(faseAtual, montandoContrato) ? (fasesDoQuadro.find((f) => f.marco === "GANHO")?.id ?? null) : null;
 
   // Ciclo único (GAB-81): a Timeline herdada da v1 cita a venda/o card de projetos que
   // agora são este mesmo card (`mesmoCard`). Pares NÃO unidos seguem como dois cards: o
@@ -132,6 +138,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
             <div className="grid gap-4 sm:grid-cols-2">
               <MoverFase
                 somenteLeitura={leitura}
+                ganhoId={ganhoParaAssinar}
                 cardId={card.id}
                 titulo={card.titulo}
                 faseAtualId={card.faseId}

@@ -571,6 +571,14 @@ soft-deletada com `absorvido_por_id`, fora da lixeira). Exceção: venda fora do
 perdida depois do ganho) com projeto vivo **não é unida** — ficam dois cards, um em cada quadro, com
 link um para o outro na Timeline; re-ganho dessa venda segue para o Handoff como card próprio e avisa
 nos dois (`reganho_projeto_existente`).
+**Contrato assinado (GAB-99, spec fase 2 §4.2/§4.9).** Ganho só a partir de Montando contrato (ou de
+subfase depois dele), mesmo com a proposta aceita: vale para arraste, WhatsApp e MCP, nem gestor
+força (`trava-contrato.ts`, erro `GANHO_SO_DE_MONTANDO_CONTRATO`); restaurar da lixeira também não
+entra em fase de ganho. Cards `isento_trava_contrato` seguem isentos. No detalhe do Projeto, o botão
+"Contrato assinado" abre o diálogo de ganho, que aceita o PDF assinado (opcional, também no arraste);
+`marcarContratoAssinado` (`contrato-assinado.ts`) é a porta da tela e da ferramenta MCP
+`marcar_contrato_assinado`: confere a regra, anexa pelo sistema de anexos e só então move. WhatsApp
+"assinou" fora da regra marca `revisar` e responde no grupo o que falta.
 O ganho guarda `vendedor_id` (responsável no momento do ganho); o ranking credita ganho/perda a ele. Deploy e rollback: runbook, "Ciclo
 único (GAB-81)"; contagens antes/depois: `scripts/verificar-ciclo-unico.sql`.
 
