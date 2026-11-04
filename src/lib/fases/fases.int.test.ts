@@ -545,6 +545,14 @@ describe("Gestão de fases × trava de Montando contrato (GAB-89)", () => {
     expect((await db.projeto.findUniqueOrThrow({ where: { id: d.id } })).faseId).toBe(faseDe(vendas, "juridico").id);
   });
 
+  it("GAB-99: remover fase não leva cards a Ganho, nem com a proposta aceita", async () => {
+    const { vendas, g } = await quadro();
+    const c = await card(vendas.id, faseDe(vendas, "juridico").id, g.id);
+    await aceitar(c.id, g.id);
+    expect(await removerFase(faseDe(vendas, "juridico").id, { destinoFaseId: faseDe(vendas, "contrato_assinado").id }, g)).toEqual({ ok: false, erro: "DESTINO_TERMINAL_INCOMPATIVEL" });
+    expect((await db.projeto.findUniqueOrThrow({ where: { id: c.id } })).faseId).toBe(faseDe(vendas, "juridico").id);
+  });
+
   it("card isento (existia no deploy) não segura a Gestão: migra e cruza o marco", async () => {
     const { vendas, g, ids } = await quadro();
     const [pc, neg, prop, mc, jur, ganho, perd] = ids;

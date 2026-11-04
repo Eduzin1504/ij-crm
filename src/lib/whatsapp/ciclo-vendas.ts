@@ -70,5 +70,8 @@ export function motivoDaTravaDoContrato(status: StatusProposta | null): string {
   return `falta a proposta aceita (está ${STATUS_NO_GRUPO[status]}): registre o aceite no CRM`;
 }
 
+/** GAB-99: "assinou"/"fechou" com a proposta aceita, mas antes de Montando contrato. Até 80 caracteres. */
+export const MOTIVO_GANHO_SO_DE_MONTANDO_CONTRATO = "ganho só a partir de Montando contrato: mova o card para lá no CRM";
+
 /** Card novo (CRIAR) pedido direto em Montando contrato ou além: nasce na fase padrão. */
 export const MOTIVO_CARD_NOVO_SEM_PROPOSTA = "card novo não nasce em Montando contrato (exige proposta aceita)";

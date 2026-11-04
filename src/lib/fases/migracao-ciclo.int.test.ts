@@ -452,6 +452,9 @@ describe("migration do ciclo único (GAB-81)", () => {
     // GAB-89: card aberto ANTES de Montando contrato precisa da proposta aceita para fechar.
     expect(await moverCard(fx.aberto, fx.V("contrato_assinado"), fx.ana, { dadosTerminal: { valorFechado: "5.000,00" } })).toEqual({ ok: false, erro: "PROPOSTA_NAO_ACEITA" });
     await db.proposta.create({ data: { projetoId: fx.aberto, status: "ACEITA", criadoPorId: fx.ana.id } });
+    // GAB-99: com o aceite, ainda precisa passar por Montando contrato.
+    expect(await moverCard(fx.aberto, fx.V("contrato_assinado"), fx.ana, { dadosTerminal: { valorFechado: "5.000,00" } })).toEqual({ ok: false, erro: "GANHO_SO_DE_MONTANDO_CONTRATO" });
+    expect(await moverCard(fx.aberto, fx.V("montando_contrato"), fx.ana)).toMatchObject({ ok: true });
     const r = await moverCard(fx.aberto, fx.V("contrato_assinado"), fx.ana, { dadosTerminal: { valorFechado: "5.000,00" } });
     expect(r).toMatchObject({ ok: true });
     const ganhou = await db.projeto.findUniqueOrThrow({ where: { id: fx.aberto }, include: { fase: true } });

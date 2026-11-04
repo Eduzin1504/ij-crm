@@ -57,7 +57,7 @@ import {
   type Sugestao,
   type Tx,
 } from "./comum";
-import { CARD_VIVO_NO_CICLO_DE_VENDAS, FASES_DO_WHATSAPP, MOTIVO_CARD_NOVO_SEM_PROPOSTA, motivoDaTravaDoContrato } from "./ciclo-vendas";
+import { CARD_VIVO_NO_CICLO_DE_VENDAS, FASES_DO_WHATSAPP, MOTIVO_CARD_NOVO_SEM_PROPOSTA, MOTIVO_GANHO_SO_DE_MONTANDO_CONTRATO, motivoDaTravaDoContrato } from "./ciclo-vendas";
 import { dadosDoFechamento } from "./fechamento";
 import { extrairIdentificadores } from "./identificadores";
 
@@ -266,11 +266,13 @@ export async function aplicarAtualizacao(tx: Tx, e: EntradaAplicacao, locks: { v
   const faseAtual = await tx.fase.findUniqueOrThrow({ where: { id: base.faseId } });
   let destino: Fase | undefined = ex.fase_chave ? fases.find((f) => f.chave === ex.fase_chave) : undefined;
   if (ex.fase_chave && !destino) motivos.push("fase indicada não reconhecida");
-  // GAB-89: "fechou" sem proposta aceita não move (nem reabre direto lá): revisar + o grupo fica sabendo o que falta.
+  // GAB-89/GAB-99: "fechou"/"assinou" fora da regra não move (nem reabre direto lá): revisar + o grupo fica sabendo o que falta.
   if (destino && destino.id !== faseAtual.id) {
     const trava = await travaDoContrato(tx, { projetoId: reabrir ? null : base.id, origem: reabrir ? null : faseAtual, destino });
     if (trava) {
-      motivos.unshift(reabrir ? MOTIVO_CARD_NOVO_SEM_PROPOSTA : motivoDaTravaDoContrato(trava.status));
+      motivos.unshift(
+        reabrir ? MOTIVO_CARD_NOVO_SEM_PROPOSTA : trava.erro === "GANHO_SO_DE_MONTANDO_CONTRATO" ? MOTIVO_GANHO_SO_DE_MONTANDO_CONTRATO : motivoDaTravaDoContrato(trava.status),
+      );
       destino = undefined;
     }
   }
