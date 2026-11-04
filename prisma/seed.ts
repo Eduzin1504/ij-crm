@@ -44,6 +44,8 @@ export const PIPELINES: { chave: string; nome: string; ordem: number; fases: Fas
       { chave: "conclusao", nome: "Conclusão", cor: "#ffc857" },
       { chave: "coleta_dados", nome: "Coleta de dados", cor: "#ff8655" },
       { chave: "finalizado", nome: "Finalizado", tipoTerminal: "GANHO", cor: "#1e9b6b", marco: "FINALIZADO" },
+      // GAB-93: não é marco (`fase.marco` é único); `validarTerminais` garante que o quadro mantenha uma.
+      { chave: "perdido", nome: "Perdido", tipoTerminal: "PERDIDO", cor: "#6b7280" },
     ],
   },
 ];

@@ -798,7 +798,8 @@ model Anexo {
   texto         String?
   semTexto      Boolean   @map("sem_texto")
   /// GAB-93: este PDF É o contrato assinado do Projeto (marcado pelo fluxo de contrato assinado ou
-  /// pelo checklist de handoff; nunca deduzido do nome). No máximo um por Projeto, pelo serviço.
+  /// pelo checklist de handoff; nunca deduzido do nome). No máximo um vivo por Projeto: índice único
+  /// parcial `anexo_contrato_assinado_vivo_key`, só na migration 20261104150000 (o Prisma não o representa).
   contratoAssinado Boolean @default(false) @map("contrato_assinado")
   autorId       String    @map("autor_id")
   criadoEm      DateTime  @default(now()) @map("criado_em")

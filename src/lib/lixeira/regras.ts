@@ -89,7 +89,7 @@ export function mensagemLixeira(f: FalhaLixeira): string {
     case "GANHO_SO_DE_MONTANDO_CONTRATO":
       return "Este card não volta numa fase de ganho: ganho só a partir de Montando contrato. Para restaurar, tire o tipo ganho dessa fase na Gestão de fases (desarquive antes, se ela estiver arquivada).";
     case "HANDOFF_INCOMPLETO":
-      return "Este card não tem o handoff completo: ele não volta em Execução nem numa fase depois dela. Escolha uma fase antes de Execução.";
+      return "Este card estava antes de Execução e não tem o handoff completo: não volta em Execução nem numa fase depois dela. Escolha uma fase antes de Execução. Se a fase dele foi movida para depois de Execução, leve-a de volta na Gestão de fases.";
     case "CONFIRMACAO_NAO_CONFERE":
       return "O texto digitado não confere com o título. Nada foi apagado.";
     case "CONTATO_TEM_MESCLADOS":

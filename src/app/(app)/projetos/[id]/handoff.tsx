@@ -19,6 +19,8 @@ type Props = {
   podeDesignar: boolean;
   podeResumo: boolean;
   candidatosGp: { id: string; nome: string }[];
+  /** Ninguém ativo tem o cargo de GP de projetos: ninguém consegue designar. */
+  semGpDeProjetos: boolean;
   /** PDFs já anexados ao Projeto, para apontar qual é o contrato. */
   pdfs: { id: string; nome: string }[];
 };
@@ -26,14 +28,15 @@ type Props = {
 const CAMPO = "w-full rounded-lg border border-input bg-input/30 px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /** Bloco "Handoff" do Projeto (GAB-93, spec §4.8). As regras são do servidor; aqui só se mostra o que cabe a quem vê. */
-export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, candidatosGp, pdfs }: Props) {
+export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesignar, podeResumo, candidatosGp, semGpDeProjetos, pdfs }: Props) {
   const router = useRouter();
   const editavel = h.emHandoff && !somenteLeitura;
   const [erro, setErro] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
   const [gpId, setGpId] = useState(h.gp?.id ?? "");
   const [pdfId, setPdfId] = useState("");
-  const [resumo, setResumo] = useState<Record<CampoResumo, string>>(h.resumo);
+  // Só o que esta pessoa editou: o resto vem do servidor, então o que outra pessoa salvou não é sobrescrito.
+  const [edicoes, setEdicoes] = useState<Partial<Record<CampoResumo, string>>>({});
   const arquivo = useRef<HTMLInputElement>(null);
 
   function agir(chamar: () => Promise<RespostaAcao>, acao: string, depois?: () => void) {
@@ -54,8 +57,9 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
     if (f) agir(() => enviarContratoDoHandoff(cardId, f), "anexar o contrato");
   }
 
-  const mudouResumo = CAMPOS_RESUMO.some((c) => resumo[c].trim() !== h.resumo[c]);
-  const opcoesGp = h.gp && !candidatosGp.some((c) => c.id === h.gp!.id) ? [{ id: h.gp.id, nome: `${h.gp.nome} (inativo)` }, ...candidatosGp] : candidatosGp;
+  const partesAlteradas = Object.fromEntries(CAMPOS_RESUMO.flatMap((c) => (edicoes[c] !== undefined && edicoes[c].trim() !== h.resumo[c] ? [[c, edicoes[c]]] : []))) as Partial<Record<CampoResumo, string>>;
+  const mudouResumo = Object.keys(partesAlteradas).length > 0;
+  const opcoesGp = h.gp && !candidatosGp.some((c) => c.id === h.gp!.id) ? [{ id: h.gp.id, nome: `${h.gp.nome} (não pode mais ser GP)` }, ...candidatosGp] : candidatosGp;
 
   return (
     <section aria-label="Handoff" className="mb-6 rounded-xl border border-border bg-surface p-4">
@@ -89,14 +93,16 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
                     </option>
                   ))}
                 </select>
-                <Button type="button" variant="outline" size="sm" disabled={pendente || !gpId || gpId === h.gp?.id} onClick={() => agir(() => designarGpAction(cardId, gpId), "designar o GP")}>
+                <Button type="button" variant="outline" size="sm" disabled={pendente || !gpId || (gpId === h.gp?.id && !h.responsavelDiverge)} onClick={() => agir(() => designarGpAction(cardId, gpId), "designar o GP")}>
                   Designar
                 </Button>
               </div>
             ) : (
               <p className="text-sm">{h.gp ? h.gp.nome : <span className="text-fg-mute">Ainda não designado (quem designa é o GP de projetos).</span>}</p>
             )}
-            {h.gp && !h.gp.ativo ? <p className="mt-1 text-xs text-danger">Essa pessoa está inativa: designe outra.</p> : null}
+            {h.gp && !h.gpValido ? <p className="mt-1 text-xs text-danger">Essa pessoa não está mais ativa na área de projetos: é preciso designar outra.</p> : null}
+            {h.gpValido && h.responsavelDiverge ? <p className="mt-1 text-xs text-danger">O responsável pelo projeto mudou e não é mais o GP: designe de novo para corrigir.</p> : null}
+            {semGpDeProjetos ? <p className="mt-1 text-xs text-danger">Ninguém tem o cargo de GP de projetos, então ninguém consegue designar. Peça à gestão para dar esse cargo a alguém.</p> : null}
           </div>
 
           <div>
@@ -185,9 +191,9 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
                     id={`resumo-${c}`}
                     rows={3}
                     maxLength={RESUMO_CAMPO_MAX}
-                    value={resumo[c]}
+                    value={edicoes[c] ?? h.resumo[c]}
                     disabled={pendente}
-                    onChange={(e) => setResumo((r) => ({ ...r, [c]: e.target.value }))}
+                    onChange={(e) => setEdicoes((r) => ({ ...r, [c]: e.target.value }))}
                     className={`${CAMPO} resize-y`}
                   />
                 ) : (
@@ -200,7 +206,7 @@ export function HandoffDoProjeto({ cardId, handoff: h, somenteLeitura, podeDesig
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-mono text-[11px] text-fg-faint">{h.resumoEm ? `${h.resumoPor ?? "alguém"} · ${formatarDataHora(h.resumoEm)}` : null}</p>
               {editavel && podeResumo ? (
-                <Button type="button" size="sm" variant="outline" disabled={pendente || !mudouResumo} onClick={() => agir(() => salvarResumoAction(cardId, resumo), "salvar o resumo")}>
+                <Button type="button" size="sm" variant="outline" disabled={pendente || !mudouResumo} onClick={() => agir(() => salvarResumoAction(cardId, partesAlteradas), "salvar o resumo", () => setEdicoes({}))}>
                   Salvar resumo
                 </Button>
               ) : null}

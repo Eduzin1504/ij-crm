@@ -9,7 +9,10 @@
  *   para sempre num item que ninguém consegue cumprir.
  * - PDF do contrato: só o anexo vivo com a marca `contratoAssinado`. Nome de
  *   arquivo não conta, para não haver falso positivo.
- * - GP nomeado é pendência também: §4.8 põe "GP nomeado" antes da execução.
+ * - GP nomeado é pendência também: §4.8 põe "GP nomeado" antes da execução. É
+ *   reavaliado agora (saiu de projetos, virou visualizador ou foi desativado =
+ *   pendência), e ele precisa ser o responsável pelo Projeto: o campo Responsável
+ *   pode ter mudado depois da designação.
  */
 import type { StatusProposta } from "@prisma/client";
 import { ladoDe, ehGpDoLado, type PessoaComLado } from "@/lib/auth/areas";
@@ -36,10 +39,11 @@ export const ROTULO_RESUMO: Record<CampoResumo, string> = {
 
 export const RESUMO_CAMPO_MAX = 5000;
 
-export type Pendencia = "GP" | "PROPOSTA" | "CONTRATO" | ItemManual | "RESUMO";
+export type Pendencia = "GP" | "GP_RESPONSAVEL" | "PROPOSTA" | "CONTRATO" | ItemManual | "RESUMO";
 
 export const ROTULO_PENDENCIA: Record<Pendencia, string> = {
   GP: "GP do projeto designado",
+  GP_RESPONSAVEL: "GP do projeto como responsável (designe de novo)",
   PROPOSTA: "proposta final congelada",
   CONTRATO: "PDF do contrato assinado",
   contatos: "contatos do cliente",
@@ -53,13 +57,14 @@ export function descreverPendencias(p: readonly Pendencia[]): string {
 }
 
 export type DadosHandoff = {
+  responsavelId: string;
   isentoTravaContrato: boolean;
   dataGanho: Date | null;
   proposta: { status: StatusProposta; versaoEnviada: number | null } | null;
   /** Anexos vivos marcados como contrato assinado. */
   anexos: readonly { id: string; nome: string }[];
   handoff: {
-    gpProjeto: { id: string; nome: string; ativo: boolean } | null;
+    gpProjeto: (PessoaComLado & { id: string; nome: string; ativo: boolean }) | null;
     contatosEm: Date | null;
     kickoffEm: Date | null;
     acessosEm: Date | null;
@@ -83,16 +88,21 @@ export function avaliarHandoff(d: DadosHandoff) {
     valoriza: h?.resumoValoriza ?? "",
   };
   const contrato = d.anexos.at(0) ?? null;
-  const gp = h?.gpProjeto ?? null;
+  const gpGravado = h?.gpProjeto ?? null;
+  const gpValido = !!gpGravado && podeSerGpDoProjeto(gpGravado);
+  const responsavelDiverge = !!gpGravado && gpGravado.id !== d.responsavelId;
   const itens: Record<ItemManual, Date | null> = { contatos: h?.contatosEm ?? null, kickoff: h?.kickoffEm ?? null, acessos: h?.acessosEm ?? null };
   const pendencias: Pendencia[] = [];
-  if (!gp?.ativo) pendencias.push("GP");
+  if (!gpValido) pendencias.push("GP");
+  else if (responsavelDiverge) pendencias.push("GP_RESPONSAVEL");
   if (!aceita && !propostaDispensada) pendencias.push("PROPOSTA");
   if (!contrato) pendencias.push("CONTRATO");
   for (const i of ITENS_MANUAIS) if (!itens[i]) pendencias.push(i);
   if (CAMPOS_RESUMO.some((c) => !resumo[c].trim())) pendencias.push("RESUMO");
   return {
-    gp,
+    gp: gpGravado ? { id: gpGravado.id, nome: gpGravado.nome } : null,
+    gpValido,
+    responsavelDiverge,
     proposta: { congelada: aceita, dispensada: propostaDispensada, versao: aceita ? (d.proposta?.versaoEnviada ?? null) : null },
     contrato,
     itens,

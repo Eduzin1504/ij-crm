@@ -86,6 +86,7 @@ import {
 } from "@/lib/propostas/propostas";
 import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STATUS_PROPOSTA } from "@/lib/propostas/regras";
 import { ROTULO_AREA } from "@/lib/auth/areas";
+import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
 import type { UsuarioMcp } from "./oauth";
@@ -980,7 +981,8 @@ const lerHandoff = ferramenta({
       isento: h.isento,
       completo: h.completo,
       falta: h.pendencias.length ? descreverPendencias(h.pendencias) : null,
-      gp: h.gp ? { id: h.gp.id, nome: h.gp.nome, ativo: h.gp.ativo } : null,
+      gp: h.gp ? { ...h.gp, valido: h.gpValido, responsavel: !h.responsavelDiverge } : null,
+      ...(h.emHandoff && !h.gpValido && (await listarGpsDeProjetos()).length === 0 ? { aviso: "Ninguém tem o cargo de GP de projetos: peça à gestão para dar o cargo a alguém, que então designa o GP do projeto." } : {}),
       checklist: {
         proposta_congelada: { feito: h.proposta.congelada, dispensada: h.proposta.dispensada, versao: h.proposta.versao, automatico: true },
         contrato_pdf: { feito: !!h.contrato, anexo: h.contrato },
@@ -1026,7 +1028,7 @@ const escreverResumoHandoff = ferramenta({
 const designarGpProjeto = ferramenta({
   nome: "designar_gp_projeto",
   titulo: "Designar o GP do projeto",
-  descricao: "Só o GP de projetos: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff). Ela vira a responsável pelo projeto e recebe o aviso.",
+  descricao: "Só o GP de projetos: designa o GP do projeto (uma pessoa da área projetos; candidatos em ler_handoff). Ela vira a responsável pelo projeto e recebe o aviso. Designar de novo a mesma pessoa a devolve à responsabilidade, se o responsável tiver mudado.",
   escrita: true,
   entrada: { id, gp_id: id },
   executar: async (a, eu) => {

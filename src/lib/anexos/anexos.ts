@@ -40,12 +40,16 @@ export function ehAnexoDuplicadoNoBanco(e: unknown): boolean {
 
 export type AnexoCriado = { id: string; nome: string; semTexto: boolean };
 
-/** `opts.contratoAssinado` (GAB-93): o anexo vira O contrato assinado do Projeto, no lugar de outro que já estivesse marcado. */
+/**
+ * `opts.contratoAssinado` (GAB-93): o anexo vira O contrato assinado do Projeto, no lugar de outro que já
+ * estivesse marcado, com a linha do card em FOR UPDATE (dois envios se enfileiram; o último fica).
+ * `opts.conferir` roda sob esse lock, depois da extração de texto: lançar desfaz tudo e remove o arquivo.
+ */
 export async function anexarArquivo(
   projetoId: string,
   arquivo: { nome: string; bytes: Uint8Array },
   por: Ator,
-  opts: { contratoAssinado?: boolean } = {},
+  opts: { contratoAssinado?: boolean; conferir?: (tx: Prisma.TransactionClient) => Promise<void> } = {},
 ): Promise<ResultadoAnexo<{ anexo: AnexoCriado }>> {
   if (!podeEscrever(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
   const nome = sanitizarNome(arquivo.nome);
@@ -71,10 +75,13 @@ export async function anexarArquivo(
     const criado = await db.$transaction(async (tx) => {
       // Relido dentro da transação, com a linha travada (FOR SHARE): o card pode ter ido
       // para a lixeira enquanto o PDF era lido, e "apagar de vez" (FOR UPDATE) espera este upload.
-      const vivo = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR SHARE`;
-      if (vivo.length === 0) return null;
-      const agora = new Date();
       const contratoAssinado = opts.contratoAssinado === true;
+      const vivo = contratoAssinado
+        ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR UPDATE`
+        : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR SHARE`;
+      if (vivo.length === 0) return null;
+      await opts.conferir?.(tx);
+      const agora = new Date();
       if (contratoAssinado) await tx.anexo.updateMany({ where: { projetoId, contratoAssinado: true }, data: { contratoAssinado: false } });
       await tx.anexo.create({
         data: { id: anexoId, projetoId, nome, tipo: id.tipo, mime: id.mime, tamanho: arquivo.bytes.length, sha256, texto: extracao.texto, semTexto, contratoAssinado, autorId: por.id, criadoEm: agora },

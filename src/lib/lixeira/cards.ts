@@ -13,8 +13,9 @@
  *   terminal: o tipo não muda, os dados de fechamento continuam válidos.
  *   GAB-89: o destino (escolhido ou a própria fase) respeita a trava de
  *   Montando contrato (`trava-contrato.ts`): sem proposta aceita (ou isenção),
- *   não volta lá nem depois. GAB-93: idem para a trava de Execução
- *   (`trava-handoff.ts`), para o destino escolhido ou a própria fase.
+ *   não volta lá nem depois. GAB-93: quem estava além de Execução ao ser excluído
+ *   volta sem conferir o handoff. Quem não estava só vai para Execução ou além
+ *   (fase escolhida, ou a própria fase reordenada) com o handoff fechado.
  * - `apagarCardDefinitivo` (admin, só o que está na lixeira, confirmação
  *   digitando o título): DELETE de verdade. TransicaoFase/Timeline do card vão
  *   junto (cascade); o vínculo venda ↔ projeto do outro lado e o
@@ -33,7 +34,7 @@ import { db } from "@/lib/db";
 import { travarPipelines } from "@/lib/fases/fases";
 import { destinoCompativel } from "@/lib/fases/regras";
 import { travaDoContrato } from "@/lib/projetos/trava-contrato";
-import { travaDoHandoff } from "@/lib/projetos/trava-handoff";
+import { estavaAlemDaExecucao, posicaoNaExclusao, travaDoHandoff } from "@/lib/projetos/trava-handoff";
 import { removerArquivosDeAnexos } from "./anexos";
 import { confirmacaoConfere, podeApagarDeVez, podeRestaurar, type FalhaLixeira } from "./regras";
 
@@ -65,10 +66,10 @@ export async function excluirCard(id: string, por: { id: string }): Promise<Resu
       if (!alvo) throw new Falha({ erro: "CARD_NAO_ENCONTRADO" });
       await travarPipelines(tx, [alvo.pipelineId]);
       const agora = new Date();
-      const atual = await tx.projeto.findFirst({ where: { id, deletadoEm: null }, select: { faseId: true } });
+      const atual = await tx.projeto.findFirst({ where: { id, deletadoEm: null }, select: { faseId: true, fase: true } });
       if (!atual) throw new Falha({ erro: "CARD_NAO_ENCONTRADO" });
       await tx.projeto.update({ where: { id }, data: { deletadoEm: agora } });
-      await tx.timeline.create({ data: { projetoId: id, tipo: "EXCLUSAO", payload: { faseId: atual.faseId }, usuarioId: por.id, em: agora } });
+      await tx.timeline.create({ data: { projetoId: id, tipo: "EXCLUSAO", payload: { faseId: atual.faseId, ...(await posicaoNaExclusao(tx, atual.fase)) }, usuarioId: por.id, em: agora } });
     });
     return { ok: true };
   } catch (e) {
@@ -102,8 +103,10 @@ export async function restaurarCard(id: string, por: Ator, opts: { faseId?: stri
       // GAB-99: nem em fase de ganho (ex.: subfase que a Gestão virou ganho com o card na lixeira).
       const trava = await travaDoContrato(tx, { projetoId: id, origem: null, destino });
       if (trava) throw new Falha({ erro: trava.erro });
-      const travaHandoff = await travaDoHandoff(tx, { projetoId: id, origem: null, destino });
-      if (travaHandoff) throw new Falha({ erro: travaHandoff.erro });
+      if (!(await estavaAlemDaExecucao(tx, id))) {
+        const travaHandoff = await travaDoHandoff(tx, { projetoId: id, origem: null, destino });
+        if (travaHandoff) throw new Falha({ erro: travaHandoff.erro });
+      }
 
       const agora = new Date();
       const depois = new Date(agora.getTime() + 1); // MOVIMENTACAO depois da RESTAURACAO na Timeline

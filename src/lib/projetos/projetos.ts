@@ -273,7 +273,8 @@ export async function registrarMovimento(
   await tx.timeline.create({ data: { projetoId: id, tipo: "MOVIMENTACAO", payload, usuarioId: args.porId, em } });
   // GAB-87: card reaberto (saiu de Perdido) → a proposta Inviável volta para o pingue-pongue (Em ajuste, sem caneta).
   // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco estão em `trava-contrato.ts`; aqui nada muda.
-  if (origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
+  // GAB-93: só em Vendas. Reabrir no quadro Projetos não mexe na proposta, que está congelada.
+  if (args.pipelineChave === PIPELINE_VENDAS && origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
     await reabrirPropostaInviavel(tx, id, args.porId, instante());
   }
   if (destino.isTerminal) {

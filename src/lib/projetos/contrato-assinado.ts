@@ -25,12 +25,13 @@ import { moverCard } from "./projetos";
 import { interpretarGanho, lerDinheiro, PIPELINE_VENDAS, valorParaCampo } from "./terminal-regras";
 import { travaDoContrato } from "./trava-contrato";
 
-export type ErroContratoAssinado = ErroProjeto | ErroAnexo | "CONTRATO_NAO_E_PDF" | "PROJETO_FORA_DE_VENDAS" | "FASE_GANHO_INDISPONIVEL";
+export type ErroContratoAssinado = ErroProjeto | ErroAnexo | "CONTRATO_NAO_E_PDF" | "HANDOFF_ENCERRADO" | "PROJETO_FORA_DE_VENDAS" | "FASE_GANHO_INDISPONIVEL";
 
 export const MENSAGEM_ERRO_CONTRATO: Record<ErroContratoAssinado, string> = {
   ...MENSAGEM_ERRO_ANEXO,
   ...MENSAGEM_ERRO_PROJETO,
   CONTRATO_NAO_E_PDF: "O contrato assinado precisa ser um PDF.",
+  HANDOFF_ENCERRADO: "Esse projeto já passou do Handoff: o contrato assinado não muda mais.",
   PROJETO_FORA_DE_VENDAS: "Esse projeto não está mais no quadro de Vendas: o contrato já foi marcado como assinado, ou o projeto nunca passou por Vendas.",
   FASE_GANHO_INDISPONIVEL: "O quadro de Vendas está sem o marco Ganho ativo. Peça à gestão/admin para conferir as fases.",
 };

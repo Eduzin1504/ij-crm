@@ -586,10 +586,16 @@ final congelada, automática; PDF do contrato assinado; contatos, kickoff, acess
 por vendas (contexto, combinados verbais, riscos, o que o cliente valoriza). Execução, e toda fase depois dela ou
 de ganho no quadro, só com tudo fechado: arraste, MCP, card novo, lixeira e Gestão de fases, nem gestor força
 (`trava-handoff.ts`, erro `HANDOFF_INCOMPLETO`, que diz o que falta). O WhatsApp só enxerga fases de Vendas e
-trata card em Projetos como fechado. A trava olha a entrada: quem já está em Execução anda livre. Isentos
+trata card em Projetos como fechado. A trava olha a entrada: quem já está em Execução anda livre. O GP precisa
+continuar valendo (ativo, área projetos) e ser o responsável; se o responsável mudou, designar de novo corrige. Na
+lixeira, vale onde o card estava ao ser excluído (`alemDaExecucao` na EXCLUSAO). Isentos
 (`isento_trava_handoff`): o que já estava no quadro Projetos no deploy e o que vem do import do Pipefy. Cards ainda
-em Vendas no deploy passam pelo handoff. O PDF é identificado pela coluna `anexo.contrato_assinado` (uma por
-Projeto, sem olhar nome): marcada pelo "Contrato assinado" com PDF e pelo checklist, que aceita enviar o arquivo ou
+em Vendas no deploy passam pelo handoff.
+O quadro Projetos tem uma fase Perdido, sem marco e obrigatória (`validarTerminais`): não passa pela trava, pede
+motivo e pode reabrir. Perda em Projetos não é perda de venda: ranking e painel de vendas seguem contando o ganho e
+não contam a perda (a venda aconteceu); ela aparece no Kanban, na Tabela e no detalhe do Projeto.
+O PDF é identificado pela coluna `anexo.contrato_assinado` (um vivo por Projeto, com índice único parcial, sem olhar
+nome): marcada pelo "Contrato assinado" com PDF e pelo checklist, que aceita enviar o arquivo ou
 apontar um PDF já anexado. A proposta congela ao chegar em Projetos: toda escrita recusa (`PROPOSTA_CONGELADA`),
 comentar continua; em card isento sem aceite, o item fica dispensado. Serviço em `handoff.ts`, o mesmo da tela e
 das ferramentas MCP `ler_handoff`, `marcar_item_handoff`, `escrever_resumo_handoff`, `designar_gp_projeto`,

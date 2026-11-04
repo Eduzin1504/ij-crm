@@ -15,8 +15,9 @@
  * linha em FOR SHARE, então os dois nunca se cruzam.
  *
  * Isentos da trava podem preencher também, e ninguém os obriga.
+ * O PDF do contrato reconfere a fase sob o lock (`contrato-anexo.ts`).
  */
-import type { Fase, Papel, Prisma } from "@prisma/client";
+import type { Papel, Prisma } from "@prisma/client";
 import type { AnexoCriado } from "@/lib/anexos/anexos";
 import { MENSAGEM_ERRO_ANEXO, type ErroAnexo } from "@/lib/anexos/tipos";
 import { avisarGpDesignado } from "@/lib/avisos/handoff";
@@ -37,7 +38,7 @@ import {
 } from "./handoff-regras";
 import { moverCard } from "./projetos";
 import { PIPELINE_PROJETOS } from "./terminal-regras";
-import { alemDaExecucao, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
+import { faseDeHandoff, faseExecucao, SELECAO_HANDOFF } from "./trava-handoff";
 
 type Tx = Prisma.TransactionClient;
 type Ator = { id: string; papel: Papel };
@@ -84,11 +85,6 @@ async function emTransacao<T>(corpo: (tx: Tx) => Promise<T>): Promise<T | { ok: 
   }
 }
 
-/** A fase é a de edição do handoff? Puro. `execucao` null = quadro sem o marco. */
-export function faseDeHandoff(fase: Fase, pipelineChave: string, execucao: Fase | null): boolean {
-  return pipelineChave === PIPELINE_PROJETOS && !fase.isTerminal && !(execucao && alemDaExecucao(fase, execucao));
-}
-
 /** Trava a linha do card e confere que ele está em Handoff. */
 async function abrirParaEdicao(tx: Tx, projetoId: string) {
   const linha = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM oportunidade WHERE id = ${projetoId} AND deletado_em IS NULL FOR UPDATE`;
@@ -132,7 +128,7 @@ export async function designarGpDoProjeto(projetoId: string, gpId: string, por: 
     const gp = await lerPessoa(tx, gpId);
     if (!gp || !podeSerGpDoProjeto(gp)) throw new Falha("GP_INVALIDO");
     const atual = await tx.projetoHandoff.findUnique({ where: { projetoId }, select: { gpProjetoId: true } });
-    if (atual?.gpProjetoId === gpId && card.responsavelId === gpId) return { ok: true as const, mudou: false };
+    if (atual?.gpProjetoId === gpId && card.responsavelId === gpId) return { ok: true as const, mudou: false, gpNovo: false };
     const agora = new Date();
     await tx.projetoHandoff.upsert({ where: { projetoId }, create: { projetoId, gpProjetoId: gpId }, update: { gpProjetoId: gpId } });
     if (card.responsavelId !== gpId) {
@@ -140,10 +136,12 @@ export async function designarGpDoProjeto(projetoId: string, gpId: string, por: 
       await tx.timeline.create({ data: { projetoId, tipo: "CAMPO_ALTERADO", payload: { campo: "responsavelId", antes: card.responsavelId, depois: gpId }, usuarioId: por.id, em: agora } });
     }
     await tx.timeline.create({ data: { projetoId, tipo: "HANDOFF", payload: { evento: "gp_designado", gpId, gpNome: gp.nome }, usuarioId: por.id, em: new Date(agora.getTime() + 1) } });
-    return { ok: true as const, mudou: true };
+    return { ok: true as const, mudou: true, gpNovo: atual?.gpProjetoId !== gpId };
   });
-  if (r.ok && r.mudou) await avisarGpDesignado(projetoId, gpId, por.id);
-  return r;
+  if (!r.ok) return r;
+  // Só devolver a responsabilidade a quem já era o GP não é novidade para a pessoa.
+  if (r.gpNovo) await avisarGpDesignado(projetoId, gpId, por.id);
+  return { ok: true, mudou: r.mudou };
 }
 
 const COLUNA_DO_ITEM = { contatos: "contatosEm", kickoff: "kickoffEm", acessos: "acessosEm" } as const;

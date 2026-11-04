@@ -106,7 +106,7 @@ describe("MCP do handoff (GAB-93)", () => {
     expect(dados(await chamar("definir_contrato_handoff", { id, pdf_base64: pdf, pdf_nome: "assinado" }, s.ana)).anexo.nome).toBe("assinado.pdf");
 
     const fim = dados(await chamar("ler_handoff", { id }, s.vera));
-    expect(fim).toMatchObject({ completo: true, falta: null, gp: { nome: "Pedro" }, resumo: { contexto: "c", por: "Ana" } });
+    expect(fim).toMatchObject({ completo: true, falta: null, gp: { nome: "Pedro", valido: true, responsavel: true }, resumo: { contexto: "c", por: "Ana" } });
     expect(fim.checklist.contrato_pdf).toMatchObject({ feito: true, anexo: { nome: "assinado.pdf" } });
     expect(fim.checklist.kickoff.feito).toBe(true);
 
@@ -134,6 +134,12 @@ describe("MCP do handoff (GAB-93)", () => {
     expect((await chamar("definir_contrato_handoff", { id, anexo_id: a.anexo.id, pdf_base64: "AAAA" }, s.ana)).isError).toBe(true);
     expect(dados(await chamar("definir_contrato_handoff", { id, anexo_id: a.anexo.id }, s.ana))).toMatchObject({ mudou: true });
     expect(dados(await chamar("listar_anexos", { projeto_id: id }, s.ana)).anexos[0].contratoAssinado).toBe(true);
+  });
+
+  it("sem GP de projetos ativo, ler_handoff avisa que ninguém tem o cargo", async () => {
+    expect(dados(await chamar("ler_handoff", { id }, s.ana)).aviso).toBeUndefined();
+    await db.usuario.update({ where: { id: s.paula.id }, data: { cargos: [] } });
+    expect(dados(await chamar("ler_handoff", { id }, s.ana)).aviso).toContain("Ninguém tem o cargo de GP de projetos");
   });
 
   it("ler_handoff de card em Vendas explica que o handoff começa no Ganho", async () => {

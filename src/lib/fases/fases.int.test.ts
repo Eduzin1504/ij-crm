@@ -446,7 +446,9 @@ describe("marcos do ciclo único (GAB-81)", () => {
   it("seed: marcos nos quadros certos, Handoff primeiro em Projetos", async () => {
     const { vendas, projetos } = await semeado();
     expect(vendas.fases.filter((x) => x.marco).map((x) => x.marco)).toEqual(["PROPOSTA", "MONTANDO_CONTRATO", "GANHO", "PERDIDO"]);
-    expect(projetos.fases.map((x) => x.marco)).toEqual(["HANDOFF", "EXECUCAO", null, null, null, "FINALIZADO"]);
+    // GAB-93: a última é o Perdido do quadro, que não é marco.
+    expect(projetos.fases.map((x) => x.marco)).toEqual(["HANDOFF", "EXECUCAO", null, null, null, "FINALIZADO", null]);
+    expect(projetos.fases.at(-1)).toMatchObject({ chave: "perdido", isTerminal: true, tipoTerminal: "PERDIDO" });
   });
 
   it("marco não é removido nem muda de tipo; nome/cor/alerta sim; subfase continua livre", async () => {

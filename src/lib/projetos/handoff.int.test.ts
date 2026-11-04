@@ -10,6 +10,10 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { moverFase, removerFase, reordenarFases } from "@/lib/fases/fases";
 import { excluirAnexo } from "@/lib/lixeira/anexos";
 import { excluirCard, restaurarCard } from "@/lib/lixeira/cards";
+import { carregarFluxo } from "@/lib/painel/servico";
+import { carregarDados } from "@/lib/ranking/servico";
+import { listarQuadro } from "./projetos";
+import { anexarPdfDoContrato } from "./contrato-anexo";
 import { salvarRascunho } from "@/lib/propostas/propostas";
 import { dbTeste, limparBanco } from "@/test/db";
 import { PNG, pdfDeTexto } from "@/test/fixtures/anexos";
@@ -58,6 +62,7 @@ async function semear() {
           { chave: "em_execucao", nome: "Em execução", ordem: 2, marco: "EXECUCAO" },
           { chave: "conclusao", nome: "Conclusão", ordem: 3 },
           { chave: "finalizado", nome: "Finalizado", ordem: 4, isTerminal: true, tipoTerminal: "GANHO", marco: "FINALIZADO" },
+          { chave: "perdido_projeto", nome: "Perdido", ordem: 5, isTerminal: true, tipoTerminal: "PERDIDO" },
         ],
       },
     },
@@ -229,30 +234,65 @@ describe("trava de Execução", () => {
 });
 
 describe("caminhos laterais", () => {
-  it("lixeira: restaurar não fura a trava (fase reordenada/escolhida), e não prende quem já entrou em Execução", async () => {
+  /** A subfase Preparação passa para depois de Execução, como faria a Gestão com o card na lixeira. */
+  const cruzarPreparacao = async () => {
+    await db.fase.update({ where: { id: s.f("preparacao") }, data: { ordem: 3 } });
+    await db.fase.update({ where: { id: s.f("conclusao") }, data: { ordem: 1 } });
+  };
+
+  it("lixeira: subfase reordenada para depois de Execução com o card na lixeira não fura a trava", async () => {
     const id = await s.emHandoff();
     await moverCard(id, s.f("preparacao"), s.ana);
     await excluirCard(id, s.ana);
-    await db.fase.update({ where: { id: s.f("preparacao") }, data: { ordem: 3 } }); // reordenada com o card na lixeira
-    await db.fase.update({ where: { id: s.f("conclusao") }, data: { ordem: 1 } });
+    await cruzarPreparacao();
     expect(await restaurarCard(id, s.gil)).toEqual({ ok: false, erro: "HANDOFF_INCOMPLETO" });
     await db.fase.update({ where: { id: s.f("preparacao") }, data: { ordem: 1 } });
     await db.fase.update({ where: { id: s.f("conclusao") }, data: { ordem: 3 } });
     expect(await restaurarCard(id, s.gil)).toMatchObject({ ok: true });
+  });
 
-    const outro = await s.emHandoff("Outro");
-    await s.completar(outro);
-    await moverParaExecucao(outro, s.ana);
-    await excluirAnexo((await db.anexo.findFirstOrThrow({ where: { projetoId: outro, contratoAssinado: true } })).id, s.ana);
-    await excluirCard(outro, s.ana);
-    expect(await restaurarCard(outro, s.gil)).toMatchObject({ ok: true });
+  it("lixeira: quem estava além de Execução volta, mesmo tendo entrado direto por uma subfase e sem o PDF", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    expect(await moverCard(id, s.f("conclusao"), s.ana)).toMatchObject({ ok: true, mudou: true }); // nunca passou pelo marco
+    await excluirAnexo((await db.anexo.findFirstOrThrow({ where: { projetoId: id, contratoAssinado: true } })).id, s.ana);
+    await excluirCard(id, s.ana);
+    expect(await restaurarCard(id, s.gil)).toMatchObject({ ok: true, faseId: s.f("conclusao") });
+  });
+
+  it("lixeira: já ter passado pelo marco não libera; vale onde o card estava ao ser excluído", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    await moverParaExecucao(id, s.ana);
+    await moverCard(id, s.f("preparacao"), s.ana); // voltou
+    await marcarItemHandoff(id, "kickoff", false, s.ana);
+    await excluirCard(id, s.ana);
+    await cruzarPreparacao();
+    expect(await restaurarCard(id, s.gil)).toEqual({ ok: false, erro: "HANDOFF_INCOMPLETO" });
+  });
+
+  it("lixeira: fase arquivada, com destino escolhido: só trava o que cruza Execução", async () => {
+    const antes = await s.emHandoff("Antes");
+    await moverCard(antes, s.f("preparacao"), s.ana);
+    await excluirCard(antes, s.ana);
+    await db.fase.update({ where: { id: s.f("preparacao") }, data: { arquivadaEm: new Date() } });
+    expect(await restaurarCard(antes, s.gil, { faseId: s.f("em_execucao") })).toEqual({ ok: false, erro: "HANDOFF_INCOMPLETO" });
+    expect(await restaurarCard(antes, s.gil, { faseId: s.f("handoff") })).toMatchObject({ ok: true });
+
+    const depois = await s.emHandoff("Depois");
+    await s.completar(depois);
+    await moverCard(depois, s.f("conclusao"), s.ana);
+    await excluirAnexo((await db.anexo.findFirstOrThrow({ where: { projetoId: depois, contratoAssinado: true } })).id, s.ana);
+    await excluirCard(depois, s.ana);
+    await db.fase.update({ where: { id: s.f("conclusao") }, data: { arquivadaEm: new Date() } });
+    expect(await restaurarCard(depois, s.gil, { faseId: s.f("em_execucao") })).toMatchObject({ ok: true });
   });
 
   it("fases: reordenar não leva para depois de Execução subfase com handoff pendente", async () => {
     const id = await s.emHandoff();
     await moverCard(id, s.f("preparacao"), s.ana);
     expect(await moverFase(s.f("preparacao"), "DESCER")).toEqual({ ok: false, erro: "FASE_CRUZA_EXECUCAO" });
-    const ordem = ["handoff", "em_execucao", "preparacao", "conclusao", "finalizado"].map(s.f);
+    const ordem = ["handoff", "em_execucao", "preparacao", "conclusao", "finalizado", "perdido_projeto"].map(s.f);
     expect(await reordenarFases(s.projetos.id, ordem)).toEqual({ ok: false, erro: "FASE_CRUZA_EXECUCAO" });
     await db.projeto.update({ where: { id }, data: { isentoTravaHandoff: true } });
     expect(await reordenarFases(s.projetos.id, ordem)).toEqual({ ok: true });
@@ -316,6 +356,31 @@ describe("GP do projeto", () => {
     const id = await s.emHandoff();
     const dir = await db.usuario.create({ data: { nome: "Dora", email: "dora@ij.test", papel: "GESTOR", area: "PROJETOS", cargos: ["GP"] } });
     expect(await designarGpDoProjeto(id, s.pedro.id, dir)).toMatchObject({ ok: true });
+  });
+
+  it("GP gravado que diverge do responsável segura a trava; designar de novo corrige, sem reavisar", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    await editarCard(id, { responsavelId: s.ana.id }, s.gil);
+    expect((await obterHandoff(id))?.responsavelDiverge).toBe(true);
+    const r = await moverCard(id, s.f("em_execucao"), s.gil);
+    expect(!r.ok && r.faltando).toContain("GP do projeto como responsável");
+    await db.aviso.deleteMany();
+    expect(await designarGpDoProjeto(id, s.pedro.id, s.paula)).toEqual({ ok: true, mudou: true });
+    expect(await db.aviso.count()).toBe(0);
+    expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true, mudou: true });
+  });
+
+  it("GP que mudou de área ou virou visualizador conta como pendência", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    for (const data of [{ papel: "VENDEDOR", area: "VENDAS" }, { papel: "VISUALIZADOR", area: null }, { papel: "GESTOR", area: null }] as const) {
+      await db.usuario.update({ where: { id: s.pedro.id }, data });
+      expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: false, faltando: "GP do projeto designado" });
+      expect((await obterHandoff(id))?.gpValido).toBe(false);
+    }
+    await db.usuario.update({ where: { id: s.pedro.id }, data: { papel: "GESTOR", area: "PROJETOS" } });
+    expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true, mudou: true });
   });
 
   it("o designado precisa ser pessoa ativa de projetos", async () => {
@@ -460,6 +525,40 @@ describe("PDF do contrato assinado", () => {
     expect(await definirContratoNoHandoff(deOutroCard, outro.anexo.id, s.ana)).toEqual({ ok: false, erro: "ANEXO_NAO_ENCONTRADO" });
   });
 
+  it("o banco recusa dois contratos vivos no mesmo Projeto; um contrato na lixeira não conta", async () => {
+    const id = await s.emHandoff();
+    const a = await anexarArquivo(id, { nome: "a.pdf", bytes: pdfDeTexto(["a"]) }, s.ana);
+    const b = await anexarArquivo(id, { nome: "b.pdf", bytes: pdfDeTexto(["b"]) }, s.ana);
+    if (!a.ok || !b.ok) throw new Error("seed");
+    await db.anexo.update({ where: { id: a.anexo.id }, data: { contratoAssinado: true } });
+    await expect(db.anexo.update({ where: { id: b.anexo.id }, data: { contratoAssinado: true } })).rejects.toMatchObject({ code: "P2002" });
+    await db.anexo.update({ where: { id: a.anexo.id }, data: { deletadoEm: new Date() } });
+    await expect(db.anexo.update({ where: { id: b.anexo.id }, data: { contratoAssinado: true } })).resolves.toBeTruthy();
+  });
+
+  it("corrida: dois envios ao mesmo tempo não falham e sobra um contrato só", async () => {
+    const id = await s.emHandoff();
+    const rs = await Promise.all([anexarContratoNoHandoff(id, PDF(), s.ana), anexarContratoNoHandoff(id, PDF(), s.pedro)]);
+    expect(rs).toMatchObject([{ ok: true }, { ok: true }]);
+    expect(await db.anexo.count({ where: { projetoId: id } })).toBe(2);
+    expect(await db.anexo.count({ where: { projetoId: id, contratoAssinado: true } })).toBe(1);
+  });
+
+  it("corrida: card que entrou em Execução enquanto o PDF era lido não troca de contrato (arquivo novo ou já anexado)", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    const contrato = (await obterHandoff(id))?.contrato?.id;
+    const comum = { nome: "comum.pdf", bytes: pdfDeTexto(["comum"]) };
+    await anexarArquivo(id, comum, s.ana);
+    await moverParaExecucao(id, s.ana);
+    const total = await db.anexo.count({ where: { projetoId: id } });
+    // Direto na porta que faz a troca: a conferência de antes da leitura já passou.
+    expect(await anexarPdfDoContrato(id, PDF(), s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
+    expect(await anexarPdfDoContrato(id, comum, s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
+    expect(await db.anexo.count({ where: { projetoId: id } })).toBe(total);
+    expect((await obterHandoff(id))?.contrato?.id).toBe(contrato);
+  });
+
   it("card isento também cumpre anexando depois", async () => {
     const id = await s.novo();
     await db.projeto.update({ where: { id }, data: { isentoTravaContrato: true } });
@@ -470,10 +569,109 @@ describe("PDF do contrato assinado", () => {
   });
 });
 
+describe("Perdido no quadro Projetos", () => {
+  const perder = (id: string, por: { id: string; papel: Papel }, dados: { motivo?: string; detalhe?: string } = { motivo: "preco" }) => moverCard(id, s.f("perdido_projeto"), por, { dadosTerminal: dados });
+
+  it("Handoff → Perdido não passa pela trava e pede motivo; reabrir volta a Handoff com o que já tinha, e Execução segue travada", async () => {
+    const id = await s.emHandoff();
+    await marcarItemHandoff(id, "contatos", true, s.ana);
+    expect(await perder(id, s.ana, {})).toMatchObject({ ok: false, erro: "MOTIVO_PERDA_OBRIGATORIO" });
+    expect(await perder(id, s.ana)).toMatchObject({ ok: true, mudou: true, terminal: "PERDIDO" });
+    const c = await lerCard(id);
+    expect(c.motivoPerda).toBeTruthy();
+    expect(c.fase.tipoTerminal).toBe("PERDIDO");
+    expect((await obterHandoff(id))?.emHandoff).toBe(false);
+    expect(await marcarItemHandoff(id, "kickoff", true, s.ana)).toEqual({ ok: false, erro: "HANDOFF_ENCERRADO" });
+
+    expect(await moverCard(id, s.f("em_execucao"), s.gil)).toMatchObject({ ok: false, erro: "HANDOFF_INCOMPLETO" });
+    expect(await moverCard(id, s.f("finalizado"), s.gil, { dadosTerminal: {} })).toMatchObject({ ok: false, erro: "HANDOFF_INCOMPLETO" });
+    expect(await moverCard(id, s.f("handoff"), s.ana)).toMatchObject({ ok: true, mudou: true });
+    const h = await obterHandoff(id);
+    expect(h?.emHandoff).toBe(true);
+    expect(h?.itens.contatos).toBeInstanceOf(Date);
+  });
+
+  it("perdido a partir de Execução pode reabrir direto em Execução, sem o PDF", async () => {
+    const id = await s.emHandoff();
+    await s.completar(id);
+    await moverParaExecucao(id, s.ana);
+    await excluirAnexo((await db.anexo.findFirstOrThrow({ where: { projetoId: id, contratoAssinado: true } })).id, s.ana);
+    await perder(id, s.ana);
+    expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true, mudou: true });
+  });
+
+  it("reabrir em Projetos não mexe na proposta congelada", async () => {
+    const id = await s.novo();
+    await db.projeto.update({ where: { id }, data: { isentoTravaContrato: true } });
+    await db.proposta.create({ data: { projetoId: id, status: "RECUSADA", criadoPorId: s.ana.id } });
+    await moverCard(id, s.f("contrato_assinado"), s.ana, { dadosTerminal: { valorFechado: "" } });
+    await perder(id, s.ana);
+    await moverCard(id, s.f("handoff"), s.ana);
+    expect((await db.proposta.findUniqueOrThrow({ where: { projetoId: id } })).status).toBe("RECUSADA");
+  });
+
+  it("não distorce vendas: o ganho continua no ranking, sem perda, e o fluxo do painel não conta nada", async () => {
+    const inicio = new Date(Date.now() - 3_600_000);
+    const fim = new Date(Date.now() + 3_600_000);
+    const id = await s.emHandoff();
+    const antes = await carregarFluxo({ inicio, fim });
+    await perder(id, s.ana);
+    const r = await carregarDados({ inicio, fim });
+    expect(r.ganhos.map((g) => [g.projetoId, g.responsavelId])).toEqual([[id, s.ana.id]]);
+    expect(r.perdas).toEqual([]);
+    expect(r.abertos).toEqual([]);
+    expect(await carregarFluxo({ inicio, fim })).toEqual(antes);
+    expect((await carregarFluxo({ inicio, fim })).every((l) => l.perdas === 0)).toBe(true);
+  });
+
+  it("Kanban mostra a coluna no quadro Projetos, com o card", async () => {
+    const id = await s.emHandoff();
+    await perder(id, s.ana);
+    const q = await listarQuadro("projetos");
+    expect(q?.fases.find((f) => f.id === s.f("perdido_projeto"))?.isTerminal).toBe(true);
+    expect(q?.cards.find((c) => c.id === id)?.faseId).toBe(s.f("perdido_projeto"));
+  });
+
+  it("a Gestão não remove a última fase de perdido do quadro", async () => {
+    expect(await removerFase(s.f("perdido_projeto"), {}, s.gil)).toEqual({ ok: false, erro: "TERMINAL_PERDIDO_OBRIGATORIO" });
+  });
+});
+
 describe("migration 20261104150000_handoff", () => {
+  const SQL = readFileSync(path.resolve(import.meta.dirname, "../../../prisma/migrations/20261104150000_handoff/migration.sql"), "utf8");
+  const criarPerdido = () => db.$executeRawUnsafe(SQL.slice(SQL.indexOf("DO $$"), SQL.indexOf("-- GAB-93-PERDIDO-FIM")));
+  const perdidas = () => db.fase.findMany({ where: { pipelineId: s.projetos.id, tipoTerminal: "PERDIDO" }, orderBy: { criadoEm: "asc" } });
+
+  it("Perdido: cria quando não há; é idempotente", async () => {
+    await db.fase.delete({ where: { id: s.f("perdido_projeto") } });
+    await criarPerdido();
+    await criarPerdido();
+    const fs = await perdidas();
+    expect(fs).toHaveLength(1);
+    expect(fs[0]).toMatchObject({ chave: "perdido", nome: "Perdido", isTerminal: true, marco: null, arquivadaEm: null, ordem: 5 });
+  });
+
+  it("Perdido: respeita a que a Gestão já criou", async () => {
+    await criarPerdido();
+    expect((await perdidas()).map((f) => f.chave)).toEqual(["perdido_projeto"]);
+  });
+
+  it("Perdido: fase arquivada ou chave ocupada não bloqueiam", async () => {
+    await db.fase.update({ where: { id: s.f("perdido_projeto") }, data: { arquivadaEm: new Date(), chave: "perdido" } });
+    await db.fase.create({ data: { pipelineId: s.projetos.id, chave: "perdido_2", nome: "Perdido?", ordem: 9 } });
+    await criarPerdido();
+    const nova = (await perdidas()).find((f) => !f.arquivadaEm);
+    expect(nova).toMatchObject({ chave: "perdido_3", ordem: 10 });
+  });
+
+  it("Perdido: sem o quadro (instalação nova) não faz nada; quem cria é o seed", async () => {
+    await db.pipeline.update({ where: { id: s.projetos.id }, data: { chave: "outro" } });
+    await expect(criarPerdido()).resolves.toBeDefined();
+    expect(await db.fase.count({ where: { pipelineId: s.projetos.id, tipoTerminal: "PERDIDO" } })).toBe(1);
+  });
+
   it("isenta só quem está no quadro Projetos, inclusive na lixeira; Vendas continua exigindo", async () => {
-    const sql = readFileSync(path.resolve(import.meta.dirname, "../../../prisma/migrations/20261104150000_handoff/migration.sql"), "utf8");
-    const update = sql.slice(sql.indexOf('UPDATE "oportunidade"'));
+    const update = SQL.slice(SQL.indexOf('UPDATE "oportunidade"'), SQL.indexOf("-- Fase Perdido no quadro Projetos"));
     const venda = await s.novo("Venda");
     const handoff = await s.emHandoff("Em handoff");
     const lixo = await s.emHandoff("Na lixeira");

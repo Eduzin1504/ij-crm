@@ -19,6 +19,8 @@ const { HandoffDoProjeto } = await import("./handoff");
 
 const VAZIO: VisaoHandoff = {
   gp: null,
+  gpValido: false,
+  responsavelDiverge: false,
   proposta: { congelada: true, dispensada: false, versao: 3 },
   contrato: null,
   itens: { contatos: null, kickoff: null, acessos: null },
@@ -32,7 +34,7 @@ const VAZIO: VisaoHandoff = {
 };
 
 function montar(extra: Partial<Parameters<typeof HandoffDoProjeto>[0]> = {}) {
-  return render(<HandoffDoProjeto cardId="c1" handoff={VAZIO} somenteLeitura={false} podeDesignar={false} podeResumo={false} candidatosGp={[]} pdfs={[]} {...extra} />);
+  return render(<HandoffDoProjeto cardId="c1" handoff={VAZIO} somenteLeitura={false} podeDesignar={false} podeResumo={false} candidatosGp={[]} semGpDeProjetos={false} pdfs={[]} {...extra} />);
 }
 
 beforeEach(() => {
@@ -90,7 +92,41 @@ describe("HandoffDoProjeto (GAB-93)", () => {
     expect((screen.getByRole("button", { name: "Salvar resumo" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Contexto"), { target: { value: "Padaria" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar resumo" }));
-    await waitFor(() => expect(acoes.salvarResumoAction).toHaveBeenCalledWith("c1", { contexto: "Padaria", combinados: "", riscos: "", valoriza: "" }));
+    await waitFor(() => expect(acoes.salvarResumoAction).toHaveBeenCalledWith("c1", { contexto: "Padaria" }));
+  });
+
+  it("resumo: o que outra pessoa salvou aparece e não é sobrescrito", async () => {
+    const { rerender } = montar({ podeResumo: true });
+    fireEvent.change(screen.getByLabelText("Contexto"), { target: { value: "Meu texto" } });
+    // Outra pessoa salvou "riscos": o refresh traz o texto dela.
+    rerender(<HandoffDoProjeto cardId="c1" handoff={{ ...VAZIO, resumo: { ...VAZIO.resumo, riscos: "Dela" } }} somenteLeitura={false} podeDesignar={false} podeResumo candidatosGp={[]} semGpDeProjetos={false} pdfs={[]} />);
+    expect((screen.getByLabelText("Riscos") as HTMLTextAreaElement).value).toBe("Dela");
+    expect((screen.getByLabelText("Contexto") as HTMLTextAreaElement).value).toBe("Meu texto");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar resumo" }));
+    await waitFor(() => expect(acoes.salvarResumoAction).toHaveBeenCalledWith("c1", { contexto: "Meu texto" }));
+  });
+
+  it("GP divergente do responsável: avisa e habilita Designar para a mesma pessoa", async () => {
+    const gp = { id: "p1", nome: "Pedro" };
+    const { unmount } = montar({ podeDesignar: true, candidatosGp: [gp], handoff: { ...VAZIO, gp, gpValido: true } });
+    expect((screen.getByRole("button", { name: "Designar" }) as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+    montar({ podeDesignar: true, candidatosGp: [gp], handoff: { ...VAZIO, gp, gpValido: true, responsavelDiverge: true } });
+    expect(screen.getByText(/não é mais o GP/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Designar" }));
+    await waitFor(() => expect(acoes.designarGpAction).toHaveBeenCalledWith("c1", "p1"));
+  });
+
+  it("GP que não vale mais: avisa e pede outro", () => {
+    const gp = { id: "p1", nome: "Pedro" };
+    montar({ podeDesignar: true, handoff: { ...VAZIO, gp, gpValido: false } });
+    expect(screen.getByText(/não está mais ativa na área de projetos/)).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Pedro (não pode mais ser GP)" })).toBeTruthy();
+  });
+
+  it("sem GP de projetos: diz que ninguém tem o cargo e pede à gestão", () => {
+    montar({ semGpDeProjetos: true });
+    expect(screen.getByText(/Ninguém tem o cargo de GP de projetos.*Peça à gestão/)).toBeTruthy();
   });
 
   it("PDF: envia arquivo ou aponta um já anexado", async () => {

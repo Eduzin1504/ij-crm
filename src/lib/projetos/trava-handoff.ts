@@ -14,6 +14,11 @@
  * depois anda livre lá dentro. Saindo de Perdido, conta onde o card estava
  * (a última TransicaoFase para o Perdido atual). Perdido nunca trava.
  *
+ * Lixeira: `origem` null é trava estrita, e `restaurarCard` só a aplica se o card
+ * não estava além de Execução quando foi excluído. A posição fica gravada na
+ * EXCLUSAO (`alemDaExecucao`), porque a fase pode ser reordenada ou arquivada com
+ * o card na lixeira, e "já esteve em Execução" não diz onde ele estava.
+ *
  * Concorrência: lê com a linha do card em FOR SHARE, depois do lock de quadro
  * (a ordem documentada: quadro → linha). As edições do handoff tomam a linha em
  * FOR UPDATE, então o movimento vê a edição confirmada, nunca uma pela metade.
@@ -21,11 +26,13 @@
 import type { Fase, Prisma } from "@prisma/client";
 import { ErroDeRegra } from "./erros";
 import { avaliarHandoff, descreverPendencias, type AvaliacaoHandoff } from "./handoff-regras";
+import { PIPELINE_PROJETOS } from "./terminal-regras";
 import { alemDoContrato } from "./trava-contrato";
 
 type Tx = Prisma.TransactionClient;
 
 export const SELECAO_HANDOFF = {
+  responsavelId: true,
   isentoTravaContrato: true,
   isentoTravaHandoff: true,
   dataGanho: true,
@@ -33,7 +40,7 @@ export const SELECAO_HANDOFF = {
   anexos: { where: { contratoAssinado: true, deletadoEm: null }, orderBy: { criadoEm: "desc" }, take: 1, select: { id: true, nome: true } },
   handoff: {
     select: {
-      gpProjeto: { select: { id: true, nome: true, ativo: true } },
+      gpProjeto: { select: { id: true, nome: true, ativo: true, papel: true, area: true, cargos: true } },
       contatosEm: true,
       kickoffEm: true,
       acessosEm: true,
@@ -62,6 +69,24 @@ function destinoExigeHandoff(destino: Fase, execucao: Fase): boolean {
   return destino.tipoTerminal === "GANHO" || alemDaExecucao(destino, execucao);
 }
 
+/** A fase é a de edição do handoff (quadro Projetos, antes de Execução, fora de terminal)? Puro. `execucao` null = quadro sem o marco. */
+export function faseDeHandoff(fase: Fase, pipelineChave: string, execucao: Fase | null): boolean {
+  return pipelineChave === PIPELINE_PROJETOS && !fase.isTerminal && !(execucao && alemDaExecucao(fase, execucao));
+}
+
+/** O que a EXCLUSAO do card grava sobre a posição dele (vazio = não estava além de Execução). */
+export async function posicaoNaExclusao(tx: Tx, fase: Fase): Promise<{ alemDaExecucao?: true }> {
+  const ex = await faseExecucao(tx);
+  return ex && destinoExigeHandoff(fase, ex) ? { alemDaExecucao: true } : {};
+}
+
+/** Quando foi excluído, o card estava além de Execução? Sem a marca = não (card anterior a ela no quadro Projetos é isento). */
+export async function estavaAlemDaExecucao(tx: Tx, projetoId: string): Promise<boolean> {
+  const e = await tx.timeline.findFirst({ where: { projetoId, tipo: "EXCLUSAO" }, orderBy: [{ em: "desc" }, { id: "desc" }], select: { payload: true } });
+  const payload = e?.payload;
+  return !!payload && typeof payload === "object" && !Array.isArray(payload) && payload.alemDaExecucao === true;
+}
+
 /** Por que a trava pegou. `faltando` vazio = card novo (nem tem handoff). */
 export type TravaHandoff = { erro: "HANDOFF_INCOMPLETO"; faltando: string };
 
@@ -83,11 +108,6 @@ export async function travaDoHandoff(tx: Tx, a: { projetoId: string | null; orig
       if (t?.deFase) efetiva = t.deFase;
     }
     if (alemDaExecucao(efetiva, ex)) return null;
-  } else {
-    // Restaurar da lixeira (origem null): quem já entrou em Execução uma vez já fechou o
-    // handoff. Se depois o PDF foi para a lixeira, o card não pode ficar preso lá também.
-    const ja = await tx.transicaoFase.findFirst({ where: { projetoId: a.projetoId, paraFaseId: ex.id }, select: { id: true } });
-    if (ja) return null;
   }
   const { pendencias } = avaliarHandoff(card);
   return pendencias.length ? { erro: "HANDOFF_INCOMPLETO", faltando: descreverPendencias(pendencias) } : null;

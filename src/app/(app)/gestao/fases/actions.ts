@@ -15,7 +15,7 @@ const MENSAGEM: Record<ErroFase, string> = {
   LIMITE_INVALIDO: "Limite de dias precisa ser um inteiro entre 1 e 365 (ou vazio).",
   ORDEM_INVALIDA: "A ordem ficou desatualizada. Recarregue a página.",
   TERMINAL_GANHO_OBRIGATORIO: "O quadro precisa manter ao menos uma fase terminal de ganho.",
-  TERMINAL_PERDIDO_OBRIGATORIO: "Vendas precisa manter ao menos uma fase terminal de perdido.",
+  TERMINAL_PERDIDO_OBRIGATORIO: "Vendas e Projetos precisam manter ao menos uma fase terminal de perdido.",
   DESTINO_OBRIGATORIO: "Escolha para qual fase os cards vão.",
   DESTINO_INVALIDO: "Fase de destino inválida: precisa ser outra fase ativa do mesmo quadro.",
   DESTINO_TERMINAL_INCOMPATIVEL:

@@ -6,6 +6,7 @@ import { Avatar } from "@/components/kanban/avatar";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { listarAnexos } from "@/lib/anexos/anexos";
 import { pessoaDaCaneta } from "@/lib/propostas/propostas";
+import { listarGpsDeProjetos } from "@/lib/avisos/handoff";
 import { listarCandidatosGp, obterHandoff } from "@/lib/projetos/handoff";
 import { podeDesignarGp, podeEscreverResumo } from "@/lib/projetos/handoff-regras";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -71,6 +72,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   const verHandoff = handoff && (handoff.emHandoff || !handoff.isento || handoff.gp || handoff.resumoEm);
   const designa = !!pessoa && pessoa.ativo && podeDesignarGp(pessoa);
   const candidatosGp = handoff?.emHandoff && designa ? await listarCandidatosGp() : [];
+  const semGpDeProjetos = !!handoff?.emHandoff && !handoff.gpValido && !designa && (await listarGpsDeProjetos()).length === 0;
   const todasFases = pipelines.flatMap((p) => p.fases);
   const nomesFases = new Map(todasFases.map((f) => [f.id, f.nome]));
   const fasesDoQuadro = (pipelines.find((p) => p.id === card.pipelineId)?.fases ?? []).filter((f) => f.arquivadaEm === null || f.id === card.faseId);
@@ -149,6 +151,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
           podeDesignar={designa}
           podeResumo={!!pessoa && pessoa.ativo && podeEscreverResumo(pessoa)}
           candidatosGp={candidatosGp}
+          semGpDeProjetos={semGpDeProjetos}
           pdfs={anexos.filter((a) => a.tipo === "PDF").map((a) => ({ id: a.id, nome: a.nome }))}
         />
       ) : null}
