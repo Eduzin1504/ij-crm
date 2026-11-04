@@ -185,6 +185,18 @@ describe("MCP: casos que a matriz não cobre", () => {
     expect((await roda("atualizar_projeto", { id, campos: { cidade: "Ubatuba" } }, p.membroProjetos)).erro).toBe(false);
   });
 
+  it("tempo com a caneta (GAB-96): sem acesso às propostas, recusa; quem não está escalado não vê a proposta dos outros", async () => {
+    await comProposta();
+    const visual = await roda("consultar_tempo_caneta_proposta", {}, m.p.visualizador);
+    expect(visual.erro).toBe(true);
+    expect(visual.texto).toMatch(/não tem acesso às propostas/);
+    const fora = await roda("consultar_tempo_caneta_proposta", {}, m.p.membroProjetos);
+    expect(fora.erro).toBe(false);
+    expect(fora.texto).not.toContain(m.cardV.titulo);
+    const gp = await roda("consultar_tempo_caneta_proposta", {}, m.p.gpProjetos);
+    expect(gp.texto).toContain(m.cardV.titulo);
+  });
+
   it("toda ferramenta de proposta recusa quem não está escalado (nenhuma ficou sem guarda)", async () => {
     await comProposta();
     const comProjeto = FERRAMENTAS.filter((f) => "projeto_id" in f.entrada && f.nome !== "criar_proposta" && f.nome !== "criar_prazo" && f.nome !== "listar_anexos");

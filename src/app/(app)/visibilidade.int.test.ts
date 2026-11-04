@@ -31,6 +31,7 @@ import CalendarioPage from "./calendario/page";
 import { adicionarNotaAction, criarCardAction, editarCampoAction, moverCardAction } from "./kanban/actions";
 import InicioPage from "./page";
 import PainelPage from "./painel/page";
+import PainelProjetosPage from "./painel/projetos/page";
 import CardPage from "./projetos/[id]/page";
 import { MoverFase } from "./projetos/[id]/mover-fase";
 import { sugerirDeAnexoAction } from "./projetos/[id]/proposta/preencher-actions";
@@ -103,6 +104,7 @@ describe.each(MATRIZ)("matriz tela: $nome", ({ nome, escreve, editaVendas, edita
     expect(await destino(() => RankingPage(semBusca))).toBe(abriuOu403(veTabela));
     expect(await destino(() => csvGET(new Request("http://x/tabela/csv")))).toBe(abriuOu403(veTabela));
     expect(await destino(() => PainelPage(semBusca))).toBe("abriu");
+    expect(await destino(() => PainelProjetosPage(semBusca))).toBe("abriu");
   });
 
   it("Propostas, Calendário e Minha Semana: visualizador não tem", async () => {

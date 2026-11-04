@@ -12,16 +12,11 @@ import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { registrarErro } from "@/lib/erros/registrar";
 import { gpDoProjeto } from "@/lib/projetos/execucao-regras";
-import { diaParaColuna, semanaCobrada, semanaCobravel } from "@/lib/projetos/execucao-semana";
+import { diaParaColuna, inicioDoAcompanhamento, semanaCobrada, semanaCobravel } from "@/lib/projetos/execucao-semana";
 import { formatarDia } from "@/lib/projetos/formatar";
 import { PIPELINE_PROJETOS } from "@/lib/projetos/terminal-regras";
 import { faseDeExecucaoAberta } from "@/lib/projetos/trava-handoff";
 import { emitirAvisos } from "./avisos";
-
-const primeiroInstante = (datas: (Date | undefined)[]): Date | null => {
-  const validas = datas.filter((d): d is Date => d !== undefined);
-  return validas.length ? new Date(Math.min(...validas.map((d) => d.getTime()))) : null;
-};
 
 export async function lembrarCheckinsAtrasados(agora = new Date()): Promise<{ lembretes: number; refs: string[] }> {
   const refs: string[] = [];
@@ -49,7 +44,7 @@ export async function lembrarCheckinsAtrasados(agora = new Date()): Promise<{ le
 
   let lembretes = 0;
   for (const c of cards) {
-    const inicio = c.execucaoDesde ?? primeiroInstante([c.entregas[0]?.criadoEm, c.checkins[0]?.em]);
+    const inicio = inicioDoAcompanhamento(c.execucaoDesde, [c.entregas[0]?.criadoEm, c.checkins[0]?.em]);
     if (!semanaCobravel(inicio, semana)) continue;
     const gp = c.handoff?.gpProjeto;
     const usuarioId = gpDoProjeto({ responsavelId: c.responsavelId, gpDesignado: gp });

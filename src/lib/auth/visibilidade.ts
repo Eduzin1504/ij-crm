@@ -171,6 +171,19 @@ export function podeVerProposta(p: PessoaComLado, escalado: boolean): boolean {
   return veTodasAsPropostas(p) || (escalado && podeEscrever(p.papel));
 }
 
+export type VisaoDaCaneta = "nenhuma" | "todas" | "escaladas" | "so_minhas";
+
+/**
+ * Tempo com a caneta no painel de projetos (GAB-96): vem das propostas, então segue `podeVerProposta`, e não
+ * `podeVerPainelCompleto`, que abre tudo ao VISUALIZADOR. É uma comparação entre pessoas: com o ranking oculto,
+ * quem não vê todas as propostas fica só com as próprias linhas. `rankingAberto` = `podeVerPainelCompleto`.
+ */
+export function visaoDaCanetaNoPainel(p: PessoaComLado, rankingAberto: boolean): VisaoDaCaneta {
+  if (veTodasAsPropostas(p)) return "todas";
+  if (!podeEscrever(p.papel)) return "nenhuma";
+  return rankingAberto ? "escaladas" : "so_minhas";
+}
+
 export type AlcanceDaAgenda = "nenhum" | "proprio" | "area" | "todos";
 
 /** De quem a pessoa vê agenda (§4.6): vale para o Calendário e para `/semana?vendedor=`. */

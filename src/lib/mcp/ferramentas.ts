@@ -95,6 +95,7 @@ import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta }
 import { quadroPadrao } from "@/lib/auth/visibilidade";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
 import { FERRAMENTAS_EXECUCAO } from "./execucao";
+import { FERRAMENTAS_PAINEL_PROJETOS } from "./painel-projetos";
 import { camposEditaveis, cardEditavel, checklistHandoffEditavel, propostaVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
@@ -1172,6 +1173,8 @@ export const FERRAMENTAS: readonly Ferramenta[] = [
   ...FERRAMENTAS_COMENTARIOS,
   // GAB-95: cronograma e check-in (src/lib/mcp/execucao.ts).
   ...FERRAMENTAS_EXECUCAO,
+  // GAB-96: painel de projetos (src/lib/mcp/painel-projetos.ts).
+  ...FERRAMENTAS_PAINEL_PROJETOS,
 ];
 
 function resultado(r: Resposta): CallToolResult {

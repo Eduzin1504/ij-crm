@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diaNoIntervalo, gpDoProjeto, lerMotivo, MOTIVO_MAX, podeOperarExecucao } from "./execucao-regras";
-import { semanaCobrada, semanaCobravel, semanaDe } from "./execucao-semana";
+import { inicioDoAcompanhamento, semanaCobrada, semanaCobravel, semanaDe } from "./execucao-semana";
 
 const pessoa = (id: string, papel: "ADMIN" | "GESTOR" | "VENDEDOR" | "PROJETOS" | "VISUALIZADOR", area: "VENDAS" | "PROJETOS" | null = null, extra: { ativo?: boolean; cargos?: "GP"[] } = {}) => ({
   id,
@@ -79,5 +79,15 @@ describe("semana em São Paulo", () => {
     expect(semanaCobravel(quarta, "2026-11-02")).toBe(false);
     expect(semanaCobravel(quarta, "2026-11-09")).toBe(true);
     expect(semanaCobravel(null, "2026-11-09")).toBe(false);
+  });
+});
+
+describe("inicioDoAcompanhamento (lembrete e painel usam a mesma regra)", () => {
+  const a = new Date("2026-10-01T12:00:00Z");
+  const b = new Date("2026-10-08T12:00:00Z");
+  it("vale a entrada em Execução; sem ela, a primeira data que houver; sem nenhuma, null", () => {
+    expect(inicioDoAcompanhamento(b, [a])).toEqual(b);
+    expect(inicioDoAcompanhamento(null, [b, a, undefined, null])).toEqual(a);
+    expect(inicioDoAcompanhamento(null, [undefined])).toBeNull();
   });
 });
