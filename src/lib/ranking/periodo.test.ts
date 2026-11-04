@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dentroDoPeriodo, resolverPeriodo } from "./periodo";
+import { dentroDoPeriodo, refAteOPeriodoAtual, refValida, resolverPeriodo } from "./periodo";
 
 const sp = (iso: string) => new Date(`${iso}-03:00`);
 
@@ -70,5 +70,45 @@ describe("resolverPeriodo — mês", () => {
     expect(m.primeiroDia).toBe("2026-10-01");
     expect(m.proximo).toBeNull();
     expect(m.atual).toBe(true);
+  });
+});
+
+describe("ref do período (GAB-96)", () => {
+  const agora = sp("2026-11-11T12:00:00");
+
+  it("dia real, de 2000 para cá e não no futuro", () => {
+    expect(refValida("2026-11-11", agora)).toBe(true);
+    expect(refValida("2000-01-01", agora)).toBe(true);
+    for (const ref of ["1999-12-31", "0001-01-01", "2026-02-30", "2026-11-12", "ontem"]) expect(refValida(ref, agora), ref).toBe(false);
+  });
+
+  describe("cliente de fora (MCP): até o fim do período atual, às 22h de 04/11 em São Paulo", () => {
+    const noite = sp("2026-11-04T22:00:00");
+
+    it("dia ainda não chegado do período atual vale, e aponta para o período atual", () => {
+      expect(refAteOPeriodoAtual("mes", "2026-11-05", noite)).toBe(true);
+      expect(refAteOPeriodoAtual("mes", "2026-11-28", noite)).toBe(true);
+      expect(refAteOPeriodoAtual("mes", "2026-11-30", noite)).toBe(true);
+      expect(refAteOPeriodoAtual("semana", "2026-11-08", noite)).toBe(true);
+      expect(resolverPeriodo("mes", "2026-11-28", noite).primeiroDia).toBe("2026-11-01");
+      expect(resolverPeriodo("semana", "2026-11-05", noite).primeiroDia).toBe("2026-11-02");
+    });
+
+    it("depois do período atual, não; o limite depende do tipo", () => {
+      expect(refAteOPeriodoAtual("mes", "2026-12-01", noite)).toBe(false);
+      expect(refAteOPeriodoAtual("semana", "2026-11-09", noite)).toBe(false);
+      expect(refAteOPeriodoAtual("semana", "2026-11-28", noite)).toBe(false);
+      for (const ref of ["2030-01-01", "9999-12-31", "1999-12-31", "2026-02-30"]) expect(refAteOPeriodoAtual("mes", ref, noite), ref).toBe(false);
+    });
+
+    it("a tela não muda: refValida continua parando em hoje", () => {
+      expect(refValida("2026-11-05", noite)).toBe(false);
+      expect(refValida("2026-11-04", noite)).toBe(true);
+    });
+  });
+
+  it("ano antes de 2000 cai no período atual, como ref inválido", () => {
+    expect(resolverPeriodo("mes", "1999-12-31", agora).primeiroDia).toBe("2026-11-01");
+    expect(resolverPeriodo("semana", "0001-01-01", agora).primeiroDia).toBe("2026-11-09");
   });
 });

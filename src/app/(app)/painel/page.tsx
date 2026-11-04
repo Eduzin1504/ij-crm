@@ -1,6 +1,3 @@
-import Link from "next/link";
-import { cn } from "cn";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ErroCarregamento } from "@/components/erro-carregamento";
 import { PageHeader } from "@/components/shell/page-header";
 import { SecaoAcompanhamento, SecaoConversao, SecaoEngajamento, SecaoSatisfacao } from "@/components/painel/secoes";
@@ -9,16 +6,15 @@ import { comTratamento, ehInesperado } from "@/lib/erros/registrar";
 import { VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes";
 import { carregarPainelPara } from "@/lib/painel/servico";
 import { resolverPeriodo, type TipoPeriodo } from "@/lib/ranking/periodo";
+import { AbasPainel } from "./abas";
 import { FiltroVendedor } from "./filtro-vendedor";
+import { NavegacaoPeriodo } from "./navegacao-periodo";
 
 export const metadata = { title: "Painel de vendas" };
 
 type Busca = { periodo?: string | string[]; ref?: string | string[]; vendedor?: string | string[] };
 
 const um = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
-
-const ABA = "rounded-md px-3 py-1 font-mono text-xs uppercase tracking-eyebrow transition-colors";
-const SETA = "inline-flex size-8 items-center justify-center rounded-lg border border-border text-fg-soft hover:bg-surface-hover hover:text-foreground";
 
 /**
  * Painel de vendas (GAB-94, spec fase 2 §4.14): conversão, engajamento,
@@ -45,41 +41,14 @@ export default async function PainelPage({ searchParams }: { searchParams: Promi
   const p = v.painel;
   const filtro = p.vendedor?.id ?? null;
 
-  const href = (t: TipoPeriodo, ref?: string) => {
-    const q = new URLSearchParams({ periodo: t });
-    if (ref) q.set("ref", ref);
-    if (filtro) q.set("vendedor", filtro);
-    return `/painel?${q.toString()}`;
-  };
   const periodoAtual: Record<string, string> = { periodo: tipo, ...(periodo.atual ? {} : { ref: periodo.primeiroDia }) };
+  const parametros: Record<string, string> = filtro ? { vendedor: filtro } : {};
 
   const navegacao = (
     <div className="flex flex-wrap items-center gap-2">
+      <AbasPainel atual="vendas" periodo={periodoAtual} />
       {v.modo === "completo" ? <FiltroVendedor atualId={filtro} opcoes={p.vendedores.map((x) => ({ id: x.id, nome: x.nome }))} periodo={periodoAtual} /> : null}
-      <nav aria-label="Período" className="flex rounded-lg border border-border bg-surface p-0.5">
-        {(["semana", "mes"] as const).map((t) => (
-          <Link key={t} href={href(t)} aria-current={t === tipo ? "page" : undefined} className={cn(ABA, t === tipo ? "bg-surface-strong text-foreground" : "text-fg-mute hover:text-foreground")}>
-            {t === "semana" ? "Semana" : "Mês"}
-          </Link>
-        ))}
-      </nav>
-      <Link href={href(tipo, periodo.anterior)} className={SETA} aria-label={tipo === "semana" ? "Semana anterior" : "Mês anterior"}>
-        <ChevronLeft className="size-4" />
-      </Link>
-      {periodo.proximo ? (
-        <Link href={href(tipo, periodo.proximo)} className={SETA} aria-label={tipo === "semana" ? "Próxima semana" : "Próximo mês"}>
-          <ChevronRight className="size-4" />
-        </Link>
-      ) : (
-        <span aria-hidden className={cn(SETA, "pointer-events-none opacity-40")}>
-          <ChevronRight className="size-4" />
-        </span>
-      )}
-      {!periodo.atual ? (
-        <Link href={href(tipo)} className="font-mono text-xs text-fg-mute hover:text-foreground hover:underline">
-          {tipo === "semana" ? "semana atual" : "mês atual"}
-        </Link>
-      ) : null}
+      <NavegacaoPeriodo caminho="/painel" tipo={tipo} periodo={periodo} parametros={parametros} />
     </div>
   );
 

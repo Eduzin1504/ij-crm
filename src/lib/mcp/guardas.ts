@@ -4,6 +4,7 @@
  * `string` = o texto da recusa, em português; `null` = pode.
  */
 import { recusaDeEdicaoNoCard, recusaDoChecklistHandoff } from "@/lib/projetos/acesso-card";
+import { visaoDaCanetaNoPainel } from "@/lib/auth/visibilidade";
 import { recusaDaProposta } from "@/lib/propostas/acesso";
 import type { UsuarioMcp } from "./oauth";
 
@@ -19,6 +20,10 @@ export const checklistHandoffEditavel = (a: { id: string }, eu: UsuarioMcp) => r
 /** Como `cardEditavel`, com as regras próprias de `responsavelId` e `propostaUrl`. */
 export const camposEditaveis = (a: { id: string; campos: Record<string, string | undefined> }, eu: UsuarioMcp) =>
   recusaDeEdicaoNoCard(a.id, eu, { campos: Object.keys(a.campos).filter((c) => a.campos[c] !== undefined) });
+
+/** Tempo com a caneta no painel (GAB-96): vem das propostas. O recorte de cada um é do serviço (`carregarCanetaPara`). */
+export const canetaDoPainelVisivel = async (_a: unknown, eu: UsuarioMcp) =>
+  visaoDaCanetaNoPainel(eu, true) === "nenhuma" ? "Você não tem acesso às propostas: o tempo com a caneta vem delas." : null;
 
 /** Proposta do projeto `projeto_id`: quem está escalado, o GP e a gestão. */
 export const propostaVisivel = (a: { projeto_id: string }, eu: UsuarioMcp) => recusaDaProposta(a.projeto_id, eu);

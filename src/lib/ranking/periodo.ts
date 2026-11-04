@@ -42,9 +42,24 @@ function inicio(dia: string): Date {
 
 const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
+const diaReal = (ref: string) => ref >= "2000-01-01" && inicioDoDia(ref) !== null;
+
+/** `ref` que vale como dia de um período: dia real, de 2000 para cá e não no futuro. */
+export function refValida(ref: string, agora: Date): boolean {
+  return diaReal(ref) && ref <= diaEmFuso(agora);
+}
+
+/**
+ * `ref` que um cliente de fora pode mandar (MCP): vale até o último dia do período atual. O relógio do cliente pode
+ * estar à frente de São Paulo, e um dia ainda não chegado do período atual aponta para ele mesmo em `resolverPeriodo`.
+ */
+export function refAteOPeriodoAtual(tipo: TipoPeriodo, ref: string, agora: Date): boolean {
+  return diaReal(ref) && ref <= resolverPeriodo(tipo, undefined, agora).ultimoDia;
+}
+
 export function resolverPeriodo(tipo: TipoPeriodo, ref: string | undefined, agora: Date): Periodo {
   const hoje = diaEmFuso(agora);
-  const dia = ref && inicioDoDia(ref) && ref <= hoje ? ref : hoje;
+  const dia = ref && refValida(ref, agora) ? ref : hoje;
 
   let primeiroDia: string;
   let seguinte: string;

@@ -22,6 +22,7 @@ import {
   quadroPadrao,
   veOutrasAgendas,
   veTodasAsPropostas,
+  visaoDaCanetaNoPainel,
 } from "./visibilidade";
 
 const pessoa = (papel: Papel, area: Area | null = null, areaEntrada: AreaEntrada | null = null) => ({ papel, area, cargos: [] as Cargo[], areaEntrada });
@@ -250,6 +251,12 @@ describe.each(MATRIZ)("matriz GAB-98: $nome", ({ p, tabelaRanking, vendas, proje
     expect(veTodasAsPropostas(p)).toBe(todasPropostas);
     expect(podeVerProposta(p, false)).toBe(todasPropostas);
     expect(podeVerProposta(p, true)).toBe(p.papel !== "VISUALIZADOR");
+  });
+
+  it("caneta no painel de projetos: nunca passa de quem vê a proposta, com o ranking aberto ou não", () => {
+    const esperado = (aberto: boolean) => (todasPropostas ? "todas" : p.papel === "VISUALIZADOR" ? "nenhuma" : aberto ? "escaladas" : "so_minhas");
+    expect(visaoDaCanetaNoPainel(p, true)).toBe(esperado(true));
+    expect(visaoDaCanetaNoPainel(p, false)).toBe(esperado(false));
   });
 
   it("agenda: alcance de quem vê quem", () => {
