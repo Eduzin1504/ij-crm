@@ -7,12 +7,13 @@
  * `carregarItensDaSemana` devolve listas por tipo e a grade agrupa por dia.
  */
 import type { Papel, Prisma } from "@prisma/client";
+import { QUEM_ATUA } from "@/lib/auth/papeis";
+import { alcanceDaAgenda, podeVerAgendaDe, veOutrasAgendas, type PessoaComId } from "@/lib/auth/visibilidade";
 import { db } from "@/lib/db";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { inicioDoDia } from "@/lib/projetos/campos";
 import { somarDias } from "@/lib/projetos/proxima-acao";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
-import { listarResponsaveis } from "@/lib/projetos/projetos";
 import { compararPrazos, paraPrazoItem, PRAZO_VIVO, SELECAO_PRAZO, type PessoaItem, type PrazoItem } from "@/lib/prazos/prazos";
 import { instanteDoPrazo, type SemanaCalendario } from "./semana";
 
@@ -34,8 +35,12 @@ export type AcaoItem = {
 
 export type ItensDaSemana = { acoes: AcaoItem[]; prazos: PrazoItem[] };
 
-/** De quem: lista de responsáveis ou o time todo. */
-export type FiltroPessoas = { responsavelIds: string[] } | "time";
+/**
+ * De quem: lista de responsáveis ou o time todo. `comPrazosDosCards` (Calendário,
+ * §4.7): entra também o prazo de outra pessoa em card de que a lista é responsável.
+ * A Minha Semana não usa: lá continua só o prazo da própria pessoa.
+ */
+export type FiltroPessoas = { responsavelIds: string[]; comPrazosDosCards?: boolean } | "time";
 
 /** Leitura com um cliente qualquer (o `db` ou uma transação — ex.: teste com fuso de sessão). */
 type Cliente = Pick<Prisma.TransactionClient, "projeto" | "prazo">;
@@ -54,6 +59,7 @@ export async function carregarItensDaSemana(filtro: FiltroPessoas, semana: Seman
  */
 export async function carregarItens(filtro: FiltroPessoas, intervalo: IntervaloDias, ator: Ator, cliente: Cliente = db): Promise<ItensDaSemana> {
   const resp = filtro === "time" ? {} : { responsavelId: { in: filtro.responsavelIds } };
+  const respPrazo: Prisma.PrazoWhereInput = filtro !== "time" && filtro.comPrazosDosCards ? { AND: [{ OR: [resp, { projeto: resp }] }] } : resp;
   const seguinte = somarDias(intervalo.ultimoDia, 1);
   const inicio = inicioDoDia(intervalo.primeiroDia)!;
   const fim = inicioDoDia(seguinte)!;
@@ -73,7 +79,7 @@ export async function carregarItens(filtro: FiltroPessoas, intervalo: IntervaloD
       },
     }),
     cliente.prazo.findMany({
-      where: { ...resp, ...PRAZO_VIVO, data: { gte: instanteDoPrazo(intervalo.primeiroDia), lt: instanteDoPrazo(seguinte) } } satisfies Prisma.PrazoWhereInput,
+      where: { ...respPrazo, ...PRAZO_VIVO, data: { gte: instanteDoPrazo(intervalo.primeiroDia), lt: instanteDoPrazo(seguinte) } } satisfies Prisma.PrazoWhereInput,
       select: SELECAO_PRAZO,
     }),
   ]);
@@ -102,22 +108,39 @@ export type Visao = {
   modo: "meu" | "time" | "pessoa";
   /** Só em `pessoa`. */
   pessoa: { id: string; nome: string } | null;
-  /** Usuários ativos (seletor "Pessoa" e responsável do prazo). */
+  /** Quem o ator pode ver (seletor "Pessoa" e responsável do prazo). Vazio para quem só vê a própria agenda. */
   opcoes: { id: string; nome: string }[];
+  /** Mostra "Time" e "Pessoa": gestão. */
+  podeTrocar: boolean;
   filtro: FiltroPessoas;
 };
 
 /**
- * `?ver=time` ou `?pessoa=<id>` (da URL, não confiável). Todo mundo vê o time
- * todo; o padrão é a própria agenda (VISUALIZADOR: o time). Pessoa
- * inativa/inexistente → "Meu".
+ * Pessoas ativas cuja agenda o ator pode ver (`podeVerAgendaDe`): a regra de quem
+ * vê quem do Calendário e de `/semana?vendedor=`. Sem gestão: lista vazia.
  */
-export async function resolverVisao(ator: Ator, params: { ver?: string; pessoa?: string }): Promise<Visao> {
-  const opcoes = await listarResponsaveis();
-  if (params.ver === "time") return { modo: "time", pessoa: null, opcoes, filtro: "time" };
+export async function pessoasComAgendaVisivel(ator: PessoaComId): Promise<{ id: string; nome: string }[]> {
+  if (!veOutrasAgendas(ator)) return [];
+  const us = await db.usuario.findMany({ where: { ativo: true, ...QUEM_ATUA }, orderBy: { nome: "asc" }, select: { id: true, nome: true, papel: true, area: true, cargos: true } });
+  return us.filter((u) => podeVerAgendaDe(ator, u)).map(({ id, nome }) => ({ id, nome }));
+}
+
+/**
+ * `?ver=time` ou `?pessoa=<id>` (da URL, não confiável). Membro: sempre a própria
+ * agenda, com o que foi atribuído a ele. Gestor com área: o time e as pessoas são
+ * os do mesmo `ladoDe`. Gestor sem área e admin: todos. Pessoa fora do alcance,
+ * inativa ou inexistente → "Meu", sem erro. VISUALIZADOR não chega aqui: a rota
+ * barra (`exigirItem("calendario")`); se chegar, vê a própria agenda, que é vazia.
+ */
+export async function resolverVisao(ator: PessoaComId, params: { ver?: string; pessoa?: string }): Promise<Visao> {
+  const opcoes = await pessoasComAgendaVisivel(ator);
+  const podeTrocar = veOutrasAgendas(ator);
+  const de = (ids: string[]): FiltroPessoas => ({ responsavelIds: ids, comPrazosDosCards: true });
+  if (podeTrocar && params.ver === "time") {
+    const filtro = alcanceDaAgenda(ator) === "todos" ? "time" : de(opcoes.map((o) => o.id));
+    return { modo: "time", pessoa: null, opcoes, podeTrocar, filtro };
+  }
   const pessoa = params.pessoa && params.pessoa !== ator.id ? opcoes.find((o) => o.id === params.pessoa) : undefined;
-  if (pessoa) return { modo: "pessoa", pessoa, opcoes, filtro: { responsavelIds: [pessoa.id] } };
-  // VISUALIZADOR não tem agenda própria (nunca é responsável): o padrão dele é o time.
-  if (ator.papel === "VISUALIZADOR") return { modo: "time", pessoa: null, opcoes, filtro: "time" };
-  return { modo: "meu", pessoa: null, opcoes, filtro: { responsavelIds: [ator.id] } };
+  if (pessoa) return { modo: "pessoa", pessoa, opcoes, podeTrocar, filtro: de([pessoa.id]) };
+  return { modo: "meu", pessoa: null, opcoes, podeTrocar, filtro: de([ator.id]) };
 }

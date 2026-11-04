@@ -1,7 +1,7 @@
 /**
  * GET /api/projetos/[id]/proposta/pdf?versao=N — PDF da proposta (GAB-89):
  * a versão final (texto + parte estruturada) no template atual. Leitura:
- * qualquer usuário logado (como a página da proposta); sem sessão → 401.
+ * quem vê a proposta (GAB-98, como a página dela); sem sessão → 401, sem acesso → 403.
  * `versao` (opcional) fixa a versão que o link baixa: se a final mudou, 409
  * com o texto do porquê (o link do MCP/da tela ficou velho).
  *
@@ -14,6 +14,7 @@
 import { semSessao, respostaTexto, erroInesperado } from "@/lib/anexos/resposta";
 import { cabecalhoDownload } from "@/lib/anexos/tipos";
 import { usuarioAtual } from "@/lib/auth/atual";
+import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { GERACOES_PDF_MAX, mensagemDaFalha, pdfDaProposta } from "@/lib/propostas/propostas";
 
 export const runtime = "nodejs";
@@ -21,11 +22,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    if (!(await usuarioAtual())) return semSessao();
+    const eu = await usuarioAtual();
+    if (!eu) return semSessao();
     const { id } = await params;
     const bruta = new URL(req.url).searchParams.get("versao");
     const versao = bruta === null ? undefined : /^\d{1,9}$/.test(bruta) ? Number(bruta) : NaN;
     if (Number.isNaN(versao) || id.length > 64) return respostaTexto(400, "Link inválido.");
+    if (!(await podeVerPropostaDoProjeto(eu, id))) return respostaTexto(403, MENSAGEM_SEM_ACESSO_PROPOSTA);
     const r = await pdfDaProposta(id, versao);
     if (!r.ok && r.erro === "PDF_OCUPADO") {
       // Não é falha do servidor, mas fica rastreável: a mesma ref no corpo, no header e no log.

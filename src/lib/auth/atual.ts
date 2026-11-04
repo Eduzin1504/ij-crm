@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { Papel } from "@prisma/client";
 import { temPapelMinimo } from "./papeis";
 import { hashSessao, obterUsuarioDaSessao, type UsuarioSessao } from "./sessao";
+import { podeVerItemEmAlgumaArea, type ItemDeArea } from "./visibilidade";
 
 export const COOKIE_SESSAO = "ij_sessao";
 
@@ -53,4 +54,14 @@ export async function exigirPapel(minimo: Papel): Promise<UsuarioSessao> {
  */
 export async function exigirEscrita(): Promise<UsuarioSessao> {
   return exigirPapel("VENDEDOR");
+}
+
+/**
+ * Rota de um item do menu (`/tabela`, `/ranking`, `/calendario`…): quem não vê o item
+ * em nenhuma área → /403, com a mesma regra do menu (GAB-98).
+ */
+export async function exigirItem(item: ItemDeArea): Promise<UsuarioSessao> {
+  const u = await exigirUsuario();
+  if (!podeVerItemEmAlgumaArea(u, item)) redirect("/403");
+  return u;
 }

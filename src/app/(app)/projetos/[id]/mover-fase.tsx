@@ -2,12 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { AvisoReabrir, type PedidoReabrir } from "@/components/kanban/aviso-reabrir";
 import { DialogoTerminal, type PedidoTerminal } from "@/components/kanban/dialogo-terminal";
 import { MensagemErro } from "@/components/erros/mensagem-erro";
 import { Button } from "@/components/ui/button";
 import { executarAcao, type FalhaUI } from "@/lib/erros/cliente";
 import { enviarContratoAssinado } from "@/lib/projetos/contrato-assinado-cliente";
-import { dialogoTerminal, type DadosTerminal } from "@/lib/projetos/terminal-regras";
+import { dialogoTerminal, reabreInviavel, textoReabrirInviavel, type DadosTerminal } from "@/lib/projetos/terminal-regras";
 import { moverCardAction } from "../../kanban/actions";
 import type { FaseCliente } from "../../kanban/tipos";
 
@@ -24,6 +25,8 @@ export function MoverFase({
   fechamento,
   somenteLeitura = false,
   ganhoId = null,
+  veProposta = true,
+  responsavelNome = "o responsável",
 }: {
   cardId: string;
   titulo: string;
@@ -35,9 +38,13 @@ export function MoverFase({
   /** VISUALIZADOR: select travado (o servidor recusa o movimento de qualquer jeito). */
   somenteLeitura?: boolean;
   ganhoId?: string | null;
+  /** Só para o texto do aviso de reabrir card perdido por proposta inviável. */
+  veProposta?: boolean;
+  responsavelNome?: string;
 }) {
   const router = useRouter();
   const [pedido, setPedido] = useState<(PedidoTerminal & { faseId: string }) | null>(null);
+  const [reabrir, setReabrir] = useState<(PedidoReabrir & { faseId: string }) | null>(null);
   const [erro, setErro] = useState<FalhaUI | null>(null);
   const [pendente, startTransition] = useTransition();
 
@@ -54,9 +61,13 @@ export function MoverFase({
     });
   }
 
-  function escolher(faseId: string) {
+  function escolher(faseId: string, confirmado = false) {
     const f = fases.find((x) => x.id === faseId);
     if (!f || f.id === faseAtualId) return;
+    if (!confirmado && reabreInviavel(fases.find((x) => x.id === faseAtualId), f, fechamento.motivoPerda)) {
+      setReabrir({ faseId, titulo, texto: textoReabrirInviavel(veProposta, responsavelNome) });
+      return;
+    }
     const tipo = dialogoTerminal(pipelineChave, f.tipoTerminal);
     if (tipo) setPedido({ faseId, titulo, faseNome: f.nome, tipo, inicial: fechamento });
     else mover(faseId);
@@ -87,6 +98,14 @@ export function MoverFase({
         </Button>
       ) : null}
       <MensagemErro falha={erro} className="mt-1" />
+      <AvisoReabrir
+        pedido={reabrir}
+        onCancelar={() => setReabrir(null)}
+        onConfirmar={() => {
+          if (reabrir) escolher(reabrir.faseId, true);
+          setReabrir(null);
+        }}
+      />
       <DialogoTerminal
         pedido={pedido}
         onCancelar={() => setPedido(null)}

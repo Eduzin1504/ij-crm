@@ -21,10 +21,10 @@ const prazo: PrazoItem = {
   podeMexer: true,
 };
 
-function Abrir() {
+function Abrir({ item = prazo }: { item?: PrazoItem }) {
   const { abrir } = useEditorPrazo();
   return (
-    <button type="button" onClick={() => abrir(prazo)}>
+    <button type="button" onClick={() => abrir(item)}>
       abrir
     </button>
   );
@@ -60,5 +60,19 @@ describe("editor de prazo: excluir com confirmação explícita", () => {
       fireEvent.click(screen.getByRole("button", { name: "Excluir prazo" }));
     });
     await waitFor(() => expect(excluirPrazoAction).toHaveBeenCalledWith("p1"));
+  });
+});
+
+describe("editor de prazo: responsável fora da lista (GAB-98)", () => {
+  it("fica na lista como atual, sem o rótulo de inativo: pode ser ativo de outro lado", async () => {
+    const dele: PrazoItem = { ...prazo, responsavel: { id: "u9", nome: "Pam Projetos", fotoEm: null } };
+    render(
+      <PrazosProvider eu={{ id: "u1", nome: "Ana Vendas" }} gestor responsaveis={[{ id: "u1", nome: "Ana Vendas" }]} responsavelPadrao="u1">
+        <Abrir item={dele} />
+      </PrazosProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "abrir" }));
+    expect(await screen.findByRole("option", { name: "Pam Projetos (atual)" })).toBeInTheDocument();
+    expect(screen.queryByText(/inativo/)).toBeNull();
   });
 });

@@ -1,9 +1,9 @@
 /**
  * Ferramentas MCP de comentários na proposta (GAB-91). Só traduzem argumentos
  * e chamam `lib/propostas/comentarios` — a mesma camada da tela, com as mesmas
- * permissões: qualquer usuário ativo comenta, responde, resolve e reabre (o
- * serviço confere o "ativo"). Por isso `escrita: false` (VISUALIZADOR também
- * comenta, como na tela) e `muda: true` nas que gravam (sem `readOnlyHint`).
+ * permissões: quem vê a proposta e está ativo comenta, responde, resolve e reabre
+ * (GAB-98: o serviço confere; ler passa pela guarda). `escrita: false` porque a
+ * regra não é a do papel; `muda: true` nas que gravam (sem `readOnlyHint`).
  */
 import { z } from "zod";
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/lib/propostas/comentarios";
 import { TRECHO_MAX } from "@/lib/propostas/ancora";
 import type { Ferramenta, Resposta } from "./ferramentas";
+import { propostaVisivel } from "./guardas";
 import { urlBase } from "./url";
 
 type Forma = z.ZodRawShape;
@@ -37,6 +38,7 @@ const listar = ferramenta({
   descricao:
     "Comentários da proposta do projeto, em threads (mais antigos primeiro): autor, texto, trecho citado (null = comentário geral), `trecho_alterado` (o trecho não está mais no texto atual), respostas e se está resolvido. Por padrão só os abertos; `incluir_resolvidos: true` traz todos.",
   escrita: false,
+  guarda: propostaVisivel,
   entrada: { projeto_id: id, incluir_resolvidos: z.boolean().optional() },
   executar: async (a) => {
     const l = await listarComentarios(a.projeto_id);

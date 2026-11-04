@@ -1,6 +1,6 @@
 import { ErroCarregamento } from "@/components/erro-carregamento";
 import { Legenda } from "@/components/calendario/legenda";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { temPapelMinimo } from "@/lib/auth/papeis";
 import { carregarItens, resolverVisao } from "@/lib/calendario/calendario";
 import { paramsDoPeriodo, periodoDaBusca, type Periodo } from "@/lib/calendario/periodo";
@@ -27,7 +27,7 @@ const um = (v: string | string[] | undefined) => (typeof v === "string" ? v : un
  * dias: grade mensal compacta.
  */
 export default async function CalendarioPage({ searchParams }: { searchParams: Promise<Busca> }) {
-  const ator = await exigirUsuario();
+  const ator = await exigirItem("calendario");
   const busca = await searchParams;
   const agora = new Date();
   const periodo = periodoDaBusca({ periodo: um(busca.periodo), data: um(busca.data), semana: um(busca.semana) }, agora);
@@ -42,6 +42,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const grade = agruparPorDia(periodo.grade, itens.acoes, itens.prazos);
   const gestor = temPapelMinimo(ator.papel, "GESTOR");
   const time = visao.modo === "time";
+  const donoDaAgenda = visao.modo === "pessoa" && visao.pessoa ? visao.pessoa.id : visao.modo === "meu" ? ator.id : null;
 
   const href = (p: Periodo, ref: string | null) => {
     const q = new URLSearchParams();
@@ -69,7 +70,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SeletorPeriodo atual={periodo.periodo} href={(p) => href(p, null)} />
-            <SeletorVisao modo={visao.modo} pessoaId={visao.pessoa?.id ?? null} eu={ator.id} opcoes={visao.opcoes} periodo={paramsDoPeriodo(periodo.periodo, periodo.ref)} />
+            {visao.podeTrocar ? <SeletorVisao modo={visao.modo} pessoaId={visao.pessoa?.id ?? null} eu={ator.id} opcoes={visao.opcoes} periodo={paramsDoPeriodo(periodo.periodo, periodo.ref)} /> : null}
             <NavPeriodo periodo={periodo} href={(ref) => href(periodo.periodo, ref)} />
             <BotaoNovoPrazo dia={periodo.atual ? periodo.hoje : periodo.primeiroDia} />
           </div>
@@ -77,13 +78,13 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
           <div data-testid="calendario-agenda" className="border-b border-border pb-5 lg:border-r lg:border-b-0 lg:pr-5 lg:pb-0">
-            <Agenda dias={dias} hoje={periodo.hoje} rotulo={periodo.rotuloAgenda} vazio={periodo.periodo === "semana" ? "Nada nesta semana." : "Nada neste período."} />
+            <Agenda dias={dias} hoje={periodo.hoje} donoDaAgenda={donoDaAgenda} rotulo={periodo.rotuloAgenda} vazio={periodo.periodo === "semana" ? "Nada nesta semana." : "Nada neste período."} />
           </div>
           <div className="min-w-0">
             {periodo.periodo === "semana" ? (
-              <GradeSemana dias={dias} hoje={periodo.hoje} mostrarResponsavelNoPrazo={time} />
+              <GradeSemana dias={dias} hoje={periodo.hoje} mostrarResponsavelNoPrazo={time} donoDaAgenda={donoDaAgenda} />
             ) : (
-              <GradeMes dias={grade} hoje={periodo.hoje} inicio={primeiroDia} fim={ultimoDia} mostrarResponsavel={time} />
+              <GradeMes dias={grade} hoje={periodo.hoje} inicio={primeiroDia} fim={ultimoDia} mostrarResponsavel={time} donoDaAgenda={donoDaAgenda} />
             )}
             <Legenda />
           </div>

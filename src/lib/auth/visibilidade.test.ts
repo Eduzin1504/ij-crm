@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Area, AreaEntrada, Papel } from "@prisma/client";
+import type { Area, AreaEntrada, Cargo, Papel } from "@prisma/client";
 import { mesmaAreaEntrada, resolverAreaEntrada, usaAreaDeEntrada } from "./areas";
 import {
+  alcanceDaAgenda,
   areaDeEntrada,
+  areaDoQuadro,
   areaPadrao,
   destinoDaArea,
   destinoDeEntrada,
@@ -10,11 +12,19 @@ import {
   itensDaArea,
   itensGerais,
   lerArea,
+  podeCriarCardNoQuadro,
+  podeEditarCard,
+  podeTrocarResponsavel,
+  podeVerAgendaDe,
   podeVerItem,
   podeVerItemEmAlgumaArea,
+  podeVerProposta,
+  quadroPadrao,
+  veOutrasAgendas,
+  veTodasAsPropostas,
 } from "./visibilidade";
 
-const pessoa = (papel: Papel, area: Area | null = null, areaEntrada: AreaEntrada | null = null) => ({ papel, area, cargos: [], areaEntrada });
+const pessoa = (papel: Papel, area: Area | null = null, areaEntrada: AreaEntrada | null = null) => ({ papel, area, cargos: [] as Cargo[], areaEntrada });
 
 const VENDEDOR = pessoa("VENDEDOR", "VENDAS");
 const MEMBRO_PROJETOS = pessoa("PROJETOS", "PROJETOS");
@@ -187,5 +197,112 @@ describe("lerArea", () => {
     expect(lerArea(undefined)).toBeNull();
     expect(lerArea(null)).toBeNull();
     expect(lerArea("constructor")).toBeNull();
+  });
+});
+
+const ID = "eu";
+const comId = <T extends object>(p: T) => ({ ...p, id: ID });
+const GP_VENDAS = { ...pessoa("VENDEDOR", "VENDAS"), cargos: ["GP"] as Cargo[] };
+const GP_PROJETOS = { ...pessoa("PROJETOS", "PROJETOS"), cargos: ["GP"] as Cargo[] };
+const GESTOR_GP_VENDAS = { ...pessoa("GESTOR", "VENDAS"), cargos: ["GP"] as Cargo[] };
+
+/** Matriz papel × área (GAB-98): o que o servidor decide, igual em tela, action e MCP. */
+const MATRIZ: { nome: string; p: typeof VENDEDOR; tabelaRanking: boolean; vendas: boolean; projetos: boolean; todasPropostas: boolean; agenda: "nenhum" | "proprio" | "area" | "todos" }[] = [
+  { nome: "vendedor", p: VENDEDOR, tabelaRanking: true, vendas: true, projetos: false, todasPropostas: false, agenda: "proprio" },
+  { nome: "GP de vendas", p: GP_VENDAS, tabelaRanking: true, vendas: true, projetos: false, todasPropostas: true, agenda: "proprio" },
+  { nome: "membro de projetos", p: MEMBRO_PROJETOS, tabelaRanking: false, vendas: false, projetos: true, todasPropostas: false, agenda: "proprio" },
+  { nome: "GP de projetos", p: GP_PROJETOS, tabelaRanking: false, vendas: false, projetos: true, todasPropostas: true, agenda: "proprio" },
+  { nome: "gestor de vendas", p: GESTOR_VENDAS, tabelaRanking: true, vendas: true, projetos: false, todasPropostas: true, agenda: "area" },
+  { nome: "gestor de projetos", p: GESTOR_PROJETOS, tabelaRanking: false, vendas: false, projetos: true, todasPropostas: true, agenda: "area" },
+  { nome: "gestor sem área", p: GESTOR_SEM_AREA, tabelaRanking: true, vendas: true, projetos: true, todasPropostas: true, agenda: "todos" },
+  { nome: "admin", p: ADMIN, tabelaRanking: true, vendas: true, projetos: true, todasPropostas: true, agenda: "todos" },
+  { nome: "visualizador", p: VISUALIZADOR, tabelaRanking: false, vendas: false, projetos: false, todasPropostas: false, agenda: "nenhum" },
+];
+
+describe.each(MATRIZ)("matriz GAB-98: $nome", ({ p, tabelaRanking, vendas, projetos, todasPropostas, agenda }) => {
+  const eu = comId(p);
+
+  it("Tabela e Ranking só para quem é de Vendas; Painel é de todos", () => {
+    expect(podeVerItemEmAlgumaArea(p, "tabela")).toBe(tabelaRanking);
+    expect(podeVerItemEmAlgumaArea(p, "ranking")).toBe(tabelaRanking);
+    expect(itensGerais(p)).toContain("painel");
+  });
+
+  it("edita e move o card da área dona; de outra área, não", () => {
+    expect(podeEditarCard(eu, { responsavelId: "outro", quadro: "vendas" })).toBe(vendas);
+    expect(podeEditarCard(eu, { responsavelId: "outro", quadro: "projetos" })).toBe(projetos);
+    expect(podeCriarCardNoQuadro(p, "vendas")).toBe(vendas);
+    expect(podeCriarCardNoQuadro(p, "projetos")).toBe(projetos);
+  });
+
+  it("o responsável edita mesmo fora da área (vendedor depois do Ganho); visualizador nunca", () => {
+    const escreve = p.papel !== "VISUALIZADOR";
+    expect(podeEditarCard(eu, { responsavelId: ID, quadro: "vendas" })).toBe(escreve);
+    expect(podeEditarCard(eu, { responsavelId: ID, quadro: "projetos" })).toBe(escreve);
+  });
+
+  it("quadro desconhecido não é de nenhuma área: só quem conta nas duas edita", () => {
+    expect(podeEditarCard(eu, { responsavelId: "outro", quadro: "adm-fin" })).toBe(vendas && projetos);
+    expect(areaDoQuadro("adm-fin")).toBeNull();
+  });
+
+  it("proposta: vê todas ou só as em que está escalada; visualizador, nenhuma", () => {
+    expect(veTodasAsPropostas(p)).toBe(todasPropostas);
+    expect(podeVerProposta(p, false)).toBe(todasPropostas);
+    expect(podeVerProposta(p, true)).toBe(p.papel !== "VISUALIZADOR");
+  });
+
+  it("agenda: alcance de quem vê quem", () => {
+    expect(alcanceDaAgenda(p)).toBe(agenda);
+    expect(veOutrasAgendas(p)).toBe(agenda === "area" || agenda === "todos");
+    expect(podeVerAgendaDe(eu, comId(p))).toBe(agenda !== "nenhum");
+    const de = (q: { papel: Papel; area: Area | null }) => podeVerAgendaDe(eu, { ...q, cargos: [], id: "outro" });
+    expect(de(VENDEDOR)).toBe(agenda === "todos" || (agenda === "area" && vendas));
+    expect(de(MEMBRO_PROJETOS)).toBe(agenda === "todos" || (agenda === "area" && projetos));
+    expect(de(GESTOR_SEM_AREA)).toBe(agenda === "todos");
+  });
+});
+
+describe("GAB-98: casos à parte", () => {
+  it("gestor com área e GP continua vendo todas as propostas com o cargo; GP sem poder escrever não existe", () => {
+    expect(veTodasAsPropostas(GESTOR_GP_VENDAS)).toBe(true);
+    expect(veTodasAsPropostas({ papel: "VISUALIZADOR", area: "VENDAS", cargos: ["GP"] })).toBe(false);
+  });
+
+  it("papel fixa a área mesmo com coluna incoerente (ladoDe é a fonte)", () => {
+    expect(podeEditarCard({ papel: "VENDEDOR", area: "PROJETOS", cargos: [], id: ID }, { responsavelId: "x", quadro: "vendas" })).toBe(true);
+    expect(podeEditarCard({ papel: "VENDEDOR", area: "PROJETOS", cargos: [], id: ID }, { responsavelId: "x", quadro: "projetos" })).toBe(false);
+  });
+
+  it("areaDoQuadro lê a chave do pipeline", () => {
+    expect(areaDoQuadro("vendas")).toBe("VENDAS");
+    expect(areaDoQuadro("projetos")).toBe("PROJETOS");
+  });
+});
+
+describe("GAB-98: trocar o responsável", () => {
+  const CASOS: [string, typeof VENDEDOR, boolean, boolean][] = [
+    ["vendedor", VENDEDOR, false, false],
+    ["GP de vendas", GP_VENDAS, true, false],
+    ["membro de projetos", MEMBRO_PROJETOS, false, false],
+    ["GP de projetos", GP_PROJETOS, false, true],
+    ["gestor de vendas", GESTOR_VENDAS, true, false],
+    ["gestor de projetos", GESTOR_PROJETOS, false, true],
+    ["gestor sem área", GESTOR_SEM_AREA, true, true],
+    ["admin", ADMIN, true, true],
+    ["visualizador", VISUALIZADOR, false, false],
+  ];
+
+  it.each(CASOS)("%s", (_nome, p, vendas, projetos) => {
+    const eu = comId(p);
+    expect(podeTrocarResponsavel(eu, { responsavelId: "outro", quadro: "vendas" })).toBe(vendas);
+    expect(podeTrocarResponsavel(eu, { responsavelId: "outro", quadro: "projetos" })).toBe(projetos);
+    expect(podeTrocarResponsavel(eu, { responsavelId: ID, quadro: "vendas" })).toBe(p.papel !== "VISUALIZADOR");
+  });
+
+  it("quadro padrão: o da área; sem lado, vendas", () => {
+    expect(quadroPadrao(MEMBRO_PROJETOS)).toBe("projetos");
+    expect(quadroPadrao(VENDEDOR)).toBe("vendas");
+    expect(quadroPadrao(GESTOR_SEM_AREA)).toBe("vendas");
   });
 });

@@ -34,6 +34,7 @@ export function GradeMes({
   inicio,
   fim,
   mostrarResponsavel = false,
+  donoDaAgenda = null,
 }: {
   /** A grade inteira (semanas completas), na ordem. */
   dias: DiaAgrupado<AcaoItem, PrazoItem>[];
@@ -42,6 +43,8 @@ export function GradeMes({
   inicio: string;
   fim: string;
   mostrarResponsavel?: boolean;
+  /** De quem é a agenda: o prazo de outra pessoa (no card dela) mostra o avatar. */
+  donoDaAgenda?: string | null;
 }) {
   const { novo, abrir } = useEditorPrazo();
   const [abertos, setAbertos] = useState<ReadonlySet<string>>(new Set());
@@ -144,7 +147,7 @@ export function GradeMes({
                       {p.estado === "feito" ? "✓" : "🏁"}
                     </span>
                     <span className={cn("min-w-0 flex-1 truncate font-medium", p.estado === "feito" && "line-through")}>{p.titulo}</span>
-                    {mostrarResponsavel ? <Avatar nome={p.responsavel.nome} usuarioId={p.responsavel.id} fotoEm={p.responsavel.fotoEm} className="size-4 text-[8px]" /> : null}
+                    {mostrarResponsavel || (donoDaAgenda !== null && p.responsavel.id !== donoDaAgenda) ? <Avatar nome={p.responsavel.nome} usuarioId={p.responsavel.id} fotoEm={p.responsavel.fotoEm} className="size-4 text-[8px]" /> : null}
                   </button>
                 ))}
                 {acoesVis.map((a) => (

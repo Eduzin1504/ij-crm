@@ -3,6 +3,8 @@ import { cn } from "cn";
 import { PageHeader } from "@/components/shell/page-header";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { podeEscrever } from "@/lib/auth/papeis";
+import { podeCriarCardNoQuadro } from "@/lib/auth/visibilidade";
+import { ocultarPropostasDoQuadro } from "@/lib/propostas/acesso";
 import { listarPipelines } from "@/lib/fases/fases";
 import { listarQuadro, listarResponsaveis } from "@/lib/projetos/projetos";
 import { visualizacaoKanban } from "@/lib/preferencias/preferencias";
@@ -25,12 +27,16 @@ export default async function KanbanPage({ searchParams }: { searchParams: Promi
   const usuario = await exigirUsuario();
   const leitura = !podeEscrever(usuario.papel);
   const { quadro: chave = "vendas" } = await searchParams;
-  const [pipelines, quadro, responsaveis, preferencias] = await Promise.all([
+  const [pipelines, quadroCompleto, responsaveis, preferencias] = await Promise.all([
     listarPipelines(),
     listarQuadro(chave),
     listarResponsaveis(),
     obterPreferencias(usuario.id),
   ]);
+  // GAB-98: o status da proposta só aparece no card de quem vê a proposta.
+  const quadro = quadroCompleto && (await ocultarPropostasDoQuadro(quadroCompleto, usuario));
+  // Fora da área dona o quadro é só leitura, menos os cards em que a pessoa é a responsável.
+  const daArea = podeCriarCardNoQuadro(usuario, quadro?.pipeline.chave ?? chave);
 
   return (
     // Quadro ocupa a tela até embaixo: 100dvh menos topbar (3.5rem), padding
@@ -43,7 +49,9 @@ export default async function KanbanPage({ searchParams }: { searchParams: Promi
         description={
           leitura
             ? "Acesso de visualização: clique no título para abrir o detalhe."
-            : "Arraste os cards entre as fases (ou foque um card e use espaço + setas). Clique no título para abrir o detalhe."
+            : !daArea
+              ? "Quadro de outra área: clique no título para abrir o detalhe, comentar, criar prazo ou anexar. Arraste só os cards em que você é responsável."
+              : "Arraste os cards entre as fases (ou foque um card e use espaço + setas). Clique no título para abrir o detalhe."
         }
       />
       {pipelines.length > 1 ? (
@@ -72,6 +80,7 @@ export default async function KanbanPage({ searchParams }: { searchParams: Promi
           responsaveis={responsaveis}
           meuId={usuario.id}
           somenteLeitura={leitura}
+          daArea={daArea}
           pipelineChave={quadro.pipeline.chave}
           visualizacao={visualizacaoKanban(preferencias, quadro.pipeline.chave, quadro.fases.map((f) => f.chave))}
           {...paraCliente(quadro)}

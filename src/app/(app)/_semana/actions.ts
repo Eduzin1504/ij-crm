@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirEscrita } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
+import { recusaDeEdicaoNoCard } from "@/lib/projetos/acesso-card";
 import { definirProximaAcao, marcarAcaoFeita, type ErroFeita } from "@/lib/projetos/feita";
 import { validarProximaEscolha } from "@/lib/semana/agrupar";
 
@@ -43,6 +44,8 @@ export async function marcarFeitaAction(cardId: string, esperado: Esperado, esco
     const e = esperadoSchema.safeParse(esperado);
     const c = escolhaSchema.safeParse(escolha);
     if (!id.safeParse(cardId).success || !e.success || !c.success) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator);
+    if (recusa) return { erro: recusa };
 
     let decisao: Parameters<typeof marcarAcaoFeita>[2] = { tipo: "nenhuma" };
     if (c.data.tipo === "nova") {
@@ -66,6 +69,8 @@ export async function definirProximaAction(cardId: string, proximaAcao: string, 
     }
     const v = validarProximaEscolha(proximaAcao, diaBruto, new Date());
     if (!v.ok) return { erro: v.erro };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator);
+    if (recusa) return { erro: recusa };
     // Recusa (ACAO_MUDOU) se alguém definiu a próxima ação depois do render.
     const r = await definirProximaAcao(cardId, { proximaAcao: v.proximaAcao, proximaAcaoEm: v.proximaAcaoEm }, ator);
     if (!r.ok) return { erro: MENSAGEM[r.erro] };

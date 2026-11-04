@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { DocumentoView } from "@/components/propostas/documento-view";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
@@ -7,18 +7,20 @@ import { ROTULO_AREA } from "@/lib/auth/areas";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { formatarDataHora } from "@/lib/projetos/formatar";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { obterPropostaDoProjeto, obterVersao } from "@/lib/propostas/propostas";
 import { EstruturadoLeitura } from "../../estruturado-leitura";
 import { HistoricoVersoes } from "../../historico-versoes";
 
 export const metadata = { title: "Versão da proposta" };
 
-/** Uma versão salva (imutável): texto e parte estruturada daquele momento. Todos leem. */
+/** Uma versão salva (imutável): texto e parte estruturada daquele momento. Lê quem vê a proposta (GAB-98). */
 export default async function VersaoPage({ params }: { params: Promise<{ id: string; numero: string }> }) {
-  await exigirUsuario();
+  const eu = await exigirUsuario();
   const { id, numero: bruto } = await params;
   const numero = /^\d{1,9}$/.test(bruto) ? Number(bruto) : NaN;
   if (!Number.isInteger(numero) || numero < 1) notFound();
+  if (!(await podeVerPropostaDoProjeto(eu, id))) redirect("/403");
   const [r, v] = await Promise.all([obterPropostaDoProjeto(id), obterVersao(id, numero)]);
   if (!r?.proposta || !v) notFound();
 

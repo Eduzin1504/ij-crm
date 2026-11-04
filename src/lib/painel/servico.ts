@@ -10,7 +10,7 @@
  * comparados em UTC explícito (`utc`), sem depender da TimeZone da sessão.
  *
  * Visibilidade (decisão do usuário na revisão do PR #54): o painel segue a
- * MESMA regra do ranking (`podeVerRanking`, "Mostrar ranking aos vendedores").
+ * regra do painel (`podeVerPainelCompleto`, "Mostrar ranking aos vendedores").
  * Quem o ranking esconde vê só as próprias linhas e os totais do time; pedir o
  * filtro de outra pessoa é recusado (`carregarPainelPara`) — tela e MCP.
  */
@@ -19,7 +19,7 @@ import { db } from "@/lib/db";
 import { utc } from "@/lib/sql-utc";
 import { FUSO_NEGOCIO } from "@/lib/projetos/aging";
 import { avaliacoesPorVendedor } from "@/lib/projetos/avaliacao-consulta";
-import { carregarDados, listarParticipantes, obterConfigRanking, podeVerRanking, QUADRO_VENDAS } from "@/lib/ranking/servico";
+import { carregarDados, listarParticipantes, obterConfigRanking, podeVerPainelCompleto, QUADRO_VENDAS } from "@/lib/ranking/servico";
 import type { Periodo } from "@/lib/ranking/periodo";
 import {
   montarAcompanhamento,
@@ -278,7 +278,7 @@ export async function carregarPainelPara(
 ): Promise<VisaoPainel> {
   const [config, ctx] = await Promise.all([obterConfigRanking(), carregarPessoas()]);
   if (pedido.vendedorId && !ctx.pessoas.has(pedido.vendedorId)) return { ok: false, erro: "VENDEDOR_DESCONHECIDO" };
-  const completo = podeVerRanking(ator, config);
+  const completo = podeVerPainelCompleto(ator, config);
   if (!completo && pedido.vendedorId && pedido.vendedorId !== ator.id) return { ok: false, erro: "SEM_PERMISSAO" };
   const painel = await carregarPainel(pedido, agora, indicadores, cliente, ctx, completo ? undefined : ator.id);
   return completo ? { ok: true, modo: "completo", painel } : { ok: true, modo: "proprio", painel: restringirAoProprio(painel, ator.id) };

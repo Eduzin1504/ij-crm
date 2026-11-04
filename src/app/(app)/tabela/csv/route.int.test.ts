@@ -5,7 +5,7 @@ import { dbTeste, limparBanco } from "@/test/db";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 
 const { exigirUsuario } = vi.hoisted(() => ({ exigirUsuario: vi.fn() }));
-vi.mock("@/lib/auth/atual", () => ({ exigirUsuario }));
+vi.mock("@/lib/auth/atual", () => ({ exigirItem: exigirUsuario }));
 
 import { GET } from "./route";
 
