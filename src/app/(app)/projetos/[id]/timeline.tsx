@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip, FileText } from "lucide-react";
+import { ArrowRightLeft, MessageSquareText, Pencil, Plus, Download, MessageCircle, Link2, Trash2, ArchiveRestore, Flag, Paperclip, FileText, ClipboardCheck } from "lucide-react";
 import type { TipoTimeline } from "@prisma/client";
 import { ehCampoEditavel, ROTULO_CAMPO } from "@/lib/projetos/campos";
 import { ROTULO_CAMPO_TERMINAL, ehCampoTerminal, formatarCampoTerminal, formatarDataHora, formatarDia, formatarValorCampo } from "@/lib/projetos/formatar";
 import type { DetalheCard } from "@/lib/projetos/projetos";
 import { ehCampoVinculo, ROTULO_VINCULO } from "@/lib/projetos/vinculos";
+import { ROTULO_ITEM, type ItemManual } from "@/lib/projetos/handoff-regras";
 import { BadgeSentimento, NotaContatoExibida } from "@/components/avaliacao/nota-contato";
 import { MensagemWhatsapp } from "./mensagem-whatsapp";
 
@@ -24,6 +25,7 @@ const ICONE: Record<TipoTimeline, typeof Plus> = {
   PRAZO: Flag,
   ANEXO: Paperclip,
   PROPOSTA: FileText,
+  HANDOFF: ClipboardCheck,
 };
 
 /** Card ligado a este (venda ↔ projeto), para os links da Timeline. */
@@ -209,6 +211,17 @@ function Descricao({
       return <>excluiu o card (foi para a lixeira)</>;
     case "RESTAURACAO":
       return <>restaurou o card da lixeira</>;
+    case "HANDOFF": {
+      // GAB-93.
+      const b = (v: unknown, resto: string) => <b className="font-medium text-foreground">{typeof v === "string" && v ? v : resto}</b>;
+      const item = typeof p.item === "string" && p.item in ROTULO_ITEM ? ROTULO_ITEM[p.item as ItemManual] : "item";
+      if (p.evento === "gp_designado") return <>designou {b(p.gpNome, "alguém")} como GP do projeto</>;
+      if (p.evento === "item_marcado") return <>marcou no checklist de handoff: {b(item, "item")}</>;
+      if (p.evento === "item_desmarcado") return <>desmarcou no checklist de handoff: {b(item, "item")}</>;
+      if (p.evento === "resumo_salvo") return <>escreveu o resumo de handoff</>;
+      if (p.evento === "contrato_definido") return <>definiu {b(p.nome, "um anexo")} como o contrato assinado</>;
+      return <>atualizou o handoff</>;
+    }
     case "ANEXO": {
       // GAB-84. O nome fica como texto (sem link): o anexo pode já ter sido excluído.
       const nome = <b className="font-medium text-foreground">{typeof p.nome === "string" ? p.nome : "arquivo"}</b>;
@@ -218,6 +231,7 @@ function Descricao({
       return (
         <>
           anexou {nome}
+          {p.contratoAssinado === true ? <span className="text-fg-mute"> como o contrato assinado</span> : null}
           {p.semTexto === true ? <span className="text-fg-mute"> (sem texto: escaneado ou imagem)</span> : null}
         </>
       );

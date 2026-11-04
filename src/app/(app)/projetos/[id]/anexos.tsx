@@ -74,6 +74,7 @@ export function AnexosDoProjeto({ cardId, anexos, somenteLeitura }: { cardId: st
                       {ROTULO_TIPO_ANEXO[a.tipo]} · <span className="font-mono tabular">{formatarTamanho(a.tamanho)}</span> · {a.autor.nome} ·{" "}
                       <span className="font-mono tabular">{formatarDataHora(a.criadoEm)}</span>
                     </span>
+                    {a.contratoAssinado ? <span className="rounded-full border border-border px-1.5 font-mono text-[10px] leading-4 uppercase">contrato assinado</span> : null}
                     {a.semTexto ? (
                       <span title="Escaneado ou imagem: o texto vai ser lido pelo OCR (ainda não disponível)." className="rounded-full border border-border px-1.5 font-mono text-[10px] leading-4 uppercase">
                         sem texto

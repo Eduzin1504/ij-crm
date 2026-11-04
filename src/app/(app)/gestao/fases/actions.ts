@@ -15,7 +15,7 @@ const MENSAGEM: Record<ErroFase, string> = {
   LIMITE_INVALIDO: "Limite de dias precisa ser um inteiro entre 1 e 365 (ou vazio).",
   ORDEM_INVALIDA: "A ordem ficou desatualizada. Recarregue a página.",
   TERMINAL_GANHO_OBRIGATORIO: "O quadro precisa manter ao menos uma fase terminal de ganho.",
-  TERMINAL_PERDIDO_OBRIGATORIO: "Vendas precisa manter ao menos uma fase terminal de perdido.",
+  TERMINAL_PERDIDO_OBRIGATORIO: "Vendas e Projetos precisam manter ao menos uma fase terminal de perdido.",
   DESTINO_OBRIGATORIO: "Escolha para qual fase os cards vão.",
   DESTINO_INVALIDO: "Fase de destino inválida: precisa ser outra fase ativa do mesmo quadro.",
   DESTINO_TERMINAL_INCOMPATIVEL:
@@ -26,6 +26,10 @@ const MENSAGEM: Record<ErroFase, string> = {
   ORDEM_MARCOS: "Marcos do ciclo têm ordem fixa (e Handoff é a primeira coluna de Projetos). Mova as subfases entre eles.",
   DESTINO_EXIGE_PROPOSTA:
     "Há cards nesta fase sem proposta aceita: eles não podem ir para Montando contrato nem para uma fase depois dela. Escolha um destino antes de Montando contrato (ou registre o aceite das propostas antes).",
+  DESTINO_EXIGE_HANDOFF:
+    "Há cards nesta fase com o handoff incompleto: eles não podem ir para Execução nem para uma fase depois dela. Escolha um destino antes de Execução (ou complete os handoffs antes).",
+  FASE_CRUZA_EXECUCAO:
+    "Essa fase tem cards com o handoff incompleto: ela não pode passar para depois de Execução (os cards pulariam a trava). Mova os cards antes, ou complete os handoffs.",
   FASE_CRUZA_CONTRATO:
     "Essa fase tem cards sem proposta aceita: ela não pode passar para depois de Montando contrato (os cards pulariam a trava). Mova os cards antes, ou registre o aceite das propostas.",
 };

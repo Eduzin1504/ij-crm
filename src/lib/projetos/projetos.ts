@@ -29,12 +29,15 @@ import { ErroDeRegra, type ErroProjeto } from "./erros";
 export { ErroDeRegra };
 import { aoEntrarEmTerminal, pipelinesExtrasDoTerminal } from "./terminal";
 import { reabrirPropostaInviavel } from "@/lib/propostas/caneta-banco";
+import { avisarHandoff } from "@/lib/avisos/handoff";
 import { exigirTravaDoContrato } from "./trava-contrato";
+import { exigirTravaDoHandoff } from "./trava-handoff";
+import { PIPELINE_VENDAS } from "./terminal-regras";
 import type { DadosTerminal } from "./terminal-regras";
 
 export type { ErroProjeto } from "./erros";
 
-export type Resultado<T = object> = ({ ok: true } & T) | { ok: false; erro: ErroProjeto };
+export type Resultado<T = object> = ({ ok: true } & T) | { ok: false; erro: ErroProjeto; faltando?: string };
 
 type Tx = Prisma.TransactionClient;
 /** `papel` opcional: import/WhatsApp agem em nome de alguém sem sessão. Veio → é conferido. */
@@ -46,7 +49,7 @@ function soLeitura(por: Ator): boolean {
 }
 
 function traduzir<T>(e: unknown): Resultado<T> {
-  if (e instanceof ErroDeRegra) return { ok: false, erro: e.erro };
+  if (e instanceof ErroDeRegra) return { ok: false, erro: e.erro, ...(e.faltando ? { faltando: e.faltando } : {}) };
   throw e;
 }
 
@@ -236,6 +239,7 @@ export async function inserirCard(
  * GAB-89/GAB-99: a trava de Montando contrato (proposta aceita; Ganho só de lá) vale para todo
  * movimento que passa aqui — Kanban, MCP, WhatsApp, aceite da proposta — menos
  * o import do Pipefy (`origemTransicao: "IMPORT"`, histórico de antes da trava).
+ * GAB-93: a trava de Execução (handoff fechado) vale do mesmo jeito (`trava-handoff.ts`).
  */
 export async function registrarMovimento(
   tx: Tx,
@@ -257,7 +261,10 @@ export async function registrarMovimento(
   // Entradas da Timeline depois da MOVIMENTACAO: `em` estritamente crescente.
   let passo = 0;
   const instante = () => new Date(em.getTime() + ++passo);
-  if (args.origemTransicao !== "IMPORT") await exigirTravaDoContrato(tx, { projetoId: id, origem, destino });
+  if (args.origemTransicao !== "IMPORT") {
+    await exigirTravaDoContrato(tx, { projetoId: id, origem, destino });
+    await exigirTravaDoHandoff(tx, { projetoId: id, origem, destino });
+  }
   await tx.projeto.update({ where: { id }, data: { faseId: destino.id, faseDesde: em } });
   if (args.transicao !== false) {
     await tx.transicaoFase.create({ data: { projetoId: id, deFaseId: origem.id, paraFaseId: destino.id, usuarioId: args.porId, origem: args.origemTransicao, em } });
@@ -266,7 +273,8 @@ export async function registrarMovimento(
   await tx.timeline.create({ data: { projetoId: id, tipo: "MOVIMENTACAO", payload, usuarioId: args.porId, em } });
   // GAB-87: card reaberto (saiu de Perdido) → a proposta Inviável volta para o pingue-pongue (Em ajuste, sem caneta).
   // Card levado a Ganho/Perdido pelo Kanban sem passar pela proposta: as travas de marco estão em `trava-contrato.ts`; aqui nada muda.
-  if (origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
+  // GAB-93: só em Vendas. Reabrir no quadro Projetos não mexe na proposta, que está congelada.
+  if (args.pipelineChave === PIPELINE_VENDAS && origem.tipoTerminal === "PERDIDO" && destino.tipoTerminal !== "PERDIDO") {
     await reabrirPropostaInviavel(tx, id, args.porId, instante());
   }
   if (destino.isTerminal) {
@@ -328,6 +336,8 @@ export async function criarCardTravado(tx: Tx, dados: NovoCard, por: Ator): Prom
   if (f.isTerminal) throw new ErroDeRegra("FASE_TERMINAL");
   // GAB-89: card novo não tem proposta — não nasce em Montando contrato nem depois.
   await exigirTravaDoContrato(tx, { projetoId: null, origem: null, destino: f });
+  // GAB-93: nem em Execução ou depois (o handoff começa na coluna Handoff).
+  await exigirTravaDoHandoff(tx, { projetoId: null, origem: null, destino: f });
   const agora = dados.agora ?? new Date();
   return inserirCard(tx, {
     data: {
@@ -352,7 +362,8 @@ export async function criarCardTravado(tx: Tx, dados: NovoCard, por: Ator): Prom
  * Destino terminal → `aoEntrarEmTerminal` (ganho/perdido, GAB-32; ganho em
  * Vendas leva o card para o Handoff de Projetos, GAB-81). Tudo na mesma
  * transação: erro de regra do gancho (ex.: perdido sem motivo) desfaz o
- * movimento inteiro. Só move dentro do quadro do card.
+ * movimento inteiro. Só move dentro do quadro do card. GAB-93: chegou ao Handoff
+ * → avisa, depois do commit.
  */
 export async function moverCard(
   id: string,
@@ -362,7 +373,9 @@ export async function moverCard(
 ): Promise<Resultado<{ mudou: boolean; terminal: TipoTerminal | null }>> {
   if (soLeitura(por)) return { ok: false, erro: "SEM_PERMISSAO" };
   try {
-    return await moverUmaVez(id, paraFaseId, por, opts);
+    const { handoff, ...r } = await moverUmaVez(id, paraFaseId, por, opts);
+    if (handoff) await avisarHandoff(id, por.id);
+    return r;
   } catch (e) {
     return traduzir(e);
   }
@@ -373,7 +386,7 @@ async function moverUmaVez(
   paraFaseId: string,
   por: Ator,
   opts: { dadosTerminal?: DadosTerminal },
-): Promise<Resultado<{ mudou: boolean; terminal: TipoTerminal | null }>> {
+): Promise<{ ok: true; mudou: boolean; terminal: TipoTerminal | null; handoff: boolean }> {
   return db.$transaction(async (tx) => {
     const alvo = await tx.projeto.findFirst({
       where: { id, deletadoEm: null },
@@ -392,7 +405,7 @@ async function moverUmaVez(
     // Um ganho concorrente levou o card para Projetos entre a leitura e o lock.
     if (op.pipelineId !== alvo.pipelineId) throw new ErroDeRegra("CONFLITO_CONCORRENTE");
     const destino = await faseDestino(tx, paraFaseId, alvo.pipelineId);
-    if (destino.id === op.faseId) return { ok: true as const, mudou: false, terminal: null };
+    if (destino.id === op.faseId) return { ok: true as const, mudou: false, terminal: null, handoff: false };
     // Gestor mudou o tipo terminal da fase entre a prévia e o lock: o conjunto
     // travado pode não bastar, e travar mais agora quebraria a ordem. Recusa.
     const necessarios = await idsDePipelines(tx, pipelinesExtrasDoTerminal(alvo.pipeline.chave, destino.tipoTerminal));
@@ -410,7 +423,8 @@ async function moverUmaVez(
       origemTransicao: "UI",
       dadosTerminal: opts.dadosTerminal,
     });
-    return { ok: true as const, mudou: true, terminal: destino.tipoTerminal };
+    // Ganho em Vendas leva o card ao Handoff (gancho do terminal).
+    return { ok: true as const, mudou: true, terminal: destino.tipoTerminal, handoff: alvo.pipeline.chave === PIPELINE_VENDAS && destino.tipoTerminal === "GANHO" };
   });
 }
 

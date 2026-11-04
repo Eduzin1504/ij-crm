@@ -39,6 +39,8 @@ export type ErroProposta =
   | "PROJETO_NAO_ENCONTRADO"
   | "PROPOSTA_NAO_ENCONTRADA"
   | "PROPOSTA_JA_EXISTE"
+  // GAB-93: Projeto já no quadro Projetos (depois do Ganho): a proposta não muda mais.
+  | "PROPOSTA_CONGELADA"
   | "SEM_PERMISSAO"
   | "CONTEUDO_INVALIDO"
   | "CONTEUDO_LONGO"
@@ -90,6 +92,7 @@ export const MENSAGEM_ERRO_PROPOSTA: Record<ErroProposta, string> = {
   VERSAO_NAO_ENCONTRADA: "Versão não encontrada.",
   SEM_CANETA: "Você não está com a caneta: só quem está com ela edita, passa, devolve ou concorda. Você pode ler (e comentar).",
   PROPOSTA_PRONTA: "A proposta está pronta para envio: para mudar algo, reabra para ajuste antes.",
+  PROPOSTA_CONGELADA: "O projeto já passou do Ganho e está no quadro Projetos: a proposta final fica congelada, ninguém edita. Dá para ler e comentar.",
   PROPOSTA_ENCERRADA: "A proposta já foi respondida pelo cliente (aceita ou recusada) ou marcada inviável: não dá mais para editar nem mexer na caneta.",
   DESTINO_MESMO_LADO: "Passar a caneta é para outra pessoa do MESMO lado, ativa e que pode editar. Para mandar ao outro lado, use Devolver.",
   DESTINO_OUTRO_LADO: "Devolver é para alguém do OUTRO lado (vendas ↔ projetos), ativo e que pode editar.",

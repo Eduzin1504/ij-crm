@@ -459,5 +459,7 @@ export async function aplicarAtualizacao(tx: Tx, e: EntradaAplicacao, locks: { v
     mudou: alterados.length > 0 || deFaseNome !== null,
     revisar,
     motivosRevisar: motivos,
+    // GAB-93: ganho leva ao Handoff; quem processa avisa depois do commit.
+    ...(deFaseNome !== null && destino?.tipoTerminal === "GANHO" ? { foiParaHandoff: true as const } : {}),
   };
 }
