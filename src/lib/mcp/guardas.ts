@@ -4,13 +4,15 @@
  * `string` = o texto da recusa, em português; `null` = pode.
  */
 import { recusaDeEdicaoNoCard } from "@/lib/projetos/acesso-card";
-import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
+import { recusaDaProposta } from "@/lib/propostas/acesso";
 import type { UsuarioMcp } from "./oauth";
 
 /** Mover e editar dados: área dona ou responsável. O id do card vem em `id`. */
 export const cardEditavel = (a: { id: string }, eu: UsuarioMcp) => recusaDeEdicaoNoCard(a.id, eu);
 
+/** Como `cardEditavel`, com as regras próprias de `responsavelId` e `propostaUrl`. */
+export const camposEditaveis = (a: { id: string; campos: Record<string, string | undefined> }, eu: UsuarioMcp) =>
+  recusaDeEdicaoNoCard(a.id, eu, { campos: Object.keys(a.campos).filter((c) => a.campos[c] !== undefined) });
+
 /** Proposta do projeto `projeto_id`: quem está escalado, o GP e a gestão. */
-export async function propostaVisivel(a: { projeto_id: string }, eu: UsuarioMcp): Promise<string | null> {
-  return (await podeVerPropostaDoProjeto(eu, a.projeto_id)) ? null : MENSAGEM_SEM_ACESSO_PROPOSTA;
-}
+export const propostaVisivel = (a: { projeto_id: string }, eu: UsuarioMcp) => recusaDaProposta(a.projeto_id, eu);

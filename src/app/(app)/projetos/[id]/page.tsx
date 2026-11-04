@@ -24,8 +24,8 @@ import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
-import { podeEditarCard } from "@/lib/auth/visibilidade";
-import { entradaDaProposta, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
+import { podeEditarCard, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
+import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
 import { listarPrazosDoCard } from "@/lib/prazos/prazos";
 import { PrazosProvider } from "../../_calendario/editor-prazo";
 import { PrazosDoCard } from "./prazos-card";
@@ -50,7 +50,8 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   const soLeituraDados = !podeEditarCard(ator, { responsavelId: card.responsavelId, quadro: card.pipeline.chave });
   // A proposta só para quem a vê: seção, link e os eventos dela na Timeline.
   const veProposta = await podeVerPropostaDoProjeto(ator, card.id);
-  const timeline = veProposta ? card.timeline : card.timeline.filter((t) => !entradaDaProposta(t));
+  const timeline = veProposta ? card.timeline : timelineSemProposta(card.timeline);
+  const motivoPerda = veProposta ? card.motivoPerda : mascararMotivoInviavel(card.motivoPerda);
 
   const idsUsuarios = new Set<string>([card.responsavelId]);
   for (const t of timeline) {
@@ -137,7 +138,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
         </div>
       </header>
 
-      <ResultadoTerminal card={card} />
+      <ResultadoTerminal card={{ ...card, motivoPerda }} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-6">
@@ -151,7 +152,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 titulo={card.titulo}
                 faseAtualId={card.faseId}
                 pipelineChave={card.pipeline.chave}
-                fechamento={{ valorFechado: card.valorFechado?.toFixed(2) ?? null, motivoPerda: card.motivoPerda }}
+                fechamento={{ valorFechado: card.valorFechado?.toFixed(2) ?? null, motivoPerda }}
                 fases={fasesDoQuadro.map((f) => ({
                   id: f.id,
                   chave: f.chave,
@@ -163,7 +164,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
                 }))}
               />
               <CampoInline
-                somenteLeitura={soLeituraDados}
+                somenteLeitura={!podeTrocarResponsavel(ator, { responsavelId: card.responsavelId, quadro: card.pipeline.chave })}
                 cardId={card.id}
                 campo="responsavelId"
                 rotulo="Responsável"

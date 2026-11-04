@@ -42,6 +42,7 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
   const grade = agruparPorDia(periodo.grade, itens.acoes, itens.prazos);
   const gestor = temPapelMinimo(ator.papel, "GESTOR");
   const time = visao.modo === "time";
+  const donoDaAgenda = visao.modo === "pessoa" && visao.pessoa ? visao.pessoa.id : visao.modo === "meu" ? ator.id : null;
 
   const href = (p: Periodo, ref: string | null) => {
     const q = new URLSearchParams();
@@ -81,9 +82,9 @@ export default async function CalendarioPage({ searchParams }: { searchParams: P
           </div>
           <div className="min-w-0">
             {periodo.periodo === "semana" ? (
-              <GradeSemana dias={dias} hoje={periodo.hoje} mostrarResponsavelNoPrazo={time} />
+              <GradeSemana dias={dias} hoje={periodo.hoje} mostrarResponsavelNoPrazo={time} donoDaAgenda={donoDaAgenda} />
             ) : (
-              <GradeMes dias={grade} hoje={periodo.hoje} inicio={primeiroDia} fim={ultimoDia} mostrarResponsavel={time} />
+              <GradeMes dias={grade} hoje={periodo.hoje} inicio={primeiroDia} fim={ultimoDia} mostrarResponsavel={time} donoDaAgenda={donoDaAgenda} />
             )}
             <Legenda />
           </div>

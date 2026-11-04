@@ -76,9 +76,10 @@ import { MENSAGEM_ERRO_PROPOSTA, NOTA_VERSAO_MAX, podeCriarProposta, ROTULO_STAT
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import { contarNaoLidos, LISTA_MAX, LISTA_PADRAO, listarAvisos, marcarLidos } from "@/lib/avisos/avisos";
 import { recusaDeCriarNoQuadro } from "@/lib/projetos/acesso-card";
-import { entradaDaProposta, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
+import { mascararMotivoInviavel, podeVerPropostaDoProjeto, timelineSemProposta } from "@/lib/propostas/acesso";
+import { quadroPadrao } from "@/lib/auth/visibilidade";
 import { FERRAMENTAS_COMENTARIOS } from "./comentarios";
-import { cardEditavel, propostaVisivel } from "./guardas";
+import { camposEditaveis, cardEditavel, propostaVisivel } from "./guardas";
 import type { UsuarioMcp } from "./oauth";
 import { preencherPropostaDeAnexo } from "./preenchimento";
 import { urlBase } from "./url";
@@ -224,7 +225,7 @@ const lerProjeto = ferramenta({
     const n = a.timeline ?? TIMELINE_PADRAO;
     // GAB-98: quem não vê a proposta também não vê os eventos dela nem o link.
     const veProposta = await podeVerPropostaDoProjeto(eu, c.id);
-    const timeline = veProposta ? c.timeline : c.timeline.filter((t) => !entradaDaProposta(t));
+    const timeline = veProposta ? c.timeline : timelineSemProposta(c.timeline);
     // `slice(-0)` seria a lista inteira: 0 pede nenhuma entrada.
     const recentes = n === 0 ? [] : timeline.slice(-n).reverse();
     return ok({
@@ -246,7 +247,7 @@ const lerProjeto = ferramenta({
         estado: c.estado,
         revisar: c.revisar,
         valorFechado: c.valorFechado?.toFixed(2) ?? null,
-        motivoPerda: c.motivoPerda,
+        motivoPerda: veProposta ? c.motivoPerda : mascararMotivoInviavel(c.motivoPerda),
       },
       prazos: (await listarPrazosDoCard(c.id, eu, diaEmFuso(new Date()))).map((p) => ({
         id: p.id,
@@ -284,15 +285,18 @@ const criarProjeto = ferramenta({
   descricao:
     "Cria um projeto (card) com você como responsável, como o + do Kanban. Sem fase_id, entra na primeira fase aberta do quadro. Não cria direto em fase de ganho/perdido (crie e depois mova).",
   escrita: true,
-  guarda: (a, eu) => recusaDeCriarNoQuadro({ chave: a.quadro ?? PIPELINE_VENDAS }, eu),
+  guarda: async (a, eu) => {
+    const recusa = await recusaDeCriarNoQuadro({ chave: a.quadro ?? quadroPadrao(eu) }, eu);
+    return recusa && `${recusa} Informe um quadro da sua área no parâmetro \`quadro\`.`;
+  },
   entrada: {
     titulo: z.string().min(1).max(1000),
-    quadro: quadro.optional().describe("padrão vendas"),
+    quadro: quadro.optional().describe("padrão: o quadro da sua área; sem área, vendas"),
     fase_id: id.optional(),
     descricao: z.string().max(10_000).optional(),
   },
   executar: async (a, eu) => {
-    const chave = a.quadro ?? PIPELINE_VENDAS;
+    const chave = a.quadro ?? quadroPadrao(eu);
     const p = (await listarPipelines()).find((x) => x.chave === chave);
     if (!p) return erro(MENSAGEM_ERRO_PROJETO.PIPELINE_NAO_ENCONTRADO);
     const faseId = a.fase_id ?? p.fases.find((f) => !f.isTerminal)?.id;
@@ -330,7 +334,7 @@ const atualizarProjeto = ferramenta({
   descricao:
     "Altera campos do projeto, no mesmo formato da tela: texto vazio limpa o campo. origem: COLD_CALL|RD|INDICACAO|EVENTO|OUTRO; orcamentoPrevisto em reais no formato BR (12.500,00); estado: sigla da UF; proximaAcaoEm: AAAA-MM-DD; responsavelId: id de listar_responsaveis; revisar: true|false. Cada mudança vai para a Timeline.",
   escrita: true,
-  guarda: cardEditavel,
+  guarda: camposEditaveis,
   entrada: { id, campos: z.object(camposEntrada).strict() },
   executar: async (a, eu) => aplicarCampos(a.id, a.campos, eu),
 });

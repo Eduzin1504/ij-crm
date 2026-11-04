@@ -13,6 +13,7 @@ import { normalizarCnpj, normalizarPonto } from "@/lib/normalizacao";
 const LISTA_MAX = 200;
 
 export type CardNaLixeira = {
+  responsavelId: string;
   id: string;
   titulo: string;
   deletadoEm: Date;
@@ -38,6 +39,7 @@ export async function listarCardsNaLixeira(busca?: string): Promise<CardNaLixeir
       id: true,
       titulo: true,
       deletadoEm: true,
+      responsavelId: true,
       pipeline: { select: { chave: true, nome: true } },
       fase: { select: { id: true, nome: true, arquivadaEm: true, tipoTerminal: true, pipelineId: true } },
       empresa: { select: { nome: true } },
@@ -50,6 +52,7 @@ export async function listarCardsNaLixeira(busca?: string): Promise<CardNaLixeir
     id: c.id,
     titulo: c.titulo,
     deletadoEm: c.deletadoEm!,
+    responsavelId: c.responsavelId,
     porNome: c.timeline[0]?.usuario?.nome ?? null,
     pipeline: c.pipeline,
     fase: { id: c.fase.id, nome: c.fase.nome, arquivada: c.fase.arquivadaEm !== null },

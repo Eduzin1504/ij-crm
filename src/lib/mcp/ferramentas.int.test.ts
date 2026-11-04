@@ -166,10 +166,10 @@ describe("permissão por ferramenta: o MCP não faz nada que a tela não deixa",
 
   it("PROJETOS (mesmo nível de VENDEDOR na tela) escreve; papel lido a cada chamada", async () => {
     const { projetos } = await semear();
-    const r = await executarFerramenta("criar_projeto", { titulo: "Do lado de projetos", quadro: "projetos" }, projetos);
+    const r = await executarFerramenta("criar_projeto", { titulo: "Do lado de projetos" }, projetos);
     expect(r.isError).toBeFalsy();
     // Rebaixado na Gestão → o token é o mesmo, mas o papel vem do banco a cada request (ver oauth.int.test).
-    expect((await executarFerramenta("criar_projeto", { titulo: "x", quadro: "projetos" }, { ...projetos, papel: "VISUALIZADOR" })).isError).toBe(true);
+    expect((await executarFerramenta("criar_projeto", { titulo: "x" }, { ...projetos, papel: "VISUALIZADOR" })).isError).toBe(true);
   });
 
   it("deleção definitiva, merge e configuração ficam só na tela: não há ferramenta para elas", () => {

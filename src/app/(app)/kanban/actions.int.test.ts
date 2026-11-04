@@ -153,7 +153,7 @@ describe("papel VISUALIZADOR (somente leitura)", () => {
 });
 
 describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () => {
-  it("actions no quadro da própria área: criar, editar, mover e comentar gravam; aparece entre os responsáveis e pode assumir card", async () => {
+  it("actions no quadro da própria área: criar, editar, mover e comentar gravam; aparece entre os responsáveis e recebe card", async () => {
     const { u } = await semear();
     const p = await db.pipeline.create({ data: { chave: "projetos", nome: "Projetos", ordem: 1, fases: { create: [{ chave: "handoff", nome: "Handoff", ordem: 0 }] } }, include: { fases: true } });
     const fase = p.fases[0];
@@ -167,6 +167,9 @@ describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () =
     expect(await moverCardAction(c.id, outra.id)).toMatchObject({ ok: true });
     expect(await adicionarNotaAction(c.id, "escopo ok")).toMatchObject({ ok: true });
     expect((await listarResponsaveis()).map((r) => r.id).sort()).toEqual([u.id, pedro.id].sort());
+    // GAB-98: assumir o card é com o responsável atual, o GP do lado dono ou a gestão.
+    expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toMatchObject({ erro: expect.stringContaining("responsável") });
+    exigirUsuario.mockResolvedValue({ id: u.id, papel: "VENDEDOR" });
     expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toEqual({ ok: true });
 
     const card = await db.projeto.findUniqueOrThrow({ where: { id: c.id } });

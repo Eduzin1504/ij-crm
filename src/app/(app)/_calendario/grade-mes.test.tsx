@@ -24,11 +24,11 @@ const acao = (cardId: string, dia: string, extra: Partial<AcaoItem> = {}): AcaoI
 });
 const prazo = (id: string, dia: string): PrazoItem => ({ id, titulo: `Prazo ${id}`, dia, estado: "pendente", responsavel: pessoa, card: null, podeMexer: true });
 
-function montar(acoes: AcaoItem[], prazos: PrazoItem[]) {
+function montar(acoes: AcaoItem[], prazos: PrazoItem[], donoDaAgenda: string | null = null) {
   const p = resolverPeriodo("mes", undefined, new Date("2026-10-27T13:00:00Z"));
   render(
     <PrazosProvider eu={{ id: "u1", nome: "Ana Vendas" }} gestor={false} responsaveis={[{ id: "u1", nome: "Ana Vendas" }]} responsavelPadrao="u1">
-      <GradeMes dias={agruparPorDia(p.grade, acoes, prazos)} hoje={p.hoje} inicio={p.primeiroDia} fim={p.ultimoDia} />
+      <GradeMes dias={agruparPorDia(p.grade, acoes, prazos)} hoje={p.hoje} inicio={p.primeiroDia} fim={p.ultimoDia} donoDaAgenda={donoDaAgenda} />
     </PrazosProvider>,
   );
   return p;
@@ -81,5 +81,17 @@ describe("GradeMes", () => {
     const link = within(celula("2026-10-20")).getByRole("link", { name: "Ação v" });
     expect(link).toHaveAttribute("href", "/projetos/v");
     expect(link).toHaveAttribute("data-estado", "vencida");
+  });
+});
+
+describe("GradeMes: prazo de outra pessoa na agenda (GAB-98)", () => {
+  it("mostra o avatar só quando o responsável do prazo não é o dono da agenda", () => {
+    const de = (nome: string, id: string): PrazoItem => ({ ...prazo(id, "2026-10-28"), titulo: nome, responsavel: { id, nome, fotoEm: null } });
+    montar([], [de("Do dono", "u1"), de("Da Bia", "u2")], "u1");
+    const dia = within(celula("2026-10-28"));
+    const avatar = (nome: string) => celula("2026-10-28").querySelector(`[aria-label="Responsável: ${nome}"],[title="Responsável: ${nome}"]`);
+    expect(dia.getByText("Da Bia")).toBeInTheDocument();
+    expect(avatar("Da Bia")).not.toBeNull();
+    expect(avatar("Do dono")).toBeNull();
   });
 });

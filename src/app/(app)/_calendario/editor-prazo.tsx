@@ -109,8 +109,8 @@ function Formulario({
     });
   }
 
-  // Responsável atual pode ter ficado inativo: continua na lista para não "sumir".
-  const opcoes = prazo && !responsaveis.some((r) => r.id === prazo.responsavel.id) ? [{ id: prazo.responsavel.id, nome: `${prazo.responsavel.nome} (inativo)` }, ...responsaveis] : responsaveis;
+  // Responsável atual fora da lista (inativo ou de outro lado, GAB-98): continua nela para não "sumir".
+  const opcoes = prazo && !responsaveis.some((r) => r.id === prazo.responsavel.id) ? [{ id: prazo.responsavel.id, nome: `${prazo.responsavel.nome} (atual)` }, ...responsaveis] : responsaveis;
 
   if (prazo && !prazo.podeMexer) {
     return (

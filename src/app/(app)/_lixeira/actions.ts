@@ -52,6 +52,8 @@ export async function restaurarCardAction(cardId: string, faseId: string | null)
   return comTratamento("lixeira.restaurarCard", async (): Promise<EstadoLixeira> => {
     const ator = await exigirPapel("GESTOR");
     if (!id.safeParse(cardId).success || (faseId !== null && !id.safeParse(faseId).success)) return { erro: "Dados inválidos." };
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator, { naLixeira: true });
+    if (recusa) return { erro: recusa };
     return responder(await restaurarCard(cardId, ator, { faseId }));
   });
 }

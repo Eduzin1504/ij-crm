@@ -22,7 +22,7 @@ import { ocultarPropostasDoQuadro } from "@/lib/propostas/acesso";
 import { comentar } from "@/lib/propostas/comentarios";
 import { criarProposta, listarPropostas, passarCaneta } from "@/lib/propostas/propostas";
 import { MATRIZ, semearVisibilidade, type Mundo, type NomePersona, type Persona } from "@/test/visibilidade";
-import { excluirAnexoAction, excluirCardAction } from "./_lixeira/actions";
+import { excluirAnexoAction, excluirCardAction, restaurarCardAction } from "./_lixeira/actions";
 import { concluirPrazoAction, criarPrazoAction } from "./_calendario/actions";
 import { definirProximaAction } from "./_semana/actions";
 import CalendarioPage from "./calendario/page";
@@ -31,6 +31,9 @@ import InicioPage from "./page";
 import PainelPage from "./painel/page";
 import CardPage from "./projetos/[id]/page";
 import { MoverFase } from "./projetos/[id]/mover-fase";
+import { sugerirDeAnexoAction } from "./projetos/[id]/proposta/preencher-actions";
+import { ResultadoTerminal } from "./projetos/[id]/resultado-terminal";
+import { Timeline } from "./projetos/[id]/timeline";
 import { CampoInline } from "./projetos/[id]/campo-inline";
 import DiffPage from "./projetos/[id]/proposta/diff/page";
 import PropostaPage from "./projetos/[id]/proposta/page";
@@ -157,7 +160,10 @@ describe.each(MATRIZ)("matriz tela: $nome", ({ nome, escreve, editaVendas, edita
     const pagina = (await CardPage({ params: params({ id: m.cardV.id }) })) as ReactElement;
     expect(acharPorTipo(pagina, MoverFase)[0].props.somenteLeitura).toBe(!editaVendas);
     const campos = acharPorTipo(pagina, CampoInline);
-    expect(campos.every((c) => c.props.somenteLeitura === !editaVendas)).toBe(true);
+    expect(campos.filter((c) => c.props.campo !== "responsavelId").every((c) => c.props.somenteLeitura === !editaVendas)).toBe(true);
+    const responsavel = campos.find((c) => c.props.campo === "responsavelId")!;
+    const trocaResponsavel = editaVendas && nome !== "vendedor";
+    expect(responsavel.props.somenteLeitura).toBe(!trocaResponsavel);
     expect(campos.some((c) => c.props.campo === "propostaUrl")).toBe(todasPropostas);
     const texto = JSON.stringify(textos(pagina));
     expect(texto.includes("Abrir proposta")).toBe(todasPropostas);
@@ -195,6 +201,59 @@ function textos(raiz: ReactNode) {
 }
 
 describe("casos que a matriz não cobre", () => {
+  it("responsável: vendedor da área não se coloca; propostaUrl sem acesso à proposta é recusada", async () => {
+    await criarProposta(m.cardV.id, m.p.donoV);
+    await como(m.p.vendedor);
+    expect(await editarCampoAction(m.cardV.id, "responsavelId", m.p.vendedor.id)).toMatchObject({ erro: expect.stringMatching(/Trocar o responsável/) });
+    expect(await editarCampoAction(m.cardV.id, "propostaUrl", "https://docs.exemplo/x")).toMatchObject({ erro: expect.stringMatching(/não tem acesso/) });
+    expect(await destino(() => PropostaPage({ params: params({ id: m.cardV.id }) }))).toBe("/403");
+    await como(m.p.gpVendas);
+    expect(await editarCampoAction(m.cardV.id, "responsavelId", m.p.vendedor.id)).toEqual({ ok: true });
+    await como(m.p.vendedor);
+    expect(await editarCampoAction(m.cardV.id, "propostaUrl", "https://docs.exemplo/x")).toEqual({ ok: true });
+  });
+
+  it("motivo antigo de inviável: mascarado no card, no diálogo e no Kanban para quem não vê", async () => {
+    await criarProposta(m.cardV.id, m.p.donoV);
+    const antigo = "Outro: Proposta inviável: Segredo do escopo";
+    await m.db.projeto.update({ where: { id: m.cardV.id }, data: { motivoPerda: antigo } });
+    await m.db.timeline.create({ data: { projetoId: m.cardV.id, tipo: "CAMPO_ALTERADO", payload: { campo: "motivoPerda", antes: null, depois: antigo } } });
+    const pagina = async () => (await CardPage({ params: params({ id: m.cardV.id }) })) as ReactElement;
+    await como(m.p.vendedor);
+    const p = await pagina();
+    expect(acharPorTipo(p, ResultadoTerminal)[0].props.card).toMatchObject({ motivoPerda: "Outro: Proposta inviável" });
+    expect(acharPorTipo(p, MoverFase)[0].props.fechamento).toMatchObject({ motivoPerda: "Outro: Proposta inviável" });
+    expect(JSON.stringify(acharPorTipo(p, Timeline)[0].props.entradas)).not.toContain("Segredo");
+    const quadro = await ocultarPropostasDoQuadro((await listarQuadro("vendas"))!, m.p.vendedor);
+    expect(JSON.stringify(quadro.cards)).not.toContain("Segredo");
+
+    await como(m.p.gpProjetos);
+    expect(acharPorTipo(await pagina(), ResultadoTerminal)[0].props.card).toMatchObject({ motivoPerda: antigo });
+  });
+
+  it("preencher de anexo e comentar: quem não vê não descobre se a proposta existe", async () => {
+    await como(m.p.membroProjetos);
+    expect(await sugerirDeAnexoAction(m.cardV.id, "qualquer")).toMatchObject({ ok: false, erro: expect.stringMatching(/não tem acesso/) });
+    const semProposta = await comentar(m.cardV.id, { texto: "oi" }, m.p.membroProjetos);
+    await criarProposta(m.cardV.id, m.p.donoV);
+    expect(await comentar(m.cardV.id, { texto: "oi" }, m.p.membroProjetos)).toEqual(semProposta);
+    expect(semProposta).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
+    expect(await comentar("nao-existe", { texto: "oi" }, m.p.membroProjetos)).toEqual(semProposta);
+  });
+
+  it("lixeira: gestor de outra área não restaura; da área, sem área e admin restauram", async () => {
+    const naLixeira = (id: string) => m.db.projeto.update({ where: { id }, data: { deletadoEm: new Date() } });
+    await naLixeira(m.cardV.id);
+    await como(m.p.gestorProjetos);
+    expect(await restaurarCardAction(m.cardV.id, null)).toMatchObject({ erro: expect.stringMatching(/outra área/) });
+    expect((await m.db.projeto.findUniqueOrThrow({ where: { id: m.cardV.id } })).deletadoEm).not.toBeNull();
+    for (const quem of [m.p.gestorVendas, m.p.gestorSemArea, m.p.admin]) {
+      await naLixeira(m.cardV.id);
+      await como(quem);
+      expect(await restaurarCardAction(m.cardV.id, null)).toMatchObject({ ok: true });
+    }
+  });
+
   it("`/?vendedor=`: visualizador cai na entrada dele, sem /403 nem loop; os outros seguem para a semana", async () => {
     const pedir = () => InicioPage({ searchParams: params({ vendedor: m.p.donoV.id }) });
     await como(m.p.visualizador);

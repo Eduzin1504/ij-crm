@@ -1,6 +1,6 @@
 import type { Area, AreaEntrada } from "@prisma/client";
 import type { PaginaInicial } from "@/lib/preferencias/preferencias";
-import { AREAS, ladoDe, temCargo, usaAreaDeEntrada, type PessoaComLado } from "./areas";
+import { AREAS, ehGpDoLado, ladoDe, temCargo, usaAreaDeEntrada, type PessoaComLado } from "./areas";
 import { podeEscrever, temPapelMinimo } from "./papeis";
 
 /**
@@ -133,6 +133,23 @@ export function podeCriarCardNoQuadro(p: PessoaComLado, chave: string): boolean 
 export function podeEditarCard(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
   if (!podeEscrever(p.papel)) return false;
   return card.responsavelId === p.id || ehDaAreaDoQuadro(p, card.quadro);
+}
+
+/**
+ * Trocar o responsável (dá acesso à proposta, então é mais estrito que editar): o responsável
+ * atual, o GP do lado dono, gestor da área dona ou sem área, e admin. A automação fica de fora.
+ */
+export function podeTrocarResponsavel(p: PessoaComId, card: { responsavelId: string; quadro: string }): boolean {
+  if (!podeEscrever(p.papel)) return false;
+  if (card.responsavelId === p.id || p.papel === "ADMIN") return true;
+  if (p.papel === "GESTOR") return ehDaAreaDoQuadro(p, card.quadro);
+  const area = areaDoQuadro(card.quadro);
+  return area !== null && ehGpDoLado(p, area);
+}
+
+/** Quadro de quem não disse qual: o da própria área; sem lado, vendas. */
+export function quadroPadrao(p: PessoaComLado): string {
+  return (ladoDe(p) ?? "VENDAS").toLowerCase();
 }
 
 /** Vê todas as propostas: GESTOR com ou sem área, ADMIN e GP (§4.7). */

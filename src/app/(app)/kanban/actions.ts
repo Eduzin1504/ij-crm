@@ -74,7 +74,7 @@ export async function editarCampoAction(cardId: string, campo: string, bruto: st
     }
     const v = interpretarCampo(campo, bruto);
     if (!v.ok) return { erro: v.erro };
-    const recusa = await recusaDeEdicaoNoCard(cardId, ator);
+    const recusa = await recusaDeEdicaoNoCard(cardId, ator, { campos: [campo] });
     if (recusa) return { erro: recusa };
     const r = await editarCard(cardId, { [campo]: v.valor }, ator);
     if (!r.ok) return { erro: MENSAGEM[r.erro] };

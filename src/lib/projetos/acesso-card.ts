@@ -7,18 +7,34 @@
  * Card que não existe não é recusa: quem chamou segue e o serviço responde
  * CARD_NAO_ENCONTRADO, com a mensagem de sempre.
  */
-import { podeCriarCardNoQuadro, podeEditarCard, type PessoaComId } from "@/lib/auth/visibilidade";
+import { podeCriarCardNoQuadro, podeEditarCard, podeTrocarResponsavel, type PessoaComId } from "@/lib/auth/visibilidade";
 import type { PessoaComLado } from "@/lib/auth/areas";
 import { db } from "@/lib/db";
+import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { MENSAGEM_ERRO_PROJETO } from "./erros";
 
 const MENSAGEM_CRIAR = "Este quadro é de outra área: aqui você acompanha, mas só quem é da área cria card.";
+const MENSAGEM_RESPONSAVEL = "Trocar o responsável é com o responsável atual, o GP da área dona ou a gestão da área.";
+
+type OpcoesEdicao = {
+  /** Campos que vão mudar: `responsavelId` e `propostaUrl` têm regra própria, além da área. */
+  campos?: readonly string[];
+  /** Card na lixeira (restaurar): a regra é a mesma, mas ele não está vivo. */
+  naLixeira?: boolean;
+};
 
 /** `string` = o texto da recusa (o mesmo na tela e no MCP); `null` = pode. */
-export async function recusaDeEdicaoNoCard(cardId: string, p: PessoaComId): Promise<string | null> {
-  const card = await db.projeto.findFirst({ where: { id: cardId, deletadoEm: null }, select: { responsavelId: true, pipeline: { select: { chave: true } } } });
-  if (!card || podeEditarCard(p, { responsavelId: card.responsavelId, quadro: card.pipeline.chave })) return null;
-  return MENSAGEM_ERRO_PROJETO.FORA_DA_AREA;
+export async function recusaDeEdicaoNoCard(cardId: string, p: PessoaComId, opts: OpcoesEdicao = {}): Promise<string | null> {
+  const achado = await db.projeto.findFirst({
+    where: { id: cardId, deletadoEm: opts.naLixeira ? { not: null } : null },
+    select: { responsavelId: true, pipeline: { select: { chave: true } } },
+  });
+  if (!achado) return null;
+  const card = { responsavelId: achado.responsavelId, quadro: achado.pipeline.chave };
+  if (!podeEditarCard(p, card)) return MENSAGEM_ERRO_PROJETO.FORA_DA_AREA;
+  if (opts.campos?.includes("responsavelId") && !podeTrocarResponsavel(p, card)) return MENSAGEM_RESPONSAVEL;
+  if (opts.campos?.includes("propostaUrl") && !(await podeVerPropostaDoProjeto(p, cardId))) return MENSAGEM_SEM_ACESSO_PROPOSTA;
+  return null;
 }
 
 /** Tirar anexo do card: quem o anexou (de fora também) ou quem edita o card. */

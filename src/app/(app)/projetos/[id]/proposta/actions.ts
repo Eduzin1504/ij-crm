@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirEscrita } from "@/lib/auth/atual";
 import type { PessoaComId } from "@/lib/auth/visibilidade";
-import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
+import { recusaDaProposta } from "@/lib/propostas/acesso";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import type { ConflitoCliente } from "@/lib/propostas/autosave";
 import type { Documento } from "@/lib/propostas/documento";
@@ -60,7 +60,8 @@ function falhaParaTela(f: Falha): RespostaProposta {
 /** GAB-98: quem não vê a proposta nem chega à regra da caneta (que contaria o status). */
 async function semAcesso(projetoId: string, ator: PessoaComId): Promise<{ erro: string } | null> {
   if (!id.safeParse(projetoId).success) return { erro: "Dados inválidos." };
-  return (await podeVerPropostaDoProjeto(ator, projetoId)) ? null : { erro: MENSAGEM_SEM_ACESSO_PROPOSTA };
+  const recusa = await recusaDaProposta(projetoId, ator);
+  return recusa ? { erro: recusa } : null;
 }
 
 function revalidar(projetoId: string) {

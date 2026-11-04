@@ -636,7 +636,7 @@ export async function reabrirProposta(projetoId: string, ator: Ator): Promise<Re
  * Inviável (GP de projetos, ou o dono da caneta do lado projetos), com motivo:
  * a proposta sai do pingue-pongue e o Projeto vai para o marco Perdido do
  * quadro de Vendas, pelo MESMO caminho do Kanban (`registrarMovimento`: lock
- * do quadro, TransicaoFase, Timeline e `motivo_perda` = "Outro: Proposta inviável: …").
+ * do quadro, TransicaoFase, Timeline e `motivo_perda` = "Outro: Proposta inviável"; o motivo fica em `motivoInviavel`).
  */
 export async function marcarInviavel(projetoId: string, motivoBruto: string, ator: Ator): Promise<ResultadoCaneta> {
   const motivo = typeof motivoBruto === "string" ? motivoBruto.trim().replace(/\s+/g, " ") : "";
@@ -668,7 +668,8 @@ export async function marcarInviavel(projetoId: string, motivoBruto: string, ato
       porId: ator.id,
       em: new Date(agora.getTime() + 1),
       origemTransicao: "UI",
-      dadosTerminal: { motivo: "outro", detalhe: `Proposta inviável: ${motivo}` },
+      // Só o rótulo: o card é aberto a todos e o motivo é da proposta (`motivoInviavel`, §4.7).
+      dadosTerminal: { motivo: "outro", detalhe: "Proposta inviável" },
     });
     const aviso: EventoCaneta = { projetoId, propostaId: proposta.id, acao: "inviavel", porId: ator.id, paraId: null, lado: null, status };
     return { ok: true as const, status, canetaComId: null, canetaComNome: null, revisao, aviso };

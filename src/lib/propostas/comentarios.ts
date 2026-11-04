@@ -131,10 +131,11 @@ async function avisarDono(p: { projetoId: string; titulo: string; canetaComId: s
 export async function comentar(projetoId: string, e: { texto: string; trecho?: Ancora | string | null }, ator: Ator): Promise<{ ok: true; comentario: { id: string } } | Falha> {
   const t = limparTexto(e.texto);
   if (!t.ok) return t;
-  const p = await propostaViva(projetoId);
-  if (ehFalha(p)) return p;
+  // Acesso primeiro: quem não vê a proposta não descobre se ela existe.
   const autor = await autorComAcesso(ator.id, projetoId);
   if (!autor) return { ok: false, erro: "SEM_PERMISSAO" };
+  const p = await propostaViva(projetoId);
+  if (ehFalha(p)) return p;
 
   let ancora: Ancora | null = null;
   if (typeof e.trecho === "string") {

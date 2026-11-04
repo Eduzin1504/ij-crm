@@ -47,19 +47,45 @@ async function projetosComPropostaVisivel(p: PessoaComId, projetoIds: string[]):
   return new Set(linhas.map((l) => l.projetoId));
 }
 
-/** Tira do quadro o status das propostas que a pessoa não vê: o card fica como se não tivesse. */
-export async function ocultarPropostasDoQuadro<C extends { id: string; proposta: unknown }, Q extends { cards: C[] }>(quadro: Q, p: PessoaComId): Promise<Q> {
+/**
+ * Antes o motivo de inviável ia para o card ("Outro: Proposta inviável: <motivo>"). Hoje o card
+ * grava só "Outro: Proposta inviável" e o motivo fica em `proposta.motivoInviavel`. As linhas
+ * antigas continuam no banco: para quem não vê a proposta, o motivo some na leitura.
+ */
+export function mascararMotivoInviavel(texto: string | null): string | null {
+  return texto?.replace(/^(Outro: Proposta inviável): [\s\S]*$/, "$1") ?? null;
+}
+
+/** Tira do quadro o que é da proposta, para quem não a vê: status e motivo de inviável. */
+export async function ocultarPropostasDoQuadro<C extends { id: string; proposta: unknown; motivoPerda: string | null }, Q extends { cards: C[] }>(quadro: Q, p: PessoaComId): Promise<Q> {
   if (veTodasAsPropostas(p)) return quadro;
   const comProposta = quadro.cards.filter((c) => c.proposta !== null).map((c) => c.id);
   const visiveis = await projetosComPropostaVisivel(p, comProposta);
-  return { ...quadro, cards: quadro.cards.map((c) => (c.proposta === null || visiveis.has(c.id) ? c : { ...c, proposta: null })) };
+  return { ...quadro, cards: quadro.cards.map((c) => (visiveis.has(c.id) ? c : { ...c, proposta: null, motivoPerda: mascararMotivoInviavel(c.motivoPerda) })) };
 }
 
 type EntradaDaTimeline = { tipo: string; payload: unknown };
 
 /** Entrada da Timeline do card que conta da proposta: eventos dela e o campo "Proposta (link)". */
-export function entradaDaProposta(t: EntradaDaTimeline): boolean {
+function entradaDaProposta(t: EntradaDaTimeline): boolean {
   if (t.tipo === "PROPOSTA") return true;
   if (t.tipo !== "CAMPO_ALTERADO" || !t.payload || typeof t.payload !== "object") return false;
   return (t.payload as { campo?: unknown }).campo === "propostaUrl";
+}
+
+/** Timeline do card para quem não vê a proposta: sem os eventos dela, e `motivoPerda` antigo mascarado. */
+export function timelineSemProposta<T extends EntradaDaTimeline>(timeline: T[]): T[] {
+  return timeline
+    .filter((t) => !entradaDaProposta(t))
+    .map((t) => {
+      const payload = t.payload as { campo?: unknown; antes?: unknown; depois?: unknown } | null;
+      if (t.tipo !== "CAMPO_ALTERADO" || payload?.campo !== "motivoPerda") return t;
+      const texto = (v: unknown) => (typeof v === "string" ? mascararMotivoInviavel(v) : v);
+      return { ...t, payload: { ...payload, antes: texto(payload.antes), depois: texto(payload.depois) } };
+    });
+}
+
+/** `string` = recusa, para a action e o MCP; `null` = a pessoa vê a proposta. */
+export async function recusaDaProposta(projetoId: string, p: PessoaComId): Promise<string | null> {
+  return (await podeVerPropostaDoProjeto(p, projetoId)) ? null : MENSAGEM_SEM_ACESSO_PROPOSTA;
 }

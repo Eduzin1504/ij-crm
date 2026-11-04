@@ -14,10 +14,12 @@ import {
   lerArea,
   podeCriarCardNoQuadro,
   podeEditarCard,
+  podeTrocarResponsavel,
   podeVerAgendaDe,
   podeVerItem,
   podeVerItemEmAlgumaArea,
   podeVerProposta,
+  quadroPadrao,
   veOutrasAgendas,
   veTodasAsPropostas,
 } from "./visibilidade";
@@ -275,5 +277,32 @@ describe("GAB-98: casos à parte", () => {
   it("areaDoQuadro lê a chave do pipeline", () => {
     expect(areaDoQuadro("vendas")).toBe("VENDAS");
     expect(areaDoQuadro("projetos")).toBe("PROJETOS");
+  });
+});
+
+describe("GAB-98: trocar o responsável", () => {
+  const CASOS: [string, typeof VENDEDOR, boolean, boolean][] = [
+    ["vendedor", VENDEDOR, false, false],
+    ["GP de vendas", GP_VENDAS, true, false],
+    ["membro de projetos", MEMBRO_PROJETOS, false, false],
+    ["GP de projetos", GP_PROJETOS, false, true],
+    ["gestor de vendas", GESTOR_VENDAS, true, false],
+    ["gestor de projetos", GESTOR_PROJETOS, false, true],
+    ["gestor sem área", GESTOR_SEM_AREA, true, true],
+    ["admin", ADMIN, true, true],
+    ["visualizador", VISUALIZADOR, false, false],
+  ];
+
+  it.each(CASOS)("%s", (_nome, p, vendas, projetos) => {
+    const eu = comId(p);
+    expect(podeTrocarResponsavel(eu, { responsavelId: "outro", quadro: "vendas" })).toBe(vendas);
+    expect(podeTrocarResponsavel(eu, { responsavelId: "outro", quadro: "projetos" })).toBe(projetos);
+    expect(podeTrocarResponsavel(eu, { responsavelId: ID, quadro: "vendas" })).toBe(p.papel !== "VISUALIZADOR");
+  });
+
+  it("quadro padrão: o da área; sem lado, vendas", () => {
+    expect(quadroPadrao(MEMBRO_PROJETOS)).toBe("projetos");
+    expect(quadroPadrao(VENDEDOR)).toBe("vendas");
+    expect(quadroPadrao(GESTOR_SEM_AREA)).toBe("vendas");
   });
 });

@@ -210,6 +210,63 @@ describe("MCP: casos que a matriz não cobre", () => {
     expect((await roda("comentar_proposta", { projeto_id: m.cardV.id, texto: "recebi" }, m.p.vendedor)).erro).toBe(false);
   });
 
+  it("trocar o responsável: nem quem é da área se coloca sem ser o atual, o GP ou a gestão (e assim não abre a proposta)", async () => {
+    await comProposta();
+    const { id } = m.cardV;
+    const trocar = (para: string, quem: Persona) => roda("atualizar_projeto", { id, campos: { responsavelId: para } }, quem);
+    expect((await trocar(m.p.vendedor.id, m.p.vendedor)).texto).toMatch(/Trocar o responsável/);
+    expect((await roda("ler_proposta", { projeto_id: id }, m.p.vendedor)).texto).toMatch(SEM_ACESSO);
+    expect((await trocar(m.p.membroProjetos.id, m.p.membroProjetos)).texto).toMatch(FORA);
+    expect((await trocar(m.p.gpProjetos.id, m.p.gpProjetos)).texto).toMatch(FORA);
+    expect((await trocar(m.p.gestorProjetos.id, m.p.gestorProjetos)).texto).toMatch(FORA);
+    expect((await trocar(m.p.vendedor.id, m.p.gpVendas)).erro).toBe(false);
+    expect((await trocar(m.p.gestorVendas.id, m.p.vendedor)).erro).toBe(false); // agora ele é o atual
+    expect((await trocar(m.p.donoV.id, m.p.gestorVendas)).erro).toBe(false);
+    expect((await trocar(m.p.admin.id, m.p.gestorSemArea)).erro).toBe(false);
+    expect((await trocar(m.p.donoV.id, m.p.admin)).erro).toBe(false);
+  });
+
+  it("propostaUrl: quem não vê a proposta não grava; quem vê, grava", async () => {
+    await comProposta();
+    const url = { id: m.cardV.id, campos: { propostaUrl: "https://docs.exemplo/x" } };
+    expect((await roda("atualizar_projeto", url, m.p.vendedor)).texto).toMatch(SEM_ACESSO);
+    expect((await roda("atualizar_projeto", url, m.p.donoV)).erro).toBe(false);
+  });
+
+  it("criar_projeto sem quadro usa a área da pessoa; sem lado, vendas; recusa cita o parâmetro", async () => {
+    const quadroDe = async (r: { texto: string }) => (await m.db.projeto.findUniqueOrThrow({ where: { id: (JSON.parse(r.texto) as { id: string }).id }, select: { pipeline: { select: { chave: true } } } })).pipeline.chave;
+    expect(await quadroDe(await roda("criar_projeto", { titulo: "A" }, m.p.membroProjetos))).toBe("projetos");
+    expect(await quadroDe(await roda("criar_projeto", { titulo: "B" }, m.p.vendedor))).toBe("vendas");
+    expect(await quadroDe(await roda("criar_projeto", { titulo: "C" }, m.p.gestorSemArea))).toBe("vendas");
+    expect((await roda("criar_projeto", { titulo: "D", quadro: "vendas" }, m.p.membroProjetos)).texto).toMatch(/`quadro`/);
+  });
+
+  it("motivo de inviável: o card novo não guarda; linha antiga é mascarada para quem não vê a proposta", async () => {
+    await comProposta();
+    const { id } = m.cardV;
+    await m.db.proposta.update({ where: { projetoId: id }, data: { canetaLado: "PROJETOS", canetaComId: null, status: "EM_ANALISE" } });
+    expect((await roda("marcar_proposta_inviavel", { projeto_id: id, motivo: "Segredo do escopo" }, m.p.gpProjetos)).erro).toBe(false);
+    const gravado = await m.db.projeto.findUniqueOrThrow({ where: { id }, select: { motivoPerda: true, timeline: { where: { tipo: "CAMPO_ALTERADO" }, select: { payload: true } } } });
+    expect(gravado.motivoPerda).toBe("Outro: Proposta inviável");
+    expect(JSON.stringify(gravado.timeline)).not.toContain("Segredo");
+    expect((await m.db.proposta.findUniqueOrThrow({ where: { projetoId: id } })).motivoInviavel).toBe("Segredo do escopo");
+
+    // Linha de antes do GAB-98, no card e na Timeline.
+    const antigo = "Outro: Proposta inviável: Segredo do escopo";
+    await m.db.projeto.update({ where: { id }, data: { motivoPerda: antigo } });
+    await m.db.timeline.create({ data: { projetoId: id, tipo: "CAMPO_ALTERADO", payload: { campo: "motivoPerda", antes: null, depois: antigo } } });
+    const fora = await roda("ler_projeto", { id, timeline: 50 }, m.p.vendedor);
+    expect(fora.texto).not.toContain("Segredo");
+    expect((JSON.parse(fora.texto) as { campos: { motivoPerda: string } }).campos.motivoPerda).toBe("Outro: Proposta inviável");
+    expect((await roda("ler_projeto", { id, timeline: 50 }, m.p.gpProjetos)).texto).toContain("Segredo");
+  });
+
+  it("recusa do cliente: o detalhe continua no card", async () => {
+    await m.db.projeto.update({ where: { id: m.cardV.id }, data: { motivoPerda: "Preço: achou caro" } });
+    const r = await roda("ler_projeto", { id: m.cardV.id }, m.p.vendedor);
+    expect((JSON.parse(r.texto) as { campos: { motivoPerda: string } }).campos.motivoPerda).toBe("Preço: achou caro");
+  });
+
   it("Painel segue aberto: VISUALIZADOR e membro de Projetos consultam", async () => {
     expect((await roda("consultar_painel_vendas", { indicador: "conversao" }, m.p.visualizador)).erro).toBe(false);
     expect((await roda("consultar_painel_vendas", { indicador: "conversao" }, m.p.membroProjetos)).erro).toBe(false);
