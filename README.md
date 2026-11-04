@@ -474,7 +474,8 @@ infos abrem em painel.
   continua com o mesmo Markdown. `<!-- bloco:nenhum -->` registra que os dois saíram da folha. Na âncora
   de comentário, o bloco entra pelo título fixo, nunca pelos dados.
 - **Duração**: a entrega tem `dia` ou `duracao` ("2 semanas"), nunca as duas. `dia` é `null` na que só tem duração;
-  `datasPrevistas` (`estruturado.ts`) calcula a data na execução, com as durações em sequência a partir do início.
+  a cópia para a execução (`execucao-entrada.ts`) calcula a data prevista com `datasPrevistas` (`estruturado.ts`): durações
+  em sequência a partir da entrada em Execução, e entrega com data vira o novo ponto de partida.
 - **Cartão "Dados da proposta"**: grava sozinho pela mesma `revisao` do texto. Dado incompleto não vai
   ao servidor: fica no cartão com o motivo, e segura passar a caneta.
 

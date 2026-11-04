@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Area, Cargo, Papel } from "@prisma/client";
+import type { Area, Cargo, Papel, Prisma } from "@prisma/client";
 import { lembrarCheckinsAtrasados } from "@/lib/avisos/checkin";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { removerFase, reordenarFases } from "@/lib/fases/fases";
@@ -8,7 +8,9 @@ import { excluirCard, restaurarCard } from "@/lib/lixeira/cards";
 import { dbTeste, limparBanco } from "@/test/db";
 import { timelineSemProposta } from "@/lib/propostas/acesso";
 import { adicionarEntrega, ajustarDataEntrega, cancelarEntrega, copiarCronogramaDaProposta, cronogramaSemProposta, desmarcarEntrega, marcarEntregaFeita, obterCronograma, registrarCheckin } from "./execucao";
+import { diaEmFuso } from "./aging";
 import { moverParaExecucao } from "./handoff";
+import { somarDias } from "./proxima-acao";
 import { listarQuadro, moverCard } from "./projetos";
 
 const db = dbTeste();
@@ -48,7 +50,7 @@ async function semear() {
   const f = (chave: string) => projetos.fases.find((x) => x.chave === chave)!.id;
 
   /** Card isento (a trava tem testes próprios): GP designado e, se pedido, proposta aceita na v2. */
-  const card = async (o: { fase?: string; proposta?: boolean; comGp?: boolean; responsavelId?: string; execucaoDesde?: Date | null } = {}) => {
+  const card = async (o: { fase?: string; proposta?: boolean; comGp?: boolean; responsavelId?: string; execucaoDesde?: Date | null; entregasFinais?: object[] } = {}) => {
     const c = await db.projeto.create({
       data: {
         pipelineId: projetos.id,
@@ -65,7 +67,7 @@ async function semear() {
     if (o.proposta) {
       const p = await db.proposta.create({ data: { projetoId: c.id, status: "ACEITA", criadoPorId: ana.id, versaoEnviada: 2 } });
       await db.propostaVersao.create({ data: { propostaId: p.id, numero: 1, conteudoMd: "v1", estruturado: { entregas: [{ titulo: "Antiga", dia: "2026-01-01", valor: null }] }, autorId: ana.id } });
-      await db.propostaVersao.create({ data: { propostaId: p.id, numero: 2, conteudoMd: "v2", estruturado: { entregas: ENTREGAS_V2 }, autorId: ana.id } });
+      await db.propostaVersao.create({ data: { propostaId: p.id, numero: 2, conteudoMd: "v2", estruturado: { entregas: (o.entregasFinais ?? ENTREGAS_V2) as Prisma.InputJsonArray }, autorId: ana.id } });
       await db.propostaVersao.create({ data: { propostaId: p.id, numero: 3, conteudoMd: "v3 depois do aceite", estruturado: { entregas: [{ titulo: "Não vale", dia: "2026-02-02", valor: null }] }, autorId: ana.id } });
     }
     return c.id;
@@ -88,6 +90,42 @@ beforeEach(async () => {
 const dia = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 describe("cópia da proposta final", () => {
+  it("GAB-100: entrega só com duração não some: a data prevista conta do início, em sequência, e data fixa vira o novo ponto de partida", async () => {
+    const id = await s.card({
+      proposta: true,
+      entregasFinais: [
+        { titulo: "Levantamento", dia: null, duracao: "2 semanas", valor: "1000.00" },
+        { titulo: "Painel", dia: null, duracao: "1 mês", valor: null },
+        { titulo: "Marco", dia: "2030-06-01", duracao: null, valor: null },
+        { titulo: "Ajustes", dia: null, duracao: "3 dias", valor: null },
+      ],
+    });
+    const hoje = diaEmFuso(new Date());
+    expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true });
+    const es = await s.entregas(id);
+    expect(es.map((e) => [e.titulo, dia(e.previstoOriginal), dia(e.previstoAtual), e.origem])).toEqual([
+      ["Levantamento", somarDias(hoje, 14), somarDias(hoje, 14), "PROPOSTA"],
+      ["Painel", somarDias(hoje, 44), somarDias(hoje, 44), "PROPOSTA"],
+      ["Marco", "2030-06-01", "2030-06-01", "PROPOSTA"],
+      ["Ajustes", "2030-06-04", "2030-06-04", "PROPOSTA"],
+    ]);
+    const copia = await db.timeline.findFirstOrThrow({ where: { projetoId: id, tipo: "EXECUCAO" } });
+    expect(copia.payload).toMatchObject({ entregas: 4, ignoradas: 0 });
+  });
+
+  it("GAB-100: copiar depois, pelo botão, conta da entrada em Execução, não do clique", async () => {
+    const id = await s.card({ fase: "em_execucao", proposta: true, execucaoDesde: new Date("2026-03-02T15:00:00Z"), entregasFinais: [{ titulo: "Etapa", dia: null, duracao: "1 semana", valor: null }] });
+    expect(await copiarCronogramaDaProposta(id, s.gp)).toMatchObject({ ok: true, entregas: 1 });
+    expect((await s.entregas(id)).map((e) => dia(e.previstoOriginal))).toEqual(["2026-03-09"]);
+  });
+
+  it("GAB-100: linha gravada sem data nem duração que se entenda fica de fora, sem barrar o movimento", async () => {
+    const id = await s.card({ proposta: true, entregasFinais: [{ titulo: "Boa", dia: null, duracao: "1 semana", valor: null }, { titulo: "Estranha", dia: null, duracao: "nunca", valor: null }] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true });
+    expect((await s.entregas(id)).map((e) => e.titulo)).toEqual(["Boa"]);
+  });
+
   it("o arraste copia a versão final (não a última salva nem a primeira), com previsto original e atual iguais", async () => {
     const id = await s.card({ proposta: true });
     expect(await moverCard(id, s.f("em_execucao"), s.ana)).toMatchObject({ ok: true });

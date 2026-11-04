@@ -109,6 +109,8 @@ describe("duração na entrega (GAB-100)", () => {
       { titulo: "C", dia: "2027-06-01", valor: null },
       { titulo: "D", dia: "2027-06-04", valor: null },
     ]);
+    // Linha estranha gravada não derruba nem desloca a conta das outras.
+    expect(datasPrevistas([{ titulo: "x", dia: "lixo", duracao: null, valor: null }, { titulo: "y", dia: null, duracao: "nunca", valor: null }, { titulo: "z", dia: null, duracao: "1 dia", valor: null }], "2026-12-31").map((e) => e.dia)).toEqual([null, null, "2027-01-01"]);
     expect(duracaoEmDias("2 semanas")).toBe(14);
     expect(normalizarDuracao("x")).toBeNull();
   });

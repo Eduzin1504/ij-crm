@@ -95,14 +95,16 @@ function somarDias(dia: string, n: number): string {
  * Data prevista de cada entrega para a execução (GAB-95). As durações são etapas em
  * sequência, como no modelo da IJ: cada uma conta a partir do fim da anterior, e a
  * primeira a partir de `inicio`; entrega com data fica na data e passa a ser o novo
- * ponto de partida. Mesma ordem e mesmo tamanho da entrada: nenhuma entrega some.
+ * ponto de partida. Mesma ordem e mesmo tamanho da entrada. `dia` null = linha gravada
+ * estranha, sem data válida nem duração que se entenda: não muda a conta das outras,
+ * e quem copia decide o que fazer com ela.
  */
-export function datasPrevistas(entregas: readonly Entrega[], inicio: string): { titulo: string; dia: string; valor: string | null }[] {
+export function datasPrevistas(entregas: readonly Entrega[], inicio: string): { titulo: string; dia: string | null; valor: string | null }[] {
   let base = inicio;
   return entregas.map((e) => {
     const dias = e.duracao === null ? null : duracaoEmDias(e.duracao);
-    const dia = e.dia ?? somarDias(base, dias ?? 0);
-    base = dia;
+    const dia = e.dia !== null ? (diaValido(e.dia) ? e.dia : null) : dias !== null ? somarDias(base, dias) : null;
+    if (dia !== null) base = dia;
     return { titulo: e.titulo, dia, valor: e.valor };
   });
 }
