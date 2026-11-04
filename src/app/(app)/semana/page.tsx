@@ -4,7 +4,8 @@ import { ErroCarregamento } from "@/components/erro-carregamento";
 import { EstadoVazio } from "@/components/estado-vazio";
 import { PageHeader } from "@/components/shell/page-header";
 import { db } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
+import { podeVerItemEmAlgumaArea } from "@/lib/auth/visibilidade";
 import { comTratamento, ehInesperado } from "@/lib/erros/registrar";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { temPapelMinimo } from "@/lib/auth/papeis";
@@ -48,15 +49,15 @@ function saudacao(agora: Date): string {
  * colunas, com os mesmos mini-cards e prazos 🏁 do Calendário.
  */
 export default async function MinhaSemanaPage({ searchParams }: { searchParams: Promise<{ vendedor?: string | string[] }> }) {
-  const ator = await exigirUsuario();
+  const ator = await exigirItem("semana");
   const { vendedor } = await searchParams;
   const agora = new Date();
   const hoje = diaEmFuso(agora);
   const semana = resolverSemana(undefined, agora);
   // Uma leitura de segunda até hoje+7: colunas (seg–dom) + "Próxima semana" (o resto do antigo "Próximos 7 dias").
   const ate = fimDaJanela(semana);
-  // Top 3 em paralelo e isolado: se falhar, só o card lateral mostra a ref (GAB-44).
-  const top3 = comTratamento("pagina.semana.top3", () => carregarTop3(ator, agora));
+  // Top 3 em paralelo e isolado: se falhar, só o card lateral mostra a ref (GAB-44). Ranking é de Vendas (GAB-98).
+  const top3 = podeVerItemEmAlgumaArea(ator, "ranking") ? comTratamento("pagina.semana.top3", () => carregarTop3(ator, agora)) : null;
   const dados = await comTratamento("pagina.semana", async () => {
     const escolha = await resolverVendedor(ator, typeof vendedor === "string" ? vendedor : undefined);
     const [cards, itens, foto, responsaveis] = await Promise.all([
@@ -126,7 +127,7 @@ export default async function MinhaSemanaPage({ searchParams }: { searchParams: 
           ) : null}
         </div>
         <aside className="lg:sticky lg:top-6">
-          {ehInesperado(ranking) ? <ErroCarregamento codigo={ranking.ref} /> : <Top3Semana dados={ranking} euId={ator.id} />}
+          {ranking === null ? null : ehInesperado(ranking) ? <ErroCarregamento codigo={ranking.ref} /> : <Top3Semana dados={ranking} euId={ator.id} />}
         </aside>
       </div>
 

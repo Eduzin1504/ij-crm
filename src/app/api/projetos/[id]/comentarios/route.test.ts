@@ -12,7 +12,7 @@ const ctx = (id = "p1") => ({ params: Promise.resolve({ id }) });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  m.usuarioAtual.mockResolvedValue({ id: "u1", papel: "VISUALIZADOR" });
+  m.usuarioAtual.mockResolvedValue({ id: "u1", papel: "ADMIN", area: null, cargos: [] });
   m.versaoDosComentarios.mockResolvedValue("2.100");
   m.listarComentarios.mockResolvedValue({ versao: "2.100", threads: [{ id: "c1", texto: "oi" }] });
 });
@@ -56,5 +56,12 @@ describe("GET /api/projetos/[id]/comentarios (polling)", () => {
     const corpo = await r.json();
     expect(corpo.ref).toMatch(/^[0-9a-f]{8}$/);
     expect(erro.mock.calls.some((c) => String(c[0]).startsWith(`[api.comentarios] ref=${corpo.ref}`))).toBe(true);
+  });
+
+  it("GAB-98: quem não vê a proposta → 403, sem listar", async () => {
+    m.usuarioAtual.mockResolvedValueOnce({ id: "u1", papel: "VISUALIZADOR", area: null, cargos: [] });
+    const r = await GET(new Request("http://x/api/projetos/p1/comentarios"), { params: Promise.resolve({ id: "p1" }) });
+    expect(r.status).toBe(403);
+    expect(m.listarComentarios).not.toHaveBeenCalled();
   });
 });

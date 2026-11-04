@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { DiffEstruturado, DiffTexto } from "@/components/propostas/diff-view";
 import { MarcarQuadroAtivo } from "@/components/shell/quadro-ativo";
 import { ROTULO_AREA } from "@/lib/auth/areas";
 import { exigirUsuario } from "@/lib/auth/atual";
+import { podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
 import { diffDaProposta, obterPropostaDoProjeto } from "@/lib/propostas/propostas";
 import { HistoricoVersoes } from "../historico-versoes";
 
@@ -17,7 +18,7 @@ function numero(bruto: string | string[] | undefined): number | undefined | null
 
 /**
  * Diff entre duas versões (GAB-87). Sem `de`: desde a última versão que o
- * lado de quem olha entregou (o "que voltou"). Todos leem.
+ * lado de quem olha entregou (o "que voltou"). Lê quem vê a proposta (GAB-98).
  */
 export default async function DiffPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const eu = await exigirUsuario();
@@ -26,6 +27,7 @@ export default async function DiffPage({ params, searchParams }: { params: Promi
   const de = numero(sp.de);
   const para = numero(sp.para);
   if (de === null || para === null) notFound();
+  if (!(await podeVerPropostaDoProjeto(eu, id))) redirect("/403");
   const [r, d] = await Promise.all([obterPropostaDoProjeto(id), diffDaProposta(id, { de, para, quem: eu.id })]);
   if (!r?.proposta || !d) notFound();
   const rotulo = (v: { numero: number; autor: string; lado: keyof typeof ROTULO_AREA | null }) => `v${v.numero} · ${v.autor}${v.lado ? ` (${ROTULO_AREA[v.lado].toLowerCase()})` : ""}`;

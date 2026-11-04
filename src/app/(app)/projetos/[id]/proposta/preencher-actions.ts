@@ -5,6 +5,7 @@ import { exigirEscrita } from "@/lib/auth/atual";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
 import type { Documento } from "@/lib/propostas/documento";
 import { markdownParaDocumento } from "@/lib/propostas/markdown";
+import { recusaDaProposta } from "@/lib/propostas/acesso";
 import { sugerirDeAnexo } from "@/lib/propostas/preenchimento";
 import type { Sugestao } from "@/lib/propostas/sugestao";
 
@@ -24,6 +25,8 @@ export async function sugerirDeAnexoAction(projetoId: string, anexoId: string): 
   return comTratamento("proposta.sugerirDeAnexo", async (): Promise<RespostaSugestao> => {
     const ator = await exigirEscrita();
     if (!id.safeParse(projetoId).success || !id.safeParse(anexoId).success) return { ok: false, erro: "Dados inválidos." };
+    const recusa = await recusaDaProposta(projetoId, ator);
+    if (recusa) return { ok: false, erro: recusa };
     const r = await sugerirDeAnexo(projetoId, anexoId, ator);
     if (!r.ok) return { ok: false, erro: r.mensagem, ...(r.ref ? { ref: r.ref } : {}) };
     const { markdown, ...resto } = r.sugestao;

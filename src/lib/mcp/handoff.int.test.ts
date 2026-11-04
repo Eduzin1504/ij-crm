@@ -49,7 +49,7 @@ async function semear() {
   });
   const pessoa = async (nome: string, papel: Papel, extra: { area?: Area; cargos?: Cargo[] } = {}): Promise<UsuarioMcp> => {
     const u = await db.usuario.create({ data: { nome, email: `${nome.toLowerCase()}@ij.test`, papel, ...extra } });
-    return { id: u.id, nome: u.nome, papel: u.papel };
+    return { id: u.id, nome: u.nome, papel: u.papel, area: u.area, cargos: u.cargos };
   };
   return {
     vendas,
@@ -100,7 +100,7 @@ describe("MCP do handoff (GAB-93)", () => {
     expect(texto(recusa2)).toContain("Falta:");
 
     expect(dados(await chamar("designar_gp_projeto", { id, gp_id: s.pedro.id }, s.paula))).toMatchObject({ mudou: true });
-    for (const item of ["contatos", "kickoff", "acessos"]) expect(dados(await chamar("marcar_item_handoff", { id, item, feito: true }, s.pedro))).toMatchObject({ mudou: true });
+    for (const item of ["contatos", "kickoff", "acessos"]) expect(dados(await chamar("marcar_item_handoff", { id, item, feito: true }, s.ana))).toMatchObject({ mudou: true });
     expect(dados(await chamar("escrever_resumo_handoff", { id, contexto: "c", combinados: "d", riscos: "r", valoriza: "v" }, s.ana))).toMatchObject({ mudou: true });
     const pdf = Buffer.from(pdfDeTexto(["Contrato"])).toString("base64");
     expect(dados(await chamar("definir_contrato_handoff", { id, pdf_base64: pdf, pdf_nome: "assinado" }, s.ana)).anexo.nome).toBe("assinado.pdf");
@@ -110,9 +110,13 @@ describe("MCP do handoff (GAB-93)", () => {
     expect(fim.checklist.contrato_pdf).toMatchObject({ feito: true, anexo: { nome: "assinado.pdf" } });
     expect(fim.checklist.kickoff.feito).toBe(true);
 
-    expect(dados(await chamar("mover_para_execucao", { id }, s.ana))).toMatchObject({ mudou: true });
+    expect(texto(await chamar("mover_para_execucao", { id }, s.ana))).toMatch(/outra área/); // GAB-98: vendas não move card de Projetos sem ser a responsável
+    expect(dados(await chamar("mover_para_execucao", { id }, s.pedro))).toMatchObject({ mudou: true });
     const c = await db.projeto.findUniqueOrThrow({ where: { id }, include: { fase: true } });
     expect(c.fase.marco).toBe("EXECUCAO");
+    // Saiu de Handoff: a regra volta ao normal para Vendas.
+    expect((await chamar("marcar_item_handoff", { id, item: "kickoff", feito: false }, s.ana)).isError).toBe(true);
+    expect(texto(await chamar("atualizar_projeto", { id, campos: { cidade: "Santos" } }, s.ana))).toMatch(/outra área/);
     expect(c.responsavelId).toBe(s.pedro.id);
     const tl = await db.timeline.findMany({ where: { projetoId: id, tipo: "HANDOFF" } });
     expect(tl.length).toBeGreaterThan(4);
@@ -151,5 +155,22 @@ describe("MCP do handoff (GAB-93)", () => {
     expect(texto(await chamar("ler_handoff", { id: c.id }, s.ana))).toContain("o handoff começa no Ganho");
     await moverCard(c.id, s.vendas.fases.find((f) => f.chave === "contrato_assinado")!.id, s.ana, { dadosTerminal: { valorFechado: "" } });
     expect(dados(await chamar("ler_handoff", { id: c.id }, s.ana))).toMatchObject({ editavel: true });
+  });
+});
+
+describe("GAB-98: handoff é etapa conjunta de Projetos + Vendas", () => {
+  it("vendedor não responsável e gestor de vendas marcam item e definem o contrato em Handoff; em Execução, recusados", async () => {
+    const gina = await db.usuario.create({ data: { nome: "Gina", email: "gina@ij.test", papel: "GESTOR", area: "VENDAS" } });
+    const gestorVendas = { id: gina.id, nome: gina.nome, papel: gina.papel, area: gina.area, cargos: gina.cargos };
+    await db.projeto.update({ where: { id }, data: { responsavelId: s.pedro.id } }); // Ana deixa de ser a responsável
+    // GP designado: ele vira o responsável, e a vendedora deixa de ser.
+    expect(dados(await chamar("designar_gp_projeto", { id, gp_id: s.pedro.id }, s.paula))).toMatchObject({ mudou: true });
+    const pdf = Buffer.from(pdfDeTexto(["Contrato"])).toString("base64");
+    for (const quem of [s.ana, gestorVendas]) {
+      expect((await chamar("marcar_item_handoff", { id, item: "kickoff", feito: quem === s.ana }, quem)).isError).toBeFalsy();
+      expect((await chamar("definir_contrato_handoff", { id, pdf_base64: pdf, pdf_nome: quem.nome }, quem)).isError).toBeFalsy();
+      expect(texto(await chamar("mover_para_execucao", { id }, quem))).toMatch(/outra área/);
+    }
+    expect(texto(await chamar("marcar_item_handoff", { id, item: "kickoff", feito: true }, s.vera))).toBe(SO_LEITURA);
   });
 });

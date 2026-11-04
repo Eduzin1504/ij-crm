@@ -260,7 +260,8 @@ describe("inviável", () => {
     expect(await proposta(projeto.id)).toMatchObject({ status: "INVIAVEL", motivoInviavel: "Prazo impossível para o escopo", canetaComId: null });
     const p = await db.projeto.findUniqueOrThrow({ where: { id: projeto.id } });
     expect(p.faseId).toBe(vendas.fases[1].id);
-    expect(p.motivoPerda).toBe("Outro: Proposta inviável: Prazo impossível para o escopo");
+    // GAB-98: o card é aberto a todos; o motivo fica só na proposta.
+    expect(p.motivoPerda).toBe("Outro: Proposta inviável");
     expect(await db.transicaoFase.count({ where: { projetoId: projeto.id, paraFaseId: vendas.fases[1].id } })).toBe(1);
     expect(await db.propostaCaneta.count({ where: { fim: null } })).toBe(0);
     const tl = await db.timeline.findMany({ where: { projetoId: projeto.id }, orderBy: { em: "asc" } });

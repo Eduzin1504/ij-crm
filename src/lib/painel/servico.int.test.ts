@@ -261,7 +261,7 @@ describe("MCP consultar_painel_vendas: mesmos números da tela", () => {
     const s = await cenario();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(AGORA);
-    const eu = { id: s.ana.id, nome: "Ana", papel: "VENDEDOR" as const };
+    const eu = { id: s.ana.id, nome: "Ana", papel: "VENDEDOR" as const, area: null, cargos: [] };
     const r = await executarFerramenta("consultar_painel_vendas", { periodo: "mes", ref: "2026-10-15" }, eu);
     expect(r.isError).toBeFalsy();
     const mcp = JSON.parse(texto(r));
@@ -278,10 +278,10 @@ describe("MCP consultar_painel_vendas: mesmos números da tela", () => {
   it("vendedor desconhecido: erro claro; VISUALIZADOR pode consultar (leitura)", async () => {
     const s = await cenario();
     const vera = await db.usuario.create({ data: { nome: "Vera", email: "vera@ij.test", papel: "VISUALIZADOR" } });
-    const r = await executarFerramenta("consultar_painel_vendas", { vendedor_id: "nao-existe" }, { id: s.ana.id, nome: "Ana", papel: "VENDEDOR" });
+    const r = await executarFerramenta("consultar_painel_vendas", { vendedor_id: "nao-existe" }, { id: s.ana.id, nome: "Ana", papel: "VENDEDOR", area: null, cargos: [] });
     expect(r.isError).toBe(true);
     expect(texto(r)).toContain("Vendedor não encontrado");
-    const v = await executarFerramenta("consultar_painel_vendas", { indicador: "satisfacao" }, { id: vera.id, nome: "Vera", papel: "VISUALIZADOR" });
+    const v = await executarFerramenta("consultar_painel_vendas", { indicador: "satisfacao" }, { id: vera.id, nome: "Vera", papel: "VISUALIZADOR", area: null, cargos: [] });
     expect(v.isError).toBeFalsy();
   });
 });
@@ -357,7 +357,7 @@ describe("visibilidade: segue o \"Mostrar ranking aos vendedores\" (review do PR
     await esconderRanking();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(AGORA);
-    const eu = { id: s.bia.id, nome: "Bia", papel: "VENDEDOR" as const };
+    const eu = { id: s.bia.id, nome: "Bia", papel: "VENDEDOR" as const, area: null, cargos: [] };
     const outro = await executarFerramenta("consultar_painel_vendas", { vendedor_id: s.ana.id, ref: "2026-10-15" }, eu);
     expect(outro.isError).toBe(true);
     expect(texto(outro)).toContain("ocultou o ranking");

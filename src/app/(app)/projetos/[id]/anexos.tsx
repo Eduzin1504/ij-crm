@@ -20,8 +20,11 @@ async function enviar(cardId: string, arquivo: File): Promise<FalhaUI | null> {
   return r.ok ? null : r.falha;
 }
 
-/** Bloco "Anexos" do Projeto (GAB-84): lista com download e texto extraído; quem escreve anexa e exclui. */
-export function AnexosDoProjeto({ cardId, anexos, somenteLeitura }: { cardId: string; anexos: AnexoDoProjeto[]; somenteLeitura: boolean }) {
+/**
+ * Bloco "Anexos" do Projeto (GAB-84): lista com download e texto extraído. Quem escreve anexa
+ * (de fora da área também); exclui quem edita o card (`excluiDeTodos`, o padrão) ou o autor do anexo (GAB-98).
+ */
+export function AnexosDoProjeto({ cardId, anexos, somenteLeitura, excluiDeTodos = true, euId }: { cardId: string; anexos: AnexoDoProjeto[]; somenteLeitura: boolean; excluiDeTodos?: boolean; euId?: string }) {
   const router = useRouter();
   const campo = useRef<HTMLInputElement>(null);
   const [erro, setErro] = useState<FalhaUI | null>(null);
@@ -86,7 +89,7 @@ export function AnexosDoProjeto({ cardId, anexos, somenteLeitura }: { cardId: st
                     )}
                   </p>
                 </div>
-                {somenteLeitura ? null : (
+                {somenteLeitura || !(excluiDeTodos || a.autor.id === euId) ? null : (
                   <AcaoConfirmada
                     rotulo={
                       <>

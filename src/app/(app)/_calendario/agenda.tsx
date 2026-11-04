@@ -1,5 +1,6 @@
 "use client";
 
+import { Avatar } from "@/components/kanban/avatar";
 import Link from "next/link";
 import { cn } from "cn";
 import { COR_ACAO, COR_ACAO_VENCIDA } from "@/components/calendario/mini-card-acao";
@@ -13,11 +14,14 @@ import { useEditorPrazo } from "./editor-prazo";
 export function Agenda({
   dias,
   hoje,
+  donoDaAgenda = null,
   rotulo = "Esta semana",
   vazio = "Nada nesta semana.",
 }: {
   dias: DiaAgrupado<AcaoItem, PrazoItem>[];
   hoje: string;
+  /** De quem é a agenda: o prazo de outra pessoa (no card dela) mostra o avatar. */
+  donoDaAgenda?: string | null;
   /** Cabeçalho: "Esta semana", "Este mês", "Próximos 15 dias"… */
   rotulo?: string;
   vazio?: string;
@@ -61,6 +65,7 @@ export function Agenda({
                     <span className={cn("min-w-0 flex-1 truncate pl-1 text-[13px] leading-relaxed", p.estado === "feito" ? "text-fg-faint line-through" : p.estado === "vencido" ? "text-primary" : "text-foreground")}>
                       {p.titulo}
                     </span>
+                    {donoDaAgenda !== null && p.responsavel.id !== donoDaAgenda ? <Avatar nome={p.responsavel.nome} usuarioId={p.responsavel.id} fotoEm={p.responsavel.fotoEm} className="size-4 text-[8px]" /> : null}
                     <span className={cn("shrink-0 font-mono text-[10px]", p.estado === "vencido" ? "text-primary" : "text-fg-mute")}>
                       {p.estado === "feito" ? "feito" : p.estado === "vencido" ? "vencido" : "prazo"}
                     </span>

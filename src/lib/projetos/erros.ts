@@ -24,6 +24,8 @@ export type ErroProjeto =
   | "FASE_EXECUCAO_INDISPONIVEL"
   /** Ator VISUALIZADOR (somente leitura). */
   | "SEM_PERMISSAO"
+  /** GAB-98: card de outra área; quem é de fora comenta, cria prazo e anexa (`acesso-card.ts`). */
+  | "FORA_DA_AREA"
   | ErroDadosTerminal;
 
 /** Lançado dentro da transação: aborta (rollback) e vira `{ ok: false, erro }`. */
@@ -57,6 +59,7 @@ export const MENSAGEM_ERRO_PROJETO: Record<ErroProjeto, string> = {
   MOTIVO_PERDA_INVALIDO: "Motivo da perda inválido.",
   MOTIVO_PERDA_DETALHE_OBRIGATORIO: "Em “Outro”, descreva o motivo da perda.",
   SEM_PERMISSAO: "Seu acesso é só de visualização.",
+  FORA_DA_AREA: "Este card é de outra área: mover de fase e editar os dados ficam com a área dona e o responsável. Você pode comentar, criar prazo e anexar.",
   PROPOSTA_NAO_ACEITA:
     "Montando contrato (e o que vem depois dele) só com a proposta aceita pelo cliente — nem a gestão força. Registre o aceite na proposta do projeto: ele já leva o card para Montando contrato.",
   GANHO_SO_DE_MONTANDO_CONTRATO: "Ganho (contrato assinado) só a partir de Montando contrato — nem a gestão força. Leve o card para Montando contrato e marque “Contrato assinado” de lá.",

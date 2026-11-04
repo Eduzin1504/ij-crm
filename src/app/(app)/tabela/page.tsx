@@ -6,7 +6,7 @@ import { cn } from "cn";
 import { PageHeader } from "@/components/shell/page-header";
 import { DiasNaFase } from "@/components/kanban/aging";
 import { Button } from "@/components/ui/button";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirItem } from "@/lib/auth/atual";
 import { listarPipelines } from "@/lib/fases/fases";
 import { estadoProximaAcao } from "@/lib/projetos/aging";
 import { ROTULO_ORIGEM } from "@/lib/projetos/campos";
@@ -45,7 +45,7 @@ const COLUNAS: Coluna[] = [
 ];
 
 export default async function TabelaPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const usuario = await exigirUsuario();
+  const usuario = await exigirItem("tabela");
   const estado = lerEstado(paramsDeRegistro(await searchParams));
   const agora = agoraDoRequest();
   const [pipelines, pessoas, pagina] = await Promise.all([listarPipelines(), listarPessoas(), listarTabela(estado, agora)]);

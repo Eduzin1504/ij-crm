@@ -180,6 +180,18 @@ O kanban interno de cada projeto (só o time de projetos vê) tem spec própria:
   Valores antigos `vendas` e `projetos` passam a significar `kanban`.
 - **Calendário:** "pessoas da área" = mesmo `ladoDe` do gestor. "Atribuído" = é o
   responsável do prazo ou do card. Minha Semana não muda.
+- **Trocar o responsável (GAB-98):** dá acesso à proposta, então é mais estrito que editar o card: o
+  responsável atual, o GP do lado dono, gestor da área dona ou sem área, e admin. A automação fica de fora.
+- **Motivo de inviável (GAB-98):** o card grava só "Outro: Proposta inviável"; o motivo fica em
+  `proposta.motivoInviavel`. Linhas antigas de `motivoPerda` e da Timeline são mascaradas na leitura para
+  quem não vê a proposta, sem migration de dados. O `detalhe` da recusa do cliente continua no card, como
+  está: é a razão da perda, escrita por vendas, e não o conteúdo da proposta.
+- **Handoff é etapa conjunta (GAB-98):** o fluxo da seção 2 define "Projetos + Vendas: handoff e kickoff".
+  Enquanto o card está em Handoff, itens do checklist e PDF do contrato ficam abertos a quem edita o card e a
+  quem é de Vendas, com escrita; visualizador não. Mover para Execução continua com Projetos ou o responsável, e
+  mover para Perdido segue a regra normal de mover. Depois de sair de Handoff, vale a regra normal.
+- **Anexos (GAB-98), decisão provisória, em aberto com o dono do produto:** anexos ficam como estão, lidos
+  por quem vê o card, mesmo que o arquivo seja uma proposta. Não há categoria de anexo.
 - **Automação (#crm no WhatsApp) e MCP:** o MCP segue as mesmas regras da tela. A
   automação pelo WhatsApp não é restringida por área neste passo.
 

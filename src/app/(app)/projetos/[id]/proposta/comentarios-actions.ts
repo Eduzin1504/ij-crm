@@ -7,9 +7,8 @@ import { CONTEXTO_ANCORA, TRECHO_MAX } from "@/lib/propostas/ancora";
 import { COMENTARIO_MAX, comentar, MENSAGEM_ERRO_COMENTARIO, reabrirComentario, resolverComentario, responderComentario, type ErroComentario } from "@/lib/propostas/comentarios";
 
 /**
- * Comentários da proposta (GAB-91). `exigirUsuario`, não `exigirEscrita`:
- * qualquer usuário logado comenta (§4.6; VISUALIZADOR também — ver
- * `lib/propostas/comentarios.ts`); o serviço confere se está ativo.
+ * Comentários da proposta (GAB-91). O serviço confere se a pessoa está ativa e
+ * vê a proposta (GAB-98, `lib/propostas/comentarios.ts`), para a tela e o MCP.
  * Sem revalidatePath: a tela atualiza pelo polling (e já recarrega na hora).
  */
 export type RespostaComentario = { ok: true } | { ok: false; erro: string } | Inesperado;

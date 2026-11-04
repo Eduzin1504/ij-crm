@@ -92,7 +92,7 @@ describe("carregarSemana", () => {
 describe("resolverVendedor (filtro de vendedor)", () => {
   it("vendedor pedindo outro id vê só a própria semana", async () => {
     const s = await semear();
-    const r = await resolverVendedor({ id: s.ana.id, papel: "VENDEDOR" }, s.bruno.id);
+    const r = await resolverVendedor({ id: s.ana.id, papel: "VENDEDOR", area: null, cargos: [] }, s.bruno.id);
     expect(r.alvo).toEqual({ id: s.ana.id, nome: "Ana Vendas" });
     expect(r.podeTrocar).toBe(false);
     expect(r.opcoes).toEqual([]);
@@ -100,31 +100,42 @@ describe("resolverVendedor (filtro de vendedor)", () => {
 
   it("gestor e admin escolhem qualquer usuário ativo; opções sem inativos", async () => {
     const s = await semear();
-    const g = await resolverVendedor({ id: s.gestora.id, papel: "GESTOR" }, s.bruno.id);
+    const g = await resolverVendedor({ id: s.gestora.id, papel: "GESTOR", area: null, cargos: [] }, s.bruno.id);
     expect(g.alvo).toEqual({ id: s.bruno.id, nome: "Bruno Lima" });
     expect(g.podeTrocar).toBe(true);
     expect(g.opcoes.map((o) => o.nome)).toEqual(["Alice Admin", "Ana Vendas", "Bruno Lima", "Gil Gestora"]);
 
-    const a = await resolverVendedor({ id: s.admin.id, papel: "ADMIN" }, s.ana.id);
+    const a = await resolverVendedor({ id: s.admin.id, papel: "ADMIN", area: null, cargos: [] }, s.ana.id);
     expect(a.alvo.id).toBe(s.ana.id);
   });
 
   it("gestor pedindo inativo, inexistente ou nada → a própria semana", async () => {
     const s = await semear();
     for (const pedido of [s.inativo.id, "nao-existe", undefined, ""]) {
-      const r = await resolverVendedor({ id: s.gestora.id, papel: "GESTOR" }, pedido);
+      const r = await resolverVendedor({ id: s.gestora.id, papel: "GESTOR", area: null, cargos: [] }, pedido);
       expect(r.alvo.id).toBe(s.gestora.id);
     }
   });
 
-  it("VISUALIZADOR troca de semana, não está nas opções e, sem pedido válido, abre na do primeiro da lista", async () => {
+  it("GAB-98: gestor com área só troca para o mesmo lado; pedido forjado de outro lado cai na própria semana", async () => {
+    const s = await semear();
+    const pam = await db.usuario.create({ data: { nome: "Pam Projetos", email: "pam@ij.test", papel: "PROJETOS", area: "PROJETOS" } });
+    const gv = { id: s.gestora.id, papel: "GESTOR" as const, area: "VENDAS" as const, cargos: [] };
+    await db.usuario.update({ where: { id: s.gestora.id }, data: { area: "VENDAS" } });
+    const r = await resolverVendedor(gv, s.bruno.id);
+    expect(r.alvo.id).toBe(s.bruno.id);
+    expect(r.opcoes.map((o) => o.nome)).toEqual(["Ana Vendas", "Bruno Lima", "Gil Gestora"]);
+    expect((await resolverVendedor(gv, pam.id)).alvo.id).toBe(s.gestora.id);
+    expect((await resolverVendedor(gv, s.admin.id)).alvo.id).toBe(s.gestora.id);
+    const gp = { id: pam.id, papel: "PROJETOS" as const, area: "PROJETOS" as const, cargos: ["GP" as const] };
+    expect(await resolverVendedor(gp, s.bruno.id)).toEqual({ alvo: { id: pam.id, nome: "Pam Projetos" }, podeTrocar: false, opcoes: [] });
+  });
+
+  it("GAB-98: VISUALIZADOR não troca nem vê a semana de ninguém (e a rota barra antes)", async () => {
     const s = await semear();
     const vera = await db.usuario.create({ data: { nome: "Vera Visualizadora", email: "vera@ij.test", papel: "VISUALIZADOR" } });
-    const r = await resolverVendedor({ id: vera.id, papel: "VISUALIZADOR" }, s.bruno.id);
-    expect(r.alvo).toEqual({ id: s.bruno.id, nome: "Bruno Lima" });
-    expect(r.podeTrocar).toBe(true);
-    expect(r.opcoes.map((o) => o.nome)).toEqual(["Alice Admin", "Ana Vendas", "Bruno Lima", "Gil Gestora"]);
-    for (const pedido of [vera.id, undefined]) expect((await resolverVendedor({ id: vera.id, papel: "VISUALIZADOR" }, pedido)).alvo.nome).toBe("Alice Admin");
+    const r = await resolverVendedor({ id: vera.id, papel: "VISUALIZADOR", area: null, cargos: [] }, s.bruno.id);
+    expect(r).toEqual({ alvo: { id: vera.id, nome: "Vera Visualizadora" }, podeTrocar: false, opcoes: [] });
   });
 });
 

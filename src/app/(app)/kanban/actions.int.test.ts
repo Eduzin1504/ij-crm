@@ -153,18 +153,23 @@ describe("papel VISUALIZADOR (somente leitura)", () => {
 });
 
 describe("papel PROJETOS (GAB-82): mesmas permissões de card do vendedor", () => {
-  it("actions: criar, editar, mover e comentar gravam; aparece entre os responsáveis e pode assumir card", async () => {
-    const { p, fase, u } = await semear();
-    const outra = await db.fase.create({ data: { pipelineId: p.id, chave: "proposta", nome: "Proposta", ordem: 1 } });
+  it("actions no quadro da própria área: criar, editar, mover e comentar gravam; aparece entre os responsáveis e recebe card", async () => {
+    const { u } = await semear();
+    const p = await db.pipeline.create({ data: { chave: "projetos", nome: "Projetos", ordem: 1, fases: { create: [{ chave: "handoff", nome: "Handoff", ordem: 0 }] } }, include: { fases: true } });
+    const fase = p.fases[0];
+    const outra = await db.fase.create({ data: { pipelineId: p.id, chave: "execucao", nome: "Execução", ordem: 1 } });
     const pedro = await db.usuario.create({ data: { nome: "Pedro Projetos", email: "pedro@ij.test", papel: "PROJETOS", area: "PROJETOS" } });
     const c = await db.projeto.create({ data: { titulo: "Padaria", pipelineId: p.id, faseId: fase.id, responsavelId: u.id, criadoVia: "UI" } });
-    exigirUsuario.mockResolvedValue({ id: pedro.id, papel: "PROJETOS" });
+    exigirUsuario.mockResolvedValue({ id: pedro.id, papel: "PROJETOS", area: "PROJETOS", cargos: [] });
 
     expect(await criarCardAction(p.id, fase.id, "Do time de projetos")).toMatchObject({ ok: true });
     expect(await editarCampoAction(c.id, "titulo", "Padaria Nova")).toEqual({ ok: true });
     expect(await moverCardAction(c.id, outra.id)).toMatchObject({ ok: true });
     expect(await adicionarNotaAction(c.id, "escopo ok")).toMatchObject({ ok: true });
     expect((await listarResponsaveis()).map((r) => r.id).sort()).toEqual([u.id, pedro.id].sort());
+    // GAB-98: assumir o card é com o responsável atual, o GP do lado dono ou a gestão.
+    expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toMatchObject({ erro: expect.stringContaining("responsável") });
+    exigirUsuario.mockResolvedValue({ id: u.id, papel: "VENDEDOR", area: "VENDAS", cargos: [] });
     expect(await editarCampoAction(c.id, "responsavelId", pedro.id)).toEqual({ ok: true });
 
     const card = await db.projeto.findUniqueOrThrow({ where: { id: c.id } });
