@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 16 (App Router, server actions), Prisma 6 + PostgreSQL, `@dnd-kit/core` 6.3 (já instalado), zod, Vitest (unit + `*.int.test.ts` em schema isolado).
 
-**Spec:** `docs/superpowers/specs/2026-11-04-kanban-interno-projeto-spec.md` (cópia da spec entregue). Esta é a **Etapa 1** da ordem de entrega da spec: modelo, acesso e quadro (status, responsável, prazo, arrastar, separar por pessoa). Prioridade, etiquetas, lista, filtros, atalhos (Etapa 2) e subtarefas, comentários, atividade (Etapa 3) ficam para PRs seguintes; o modelo já nasce com todas as colunas para não migrar duas vezes.
+**Spec:** `docs/superpowers/specs/2026-11-04-kanban-interno-projeto-design.md` (a spec, já no `main`). Esta é a **Etapa 1** da ordem de entrega da spec: modelo, acesso e quadro (status, responsável, prazo, arrastar, separar por pessoa). Prioridade, etiquetas, lista, filtros, atalhos (Etapa 2) e subtarefas, comentários, atividade (Etapa 3) ficam para PRs seguintes; o modelo já nasce com todas as colunas para não migrar duas vezes.
 
 ## Global Constraints
 
