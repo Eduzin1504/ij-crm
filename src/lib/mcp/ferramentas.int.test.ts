@@ -513,7 +513,7 @@ describe("caneta via MCP (GAB-87): mesmas regras e permissões da tela", () => {
     expect(dados(await executarFerramenta("devolver_proposta", { projeto_id: id, revisao: 3, para_id: vendedora.id }, projetos))).toMatchObject({ status: "Em ajuste", canetaCom: "Ana", versao: 2 });
 
     const diff = dados(await executarFerramenta("ver_diff_proposta", { projeto_id: id }, vendedora));
-    expect(diff).toMatchObject({ de: { versao: 1, lado: "Vendas" }, para: { versao: 2, lado: "Projetos" }, texto: "- Site com 5 páginas.\n+ Site com 8 páginas." });
+    expect(diff).toMatchObject({ de: { versao: 1, lado: "Vendas" }, para: { versao: 2, lado: "Projetos" }, texto: "- Site com 5 páginas.\n+ Site com 8 páginas.\n  [Bloco Cronograma]\n  [Bloco Investimento]" });
     expect((await executarFerramenta("ver_diff_proposta", { projeto_id: id, de: 7 }, vendedora)).isError).toBe(true);
 
     // concordar com revisão velha → conflito; com a atual → pronta

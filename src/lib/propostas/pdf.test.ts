@@ -44,7 +44,8 @@ describe("documentoPdfDaProposta", () => {
           ["Protótipo", "01/12/2026", "R$ 5.000,00"],
           ["Site no ar", "15/01/2027", "—"],
         ],
-        total: ["Total", "60 dias corridos", "R$ 5.000,00"],
+        // Uma entrega sem parcela: a soma não é o total da proposta, e a tabela não afirma isso.
+        total: ["Total", "60 dias corridos", ""],
       },
       { tipo: "titulo", nivel: 2, trechos: [{ texto: "Investimento" }] },
       { tipo: "paragrafo", semRecuo: true, trechos: [{ texto: "Total em valores: R$ 12.500,00", negrito: true }] },
@@ -70,6 +71,24 @@ describe("documentoPdfDaProposta", () => {
       estruturado: { valor: null, prazoDias: null, escopoResumo: null, entregas: [{ titulo: "Um", dia: null, duracao: "2 semanas", valor: null }, { titulo: "Dois", dia: null, duracao: "1 semana", valor: null }] },
     });
     expect(d.blocos[1]).toMatchObject({ colunas: [{ titulo: "Etapas Principais" }, { titulo: "Duração" }], linhas: [["Um", "2 semanas"], ["Dois", "1 semana"]], total: ["Total", "3 semanas"] });
+  });
+
+  it("os totais da tabela nunca contradizem o bloco Investimento", () => {
+    const total = (valor: string | null, prazoDias: number | null, entregas: { duracao: string; valor: string | null }[]) => {
+      const d = documentoPdfDaProposta({ ...base, markdown: "<!-- bloco:cronograma -->", estruturado: { valor, prazoDias, escopoResumo: null, entregas: entregas.map((e, i) => ({ titulo: `E${i}`, dia: null, ...e })) } });
+      return (d.blocos[1] as { total?: string[] }).total;
+    };
+    const duas = [{ duracao: "2 semanas", valor: "1000.00" }, { duracao: "1 semana", valor: "500.00" }];
+    expect(total("1500.00", 21, duas)).toEqual(["Total", "3 semanas", "R$ 1.500,00"]);
+    expect(total("2000.00", 21, duas)).toEqual(["Total", "3 semanas", ""]);
+    expect(total("1500.00", 30, duas)).toEqual(["Total", "", "R$ 1.500,00"]);
+    expect(total("2000.00", 30, duas)).toBeUndefined();
+    expect(total(null, null, duas)).toEqual(["Total", "3 semanas", ""]);
+  });
+
+  it("prévia do rascunho traz a marca visível; versão não", () => {
+    expect(documentoPdfDaProposta({ ...base, numero: null }).marca).toMatch(/^RASCUNHO/);
+    expect(documentoPdfDaProposta(base).marca).toBeUndefined();
   });
 
   it("sem parte estruturada: só o texto (bloco vazio não sai); sem empresa: o projeto na capa", () => {

@@ -31,6 +31,8 @@ export type DocumentoPdf = {
   /** Linhas abaixo do título (cliente, versão, data…). */
   subtitulo?: string[];
   capa?: CapaPdf;
+  /** Aviso visível em toda página (prévia que não é a versão final). */
+  marca?: string;
   blocos: BlocoPdf[];
   /** Metadados do arquivo. */
   autor?: string;
@@ -89,7 +91,7 @@ export type TemplatePdf = {
   rodape?: (p: Pincel, ctx: ContextoPagina) => void;
 };
 
-export type ContextoPagina = { pagina: number; total: number; largura: number; altura: number; titulo: string };
+export type ContextoPagina = { pagina: number; total: number; largura: number; altura: number; titulo: string; marca?: string };
 
 export type Pincel = {
   /** Texto numa linha (sem quebra), `x` à esquerda ou alinhado à direita/centro de `x`. */

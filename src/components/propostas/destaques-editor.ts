@@ -15,8 +15,7 @@ import { Extension } from "@tiptap/core";
 import type { Node as NoPM } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { criarAncora, localizarAncora, normalizarBloco, type Ancora } from "@/lib/propostas/ancora";
-import { TITULO_BLOCO_DADOS } from "@/lib/propostas/blocos-dados";
+import { criarAncora, localizarAncora, normalizarBloco, TOKEN_BLOCO, type Ancora } from "@/lib/propostas/ancora";
 import type { TipoBlocoDados } from "@/lib/propostas/documento";
 
 export type DestaqueEditor = { id: string; ancora: Ancora };
@@ -35,11 +34,11 @@ export function planoDoEditor(doc: NoPM): { texto: string; segmentos: SegmentoPM
   let texto = "";
   const segmentos: SegmentoPM[] = [];
   doc.descendants((no, pos) => {
-    // Bloco móvel (GAB-100): o título fixo no texto plano, como em `textoPlano`; todo caractere aponta para o nó.
+    // Bloco móvel (GAB-100): o caractere reservado no texto plano, como em `textoPlano`.
     if (no.type.name === "blocoDados") {
-      const t = TITULO_BLOCO_DADOS[no.attrs.tipo as TipoBlocoDados];
+      const t = TOKEN_BLOCO[no.attrs.tipo as TipoBlocoDados];
       if (texto) texto += "\n";
-      segmentos.push({ plano: texto.length, tamanho: t.length, posicoes: Array.from({ length: t.length }, () => pos), atomo: true });
+      segmentos.push({ plano: texto.length, tamanho: t.length, posicoes: [pos], atomo: true });
       texto += t;
       return false;
     }

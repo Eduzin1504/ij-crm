@@ -216,7 +216,7 @@ export function PreencherDeArquivo({
               <DocumentoView documento={sugestao.documento} />
             </div>
           </div>
-          <p className="text-xs text-warn">Aplicar substitui o texto atual do rascunho (salve uma versão antes se quiser guardar o atual). Dados em branco acima ficam como estão.</p>
+          <p className="text-xs text-warn">Aplicar substitui o texto atual do rascunho (salve uma versão antes se quiser guardar o atual). Dados em branco acima ficam como estão. Os blocos Cronograma e Investimento que estão na folha continuam nela, no fim do texto novo.</p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setSugestao(null)}>
               Descartar

@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronUp, MessageSquare, MessageSquarePlus, Rotate
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { formatarDataHora } from "@/lib/projetos/formatar";
+import { trechoLegivel } from "@/lib/propostas/ancora";
 import { posicoesNaMargem } from "@/lib/propostas/margem";
 import { COMENTARIO_MAX } from "@/lib/propostas/comentarios-limites";
 import { comentarAction, resolverComentarioAction, responderComentarioAction, type RespostaComentario } from "./comentarios-actions";
@@ -49,8 +50,9 @@ function CampoTexto({ valor, mudar, rotulo, campo }: { valor: string; mudar: (v:
 
 function Thread({ t, topo }: { t: ThreadJson; topo?: number }) {
   const c = useComentarios()!;
-  const [respondendo, setRespondendo] = useState(false);
-  const [resposta, setResposta] = useState("");
+  const resposta = c.rascunhos[t.id] ?? "";
+  const setResposta = (v: string) => c.escreverRascunho(t.id, v);
+  const [respondendo, setRespondendo] = useState(resposta !== "");
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, startTransition] = useTransition();
   const alterado = c.alterado(t);
@@ -88,7 +90,7 @@ function Thread({ t, topo }: { t: ThreadJson; topo?: number }) {
           title={alterado ? "O trecho foi editado ou apagado do texto" : "Mostrar o trecho no texto"}
           className="mb-2 block w-full rounded-md border-l-2 border-warn bg-surface-hover/60 px-2 py-1 text-left text-xs text-fg-mute"
         >
-          <span className="line-clamp-3 break-words italic">“{t.ancora.trecho}”</span>
+          <span className="line-clamp-3 break-words italic">“{trechoLegivel(t.ancora.trecho)}”</span>
           {alterado ? <span className="mt-1 inline-block rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[10px] text-foreground not-italic uppercase">trecho alterado</span> : null}
         </button>
       ) : (
@@ -231,7 +233,8 @@ function usePosicoes(lista: React.RefObject<HTMLUListElement | null>, threads: T
  */
 export function PainelComentarios({ alinhar = false }: { alinhar?: boolean }) {
   const c = useComentarios();
-  const [texto, setTexto] = useState("");
+  const texto = c?.rascunhos.novo ?? "";
+  const setTexto = (v: string) => c?.escreverRascunho("novo", v);
   const [erro, setErro] = useState<string | null>(null);
   const [verResolvidos, setVerResolvidos] = useState(false);
   const [ocupado, startTransition] = useTransition();
@@ -247,6 +250,12 @@ export function PainelComentarios({ alinhar = false }: { alinhar?: boolean }) {
   useEffect(() => {
     if (pedidoFoco > 0) campo.current?.focus({ preventScroll: alinhar });
   }, [pedidoFoco, alinhar]);
+
+  // Abriu o painel no celular a partir de um trecho: mostra o comentário dele.
+  const ativo = c?.ativo ?? null;
+  useEffect(() => {
+    if (!alinhar && ativo) document.getElementById(`comentario-${ativo}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [alinhar, ativo]);
 
   if (!c) return null;
   const comForm = !alinhar || formAberto || !!c.citado || texto.trim() !== "";
@@ -321,7 +330,7 @@ export function PainelComentarios({ alinhar = false }: { alinhar?: boolean }) {
           >
             {c.citado ? (
               <div className="flex items-start gap-1 rounded-md border-l-2 border-warn bg-surface-hover/60 px-2 py-1 text-xs text-fg-mute">
-                <span className="line-clamp-3 flex-1 break-words italic">“{c.citado.trecho}”</span>
+                <span className="line-clamp-3 flex-1 break-words italic">“{trechoLegivel(c.citado.trecho)}”</span>
                 <button type="button" aria-label="Tirar o trecho citado" className="text-fg-faint hover:text-foreground" onClick={() => c.citar(null)}>
                   <X className="size-3.5" />
                 </button>

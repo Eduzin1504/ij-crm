@@ -26,6 +26,9 @@ import type { BlocoPdf, ContextoPagina, Cor, DocumentoPdf, EstiloTexto, Pincel, 
  */
 const SEM_LAYOUT = { calt: false, liga: false, clig: false, kern: false, ccmp: false, locl: false, mark: false, mkmk: false, rlig: false, dlig: false } as const;
 
+const PAD_TABELA_V = 4;
+const PAD_TABELA_H = 5;
+
 type Fontes = { regular: PDFFont; negrito: PDFFont; italico: PDFFont; negritoItalico: PDFFont; capa?: { regular: PDFFont; negrito: PDFFont } };
 
 const cor = (c: Cor) => rgb(c.r, c.g, c.b);
@@ -262,14 +265,14 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
     });
   };
 
-  const textoCorrido = (trechos: Trecho[], estilo: EstiloTexto, xBase: number, larguraBase: number, primeiro: boolean, semRecuo = false) => {
+  const textoCorrido = (trechos: Trecho[], estilo: EstiloTexto, xBase: number, larguraBase: number, primeiro: boolean, semRecuo = false, reservaDepois = 0) => {
     const x = xBase + (estilo.recuo ?? 0);
     const largura = larguraBase - (estilo.recuo ?? 0);
     const recuoPrimeira = semRecuo ? 0 : (estilo.recuoPrimeira ?? 0);
     const linhas = quebrarLinhas(trechos, estilo, f, limpar, largura, recuoPrimeira);
     if (!primeiro) y -= estilo.antes;
     // Título nunca fica sozinho no pé da página: leva junto o começo do que vem depois.
-    if (estilo !== est.texto && estilo !== est.rotulo) caber(estilo.tamanho * estilo.entrelinha * linhas.length + est.texto.tamanho * est.texto.entrelinha * 2);
+    if (estilo !== est.texto && estilo !== est.rotulo) caber(estilo.tamanho * estilo.entrelinha * linhas.length + estilo.depois + reservaDepois);
     desenharLinhas(linhas, estilo, x, largura, recuoPrimeira);
     y -= estilo.depois;
   };
@@ -281,11 +284,35 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   const nAbertura = blocos.length;
   blocos.push(...doc.blocos);
 
+  const estiloDoTitulo = (nivel: 1 | 2 | 3) => (nivel === 1 ? est.titulo1 : nivel === 2 ? est.titulo2 : est.titulo3);
+  const alturaDaLinhaDeTabela = (b: Extract<BlocoPdf, { tipo: "tabela" }>, textos: string[], negrito: boolean) =>
+    Math.max(1, ...textos.map((t, i) => quebrarLinhas([{ texto: t, negrito }], est.tabela, f, limpar, b.colunas[i].largura * larguraUtil - PAD_TABELA_H * 2).length)) * est.tabela.tamanho * est.tabela.entrelinha + PAD_TABELA_V * 2;
+
+  /** Altura real do começo do bloco, para o título que vem antes não ficar órfão no pé da página. */
+  const alturaDoComeco = (b: BlocoPdf | undefined): number => {
+    const linhaDeTexto = est.texto.tamanho * est.texto.entrelinha;
+    switch (b?.tipo) {
+      case undefined:
+        return 0;
+      case "titulo": {
+        const e = estiloDoTitulo(b.nivel);
+        return e.antes + e.tamanho * e.entrelinha + e.depois;
+      }
+      case "tabela":
+        return est.tabela.antes + alturaDaLinhaDeTabela(b, b.colunas.map((c) => c.titulo), true) + alturaDaLinhaDeTabela(b, b.linhas[0] ?? b.total ?? [], !b.linhas[0]);
+      case "paragrafo":
+      case "campos":
+        return est.texto.antes + linhaDeTexto * 2;
+      default:
+        return linhaDeTexto * 2;
+    }
+  };
+
   blocos.forEach((b, i) => {
     const primeiro = i === 0;
     switch (b.tipo) {
       case "titulo":
-        textoCorrido(b.trechos, b.nivel === 1 ? est.titulo1 : b.nivel === 2 ? est.titulo2 : est.titulo3, margem.esquerda, larguraUtil, primeiro);
+        textoCorrido(b.trechos, estiloDoTitulo(b.nivel), margem.esquerda, larguraUtil, primeiro, false, alturaDoComeco(blocos[i + 1]));
         break;
       case "paragrafo":
         textoCorrido(b.trechos, i < nAbertura ? est.rotulo : est.texto, margem.esquerda, larguraUtil, primeiro, b.semRecuo);
@@ -336,8 +363,8 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
     const e = est.tabela;
     const c = est.tabelaCores;
     const alturaLinha = e.tamanho * e.entrelinha;
-    const padV = 4;
-    const padH = 5;
+    const padV = PAD_TABELA_V;
+    const padH = PAD_TABELA_H;
     const xs: number[] = [];
     let acc = margem.esquerda;
     for (const col of b.colunas) {
@@ -389,7 +416,7 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   // Cabeçalho e rodapé por último: o total de páginas já é conhecido.
   const paginas = pdf.getPages();
   paginas.forEach((pg, i) => {
-    const ctx: ContextoPagina = { pagina: i + 1, total: paginas.length, largura: W, altura: H, titulo: doc.titulo };
+    const ctx: ContextoPagina = { pagina: i + 1, total: paginas.length, largura: W, altura: H, titulo: doc.titulo, marca: doc.marca };
     const pincel = pincelDe(pg, f, limpar, est.texto.cor, imagens);
     if (comCapa && i === 0) return template.capa!(pincel, ctx, doc.capa!);
     template.cabecalho?.(pincel, ctx);

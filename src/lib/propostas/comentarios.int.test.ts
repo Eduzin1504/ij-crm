@@ -7,6 +7,7 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { EXTENSOES } from "@/components/propostas/editor-texto";
 import { ancoraDaSelecao, DestaquesComentarios } from "@/components/propostas/destaques-editor";
 import type { Documento } from "./documento";
+import { TOKEN_BLOCO, trechoLegivel } from "./ancora";
 import { markdownParaDocumento } from "./markdown";
 import { COMENTARIO_MAX, comentar, listarComentarios, reabrirComentario, resolverComentario, responderComentario, versaoDosComentarios } from "./comentarios";
 import { criarProposta, passarCaneta, salvarRascunho, salvarVersao } from "./propostas";
@@ -63,7 +64,7 @@ describe("comentar (§4.6): qualquer usuário ativo, sem a caneta", () => {
     const r = await comentar(projeto.id, { texto: "30 é pouco", trecho: "30 dias" }, paula);
     expect(r).toMatchObject({ ok: true });
     const c = await db.propostaComentario.findFirstOrThrow();
-    expect(c).toMatchObject({ trecho: "30 dias", trechoAntes: "Escopo\nSite com loja e blog.\nPrazo\n", trechoDepois: ".\nCronograma\nInvestimento" });
+    expect(c).toMatchObject({ trecho: "30 dias", trechoAntes: "Escopo\nSite com loja e blog.\nPrazo\n", trechoDepois: ".\n\uE001\n\uE002" });
     expect(await comentar(projeto.id, { texto: "x", trecho: "60 dias" }, paula)).toEqual({ ok: false, erro: "TRECHO_NAO_ENCONTRADO" });
   });
 
@@ -246,6 +247,22 @@ describe("GAB-98: só comenta quem vê a proposta", () => {
 });
 
 describe("âncora nos blocos móveis (GAB-100)", () => {
+  it("o título de bloco é tratado à parte: citar 'Cronograma' vai para o bloco mesmo com título igual no texto; sem o bloco, vai para o texto", async () => {
+    const { projeto, paula, ana, revisao } = await semear();
+    const r = await salvarRascunho(projeto.id, { revisao, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:cronograma -->\n\nFim." } }, ana);
+    await comentar(projeto.id, { texto: "no bloco", trecho: "Cronograma" }, paula);
+    const lista = async () => (await listarComentarios(projeto.id))!.threads;
+    expect((await lista())[0].ancora?.trecho).toBe(TOKEN_BLOCO.cronograma);
+    // Só o texto citado continua achado no texto, sem cair no bloco.
+    await comentar(projeto.id, { texto: "no texto", trecho: "Crono" }, paula);
+    expect((await lista())[1].ancora?.trecho).toBe("Crono");
+    await salvarRascunho(projeto.id, { revisao: r.ok ? r.revisao : -1, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:nenhum -->" } }, ana);
+    // O bloco saiu: o comentário dele fica alterado, em vez de migrar para o título igual.
+    expect((await lista())[0].trechoAlterado).toBe(true);
+    await comentar(projeto.id, { texto: "agora no título", trecho: "Cronograma" }, paula);
+    expect((await lista())[2].ancora?.trecho).toBe("Cronograma");
+  });
+
   it("comentar o bloco citando o título (como o MCP): não fica alterado ao mudar dados nem ao movê-lo; tirá-lo da folha marca", async () => {
     const { projeto, paula, ana, revisao } = await semear();
     expect(await comentar(projeto.id, { texto: "Revise as semanas", trecho: "Cronograma" }, paula)).toMatchObject({ ok: true });
@@ -268,7 +285,7 @@ describe("âncora nos blocos móveis (GAB-100)", () => {
     const e = new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: markdownParaDocumento(md) });
     e.commands.setTextSelection({ from: 8, to: 40 });
     const a = ancoraDaSelecao(e.state)!;
-    expect(a.trecho).toContain("Investimento");
+    expect(trechoLegivel(a.trecho)).toContain("Investimento");
     e.destroy();
     expect(await comentar(projeto.id, { texto: "atravessa o bloco", trecho: a }, paula)).toMatchObject({ ok: true });
     expect((await listarComentarios(projeto.id))!.threads[0].trechoAlterado).toBe(false);

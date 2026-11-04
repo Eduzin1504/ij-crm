@@ -107,6 +107,7 @@ export function documentoPdfDaProposta(d: DadosPdfProposta): DocumentoPdf {
     titulo: TITULO_PROPOSTA,
     capa: { titulo: "PROPOSTA COMERCIAL", empresa: d.empresa ?? d.projeto, data: dataPorExtenso(d.data), endereco: ENDERECO_IJ },
     blocos: blocosDoDocumento(documentoComBlocos(markdownParaDocumento(d.markdown)).content, d.estruturado),
+    ...(d.numero === null ? { marca: "RASCUNHO: prévia, não enviar ao cliente" } : {}),
     autor: "Inteli Júnior",
     assunto: d.numero === null ? `Proposta — ${d.projeto} (prévia do rascunho)` : `Proposta — ${d.projeto} (v${d.numero})`,
   };

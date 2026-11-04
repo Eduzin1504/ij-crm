@@ -1,6 +1,19 @@
 import { formatarDinheiro } from "@/lib/projetos/formatar";
-import { rotuloDaEntrega } from "@/lib/propostas/blocos-dados";
+import { avisosDosDados, rotuloDaEntrega } from "@/lib/propostas/blocos-dados";
 import { somaDasParcelas, type Estruturado } from "@/lib/propostas/estruturado";
+
+/** Parcelas ou durações que não fecham com o valor ou o prazo: avisa, sem travar. */
+export function AvisosDosDados({ dados }: { dados: Estruturado }) {
+  const avisos = avisosDosDados(dados);
+  if (avisos.length === 0) return null;
+  return (
+    <ul aria-label="Avisos dos dados" className="mt-2 space-y-1 border-l-2 border-warn pl-2 text-xs text-fg-soft">
+      {avisos.map((a) => (
+        <li key={a}>{a}</li>
+      ))}
+    </ul>
+  );
+}
 
 /** Parte estruturada só para leitura (quem não edita e as versões). */
 export function EstruturadoLeitura({ e }: { e: Estruturado }) {
@@ -41,6 +54,7 @@ export function EstruturadoLeitura({ e }: { e: Estruturado }) {
           {soma ? <p className="mt-1 text-right font-mono text-[11px] text-fg-faint">soma das parcelas: {formatarDinheiro(soma)}</p> : null}
         </dd>
       </div>
+      <AvisosDosDados dados={e} />
     </dl>
   );
 }

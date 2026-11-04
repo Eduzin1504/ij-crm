@@ -15,7 +15,8 @@ export type ConflitoCliente = { revisao: number; por: string | null; viaMcp: boo
 /** O que as actions devolvem (forma comum). `ref` = erro inesperado logado no servidor. */
 export type RespostaGravacao =
   | { ok: true; revisao: number }
-  | { ok?: false; erro: string; ref?: string; conflito?: ConflitoCliente & Record<string, unknown> };
+  /** `informativo`: não houve falha de gravação, só nada a fazer ("nada mudou desde a última versão"). */
+  | { ok?: false; erro: string; ref?: string; conflito?: ConflitoCliente & Record<string, unknown>; informativo?: boolean };
 
 export type EstadoAutosave =
   | { tipo: "salvo"; em: Date | null }
@@ -32,6 +33,7 @@ export class Autosave<Doc> {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private fila: Promise<unknown> = Promise.resolve();
   private estado: EstadoAutosave = { tipo: "salvo", em: null };
+  private ultimoSalvo: Date | null = null;
 
   constructor(
     private readonly opcoes: {
@@ -113,7 +115,8 @@ export class Autosave<Doc> {
       r = undefined;
     }
     if (this.tratar(r)) {
-      this.mudar(this.pendenteDoc !== null ? { tipo: "pendente" } : { tipo: "salvo", em: new Date() });
+      this.ultimoSalvo = new Date();
+      this.mudar(this.pendenteDoc !== null ? { tipo: "pendente" } : { tipo: "salvo", em: this.ultimoSalvo });
       if (this.pendenteDoc !== null) void this.agora();
     } else {
       // não perde o texto: volta a ser pendente (o mais novo, se a pessoa seguiu digitando)
@@ -142,8 +145,14 @@ export class Autosave<Doc> {
       } catch {
         r = undefined;
       }
-      if (this.tratar(r)) {
-        this.mudar(this.pendenteDoc !== null ? { tipo: "pendente" } : { tipo: "salvo", em: new Date() });
+      if (r && r.ok !== true && r.informativo) {
+        // O que veio junto não foi gravado: volta para a fila, sem virar erro.
+        if (doc !== null) this.pendenteDoc ??= doc;
+        this.mudar(this.pendenteDoc !== null ? { tipo: "pendente" } : { tipo: "salvo", em: this.ultimoSalvo });
+        if (this.pendenteDoc !== null) void this.agora();
+      } else if (this.tratar(r)) {
+        this.ultimoSalvo = new Date();
+        this.mudar(this.pendenteDoc !== null ? { tipo: "pendente" } : { tipo: "salvo", em: this.ultimoSalvo });
         if (this.pendenteDoc !== null) void this.agora();
       } else if (doc !== null) {
         this.pendenteDoc ??= doc;

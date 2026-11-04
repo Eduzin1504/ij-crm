@@ -37,12 +37,12 @@ export function GradeFolha({ centro, direita }: { centro: ReactNode; direita: Re
   const larga = useTelaLarga();
   const c = useComentarios();
   const [painel, setPainel] = useState<"comentarios" | "infos" | null>(null);
-  const pedidoFoco = c?.pedidoFoco ?? 0;
-  // Citou um trecho no celular: o formulário está no painel.
-  const [focoVisto, setFocoVisto] = useState(pedidoFoco);
-  if (pedidoFoco !== focoVisto) {
-    setFocoVisto(pedidoFoco);
-    if (pedidoFoco > 0 && !larga) setPainel("comentarios");
+  // Citou um trecho ou tocou num destacado, no celular: o comentário está no painel.
+  const pedido = (c?.pedidoFoco ?? 0) + (c?.pedidoPainel ?? 0);
+  const [pedidoVisto, setPedidoVisto] = useState(pedido);
+  if (pedido !== pedidoVisto) {
+    setPedidoVisto(pedido);
+    if (!larga) setPainel("comentarios");
   }
 
   // `centro` fica sempre no mesmo lugar da árvore: cruzar os 1024 px (girar o tablet, redimensionar a
@@ -94,7 +94,7 @@ export function LeituraFolha({ documento, dados, capa, direita }: { documento: D
             <BotaoComentarTrecho />
           </div>
           {capa ? (
-            <Folha capa={capa}>
+            <Folha capa={capa} recolhivel>
               <TextoComentavel documento={documento} dados={dados} />
             </Folha>
           ) : (

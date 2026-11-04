@@ -17,7 +17,7 @@ import {
   type ComentarioLido,
   type ErroComentario,
 } from "@/lib/propostas/comentarios";
-import { TRECHO_MAX } from "@/lib/propostas/ancora";
+import { trechoLegivel, TRECHO_MAX } from "@/lib/propostas/ancora";
 import type { Ferramenta, Resposta } from "./ferramentas";
 import { propostaVisivel } from "./guardas";
 import { urlBase } from "./url";
@@ -49,7 +49,7 @@ const listar = ferramenta({
       abertos: l.threads.filter((t) => !t.resolvido).length,
       comentarios: threads.map((t) => ({
         ...item(t),
-        trecho: t.ancora?.trecho ?? null,
+        trecho: t.ancora ? trechoLegivel(t.ancora.trecho) : null,
         ...(t.ancora ? { trecho_alterado: t.trechoAlterado } : {}),
         resolvido: t.resolvido ? { por: t.resolvido.por, em: t.resolvido.em.toISOString() } : null,
         respostas: t.respostas.map(item),

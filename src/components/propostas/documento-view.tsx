@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import { cn } from "cn";
 import { segmentosDeDestaque, textoPlano, type Destaque } from "@/lib/propostas/ancora";
 import { TITULO_BLOCO_DADOS } from "@/lib/propostas/blocos-dados";
-import { documentoComBlocos, type Bloco, type Documento, type ItemLista, type NoTexto, type TipoBlocoDados } from "@/lib/propostas/documento";
+import { documentoComBlocos, type Bloco, type BlocoDados, type Documento, type ItemLista, type NoTexto, type TipoBlocoDados } from "@/lib/propostas/documento";
 import type { Estruturado } from "@/lib/propostas/estruturado";
 import { BlocoDadosView } from "./bloco-dados-view";
 
@@ -61,6 +61,21 @@ function Inline({ nos, bloco, anot }: { nos: NoTexto[] | undefined; bloco: Bloco
   return <>{partes}</>;
 }
 
+/** O bloco inteiro é um caractere no texto plano: comentado, o título ganha o realce. Sem `data-o`: não é texto selecionável para âncora. */
+function TituloDoBloco({ bloco, anot }: { bloco: BlocoDados; anot: Anotacao | null }) {
+  const titulo = TITULO_BLOCO_DADOS[bloco.attrs.tipo];
+  const inicio = anot?.inicios.get(bloco);
+  if (!anot || inicio === undefined) return <>{titulo}</>;
+  const ids = anot.destaques.filter((d) => d.inicio <= inicio && d.fim > inicio).map((d) => d.id);
+  if (ids.length === 0) return <>{titulo}</>;
+  const ativo = anot.ativo !== null && ids.includes(anot.ativo);
+  return (
+    <mark data-comentario={ativo ? anot.ativo! : ids[0]} className={cn("comentario-destaque", ativo && "comentario-destaque-ativo")}>
+      {titulo}
+    </mark>
+  );
+}
+
 function Itens({ itens, anot, folha }: { itens: ItemLista[]; anot: Anotacao | null; folha?: Folha }) {
   return (
     <>
@@ -100,7 +115,7 @@ function Blocos({ blocos, anot, folha }: { blocos: Bloco[]; anot: Anotacao | nul
                 key={b.attrs.tipo}
                 tipo={b.attrs.tipo}
                 dados={folha.dados}
-                titulo={<Inline nos={[{ type: "text", text: TITULO_BLOCO_DADOS[b.attrs.tipo] }]} bloco={b} anot={anot} />}
+                titulo={<TituloDoBloco bloco={b} anot={anot} />}
                 controles={folha.controles?.(b.attrs.tipo)}
               />
             ) : null;

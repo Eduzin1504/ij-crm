@@ -12,11 +12,12 @@ describe("posicoesNaMargem", () => {
     expect(r.altura).toBe(530);
   });
 
-  it("sem trecho na tela vai depois dos outros; trecho acima da lista encosta no topo", () => {
+  it("sem trecho na tela (geral, alterado) fica no topo da margem; quem tem trecho desce se colidir", () => {
     const r = posicoesNaMargem([
       { id: "geral", alvo: null, altura: 20 },
       { id: "acima", alvo: -40, altura: 30 },
     ]);
-    expect(r.topos).toEqual({ acima: 0, geral: 30 + VAO_MARGEM });
+    expect(r.topos).toEqual({ geral: 0, acima: 20 + VAO_MARGEM });
+    expect(posicoesNaMargem([{ id: "geral", alvo: null, altura: 20 }, { id: "longe", alvo: 900, altura: 30 }]).topos).toEqual({ geral: 0, longe: 900 });
   });
 });

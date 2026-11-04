@@ -171,6 +171,94 @@ describe("PainelProposta", () => {
   });
 
   describe("cartão Dados da proposta (GAB-100)", () => {
+    it("enquanto está sujo, a barra diz que há alterações não salvas, inclusive com linha incompleta", async () => {
+      montar();
+      fireEvent.click(screen.getByRole("button", { name: "Adicionar entrega" }));
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(screen.getByText("Alterações não salvas…")).toBeInTheDocument();
+    });
+
+    it("ao sair da tela grava o que está sujo e válido, deixando de fora só a linha incompleta", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      const { unmount } = montar();
+      fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "5.000,00" } });
+      fireEvent.click(screen.getByRole("button", { name: "Adicionar entrega" }));
+      unmount();
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ valor: "5.000,00", entregas: [] }));
+    });
+
+    it("sair sem nada sujo não grava", async () => {
+      const { unmount } = montar();
+      unmount();
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
+      expect(acoes.salvarTextoAction).not.toHaveBeenCalled();
+    });
+
+    it("parcelas e durações que não fecham: avisa no cartão, sem travar a gravação", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} ultimaVersao={null} estruturado={{ valor: "1.000,00", prazoDias: "30", escopoResumo: "", entregas: [{ titulo: "A", dia: "", duracao: "1 semana", valor: "400,00" }] }} />);
+      const avisos = screen.getByRole("list", { name: "Avisos dos dados" });
+      expect(avisos).toHaveTextContent(/parcelas somam R\$ 400,00/);
+      expect(avisos).toHaveTextContent(/durações somam 7 dias/);
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "31" } });
+      await act(() => vi.advanceTimersByTimeAsync(1500));
+      expect(acoes.salvarEstruturadoAction).toHaveBeenCalled();
+    });
+
+    it("com duração no cronograma não há 'ordenar por data': a sequência é a conta", () => {
+      const e = (o: object) => ({ titulo: "A", dia: "2026-01-01", duracao: "", valor: "", ...o });
+      const { unmount } = render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} ultimaVersao={null} estruturado={{ ...vazio, entregas: [e({}), e({})] }} />);
+      expect(screen.getByRole("button", { name: /Ordenar por data/ })).toBeInTheDocument();
+      unmount();
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} ultimaVersao={null} estruturado={{ ...vazio, entregas: [e({}), e({ dia: "", duracao: "2 semanas" })] }} />);
+      expect(screen.queryByRole("button", { name: /Ordenar por data/ })).toBeNull();
+    });
+
+    it("salvar versão sem mudança informa, sem virar erro de gravação, e não bloqueia as ações", async () => {
+      acoes.salvarVersaoAction.mockResolvedValue({ ok: false, erro: "Nada mudou desde a última versão: não há o que salvar.", semMudancas: true });
+      acoes.passarCanetaAction.mockResolvedValue({ ok: true, revisao: 9 });
+      const caneta = { acoes: ["passar"] as "passar"[], mesmoLado: [{ id: "bia", nome: "Bia" }], outroLado: [], rotuloOutroLado: "Projetos" };
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
+      fireEvent.click(screen.getByRole("button", { name: "Salvar versão" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText(/Nada mudou desde a última versão/)).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Passar a caneta" }));
+      fireEvent.change(screen.getByLabelText("Passar para"), { target: { value: "bia" } });
+      fireEvent.click(screen.getByRole("button", { name: "Passar" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.passarCanetaAction).toHaveBeenCalled();
+    });
+
+    it("marcar inviável não exige dados válidos: grava só o que dá", async () => {
+      acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+      acoes.marcarInviavelAction.mockResolvedValue({ ok: true, revisao: 6 });
+      const caneta = { acoes: ["inviavel"] as "inviavel"[], mesmoLado: [], outroLado: [], rotuloOutroLado: "Vendas" };
+      render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
+      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "abc" } });
+      fireEvent.click(screen.getByRole("button", { name: "Marcar inviável" }));
+      fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: "sem verba" } });
+      fireEvent.click(screen.getAllByRole("button", { name: "Marcar inviável" }).at(-1)!);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(acoes.marcarInviavelAction).toHaveBeenCalledWith("p1", "sem verba");
+      expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
+    });
+
+    it("Ver PDF com o texto em erro avisa que a prévia é do último rascunho salvo", async () => {
+      const aba = { location: { href: "" } };
+      vi.spyOn(window, "open").mockReturnValue(aba as unknown as Window);
+      acoes.salvarTextoAction.mockResolvedValue({ ok: false, erro: "INESPERADO", ref: "a1" });
+      montar();
+      fireEvent.change(screen.getByLabelText("texto"), { target: { value: "x" } });
+      fireEvent.click(screen.getByRole("button", { name: "Ver PDF" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText(/O PDF mostra o último rascunho salvo/)).toBeInTheDocument();
+      expect(aba.location.href).toContain("rascunho=1");
+    });
+
     it("salva sozinho pela mesma revisão, sem botão e sem travar o campo enquanto grava", async () => {
       acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
       montar();

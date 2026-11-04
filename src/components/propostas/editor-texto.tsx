@@ -78,7 +78,7 @@ function Botao({ ativo, rotulo, onClick, children, desativado, largo }: { ativo?
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center justify-center gap-1 rounded-md text-fg-mute transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-40",
-        largo ? "px-1.5 text-xs" : "w-7",
+        largo ? "min-w-7 px-1.5 text-xs" : "w-7",
         ativo && "bg-surface-hover text-foreground",
       )}
     >
@@ -115,14 +115,14 @@ function Barra({ editor, fim }: { editor: Editor; fim?: ReactNode }) {
       <Botao rotulo="Título 3" ativo={s.h3} onClick={() => c().toggleHeading({ level: 3 }).run()}>
         <Heading3 className="size-4" />
       </Botao>
-      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+      <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao rotulo="Negrito (Ctrl+B)" ativo={s.negrito} onClick={() => c().toggleBold().run()}>
         <IconeNegrito className="size-4" />
       </Botao>
       <Botao rotulo="Itálico (Ctrl+I)" ativo={s.italico} onClick={() => c().toggleItalic().run()}>
         <IconeItalico className="size-4" />
       </Botao>
-      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+      <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao rotulo="Lista com marcadores" ativo={s.marcadores} onClick={() => c().toggleBulletList().run()}>
         <List className="size-4" />
       </Botao>
@@ -132,14 +132,14 @@ function Barra({ editor, fim }: { editor: Editor; fim?: ReactNode }) {
       <Botao rotulo="Linha horizontal" onClick={() => c().setHorizontalRule().run()}>
         <Minus className="size-4" />
       </Botao>
-      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+      <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao largo rotulo="Bloco Cronograma: põe no cursor ou tira da folha" ativo={s.cronograma} onClick={() => alternarBloco(editor, "cronograma")}>
-        <CalendarRange className="size-4" /> Cronograma
+        <CalendarRange className="size-4" /> <span className="hidden min-[1400px]:inline">Cronograma</span>
       </Botao>
       <Botao largo rotulo="Bloco Investimento: põe no cursor ou tira da folha" ativo={s.investimento} onClick={() => alternarBloco(editor, "investimento")}>
-        <CircleDollarSign className="size-4" /> Investimento
+        <CircleDollarSign className="size-4" /> <span className="hidden min-[1400px]:inline">Investimento</span>
       </Botao>
-      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+      <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao rotulo="Desfazer (Ctrl+Z)" desativado={!s.desfazer} onClick={() => c().undo().run()}>
         <Undo2 className="size-4" />
       </Botao>
@@ -200,7 +200,7 @@ export default function EditorTexto({
     return (
       <div className="space-y-2.5">
         <Barra editor={editor} fim={barraFim} />
-        <Folha capa={capa}>
+        <Folha capa={capa} recolhivel>
           <EditorContent editor={editor} />
         </Folha>
       </div>

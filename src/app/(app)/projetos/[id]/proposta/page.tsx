@@ -198,7 +198,8 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
       <header className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-2">
         <div className="min-w-0">
           <p className="eyebrow mb-1">
-            proposta · {projeto.pipeline.chave} · {projeto.fase.nome}
+            proposta · {projeto.pipeline.chave}
+            {projeto.fase.nome.toLowerCase() === "proposta" ? null : ` · ${projeto.fase.nome}`}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight break-words">{projeto.titulo}</h1>
         </div>

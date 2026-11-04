@@ -293,7 +293,7 @@ describe("diff, leitura e avisos", () => {
     await criarProposta(projeto.id, ana);
     await salvarVersao(projeto.id, { revisao: 0, conteudo: { markdown: "A" }, estruturado: { valor: "1.000,00" } }, ana);
     await salvarVersao(projeto.id, { revisao: 1, conteudo: { markdown: "A\n\nB" } }, ana);
-    expect(await diffDaProposta(projeto.id, { de: 1, para: 2 })).toMatchObject({ de: { numero: 1 }, para: { numero: 2 }, texto: [{ tipo: "igual" }, { tipo: "adicionada", texto: "B" }], estruturado: [] });
+    expect(await diffDaProposta(projeto.id, { de: 1, para: 2 })).toMatchObject({ de: { numero: 1 }, para: { numero: 2 }, texto: [{ tipo: "igual" }, { tipo: "adicionada", texto: "B" }, { tipo: "igual", texto: "[Bloco Cronograma]" }, { tipo: "igual", texto: "[Bloco Investimento]" }], estruturado: [] });
     // projetos nunca entregou: compara com a versão anterior
     expect(await diffDaProposta(projeto.id, { quem: paula.id })).toMatchObject({ de: { numero: 1 }, para: { numero: 2 } });
     expect(await diffDaProposta(projeto.id, { para: 1 })).toMatchObject({ de: null, estruturado: [{ campo: "Valor" }] });

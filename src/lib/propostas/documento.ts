@@ -387,6 +387,17 @@ export function documentoDoEditor(doc: Documento): Documento {
   return doc.content.some((b) => b.type === "blocoDados") ? doc : { type: "doc", content: [...doc.content, { type: "semBlocos" }] };
 }
 
+/**
+ * Texto novo inteiro (arquivo como base) sem mexer em quais blocos estão na folha: quem foi
+ * tirado continua fora, e os que estão ficam no fim, na ordem atual. A posição no meio do
+ * texto não sobrevive: o texto é outro.
+ */
+export function herdarBlocos(novo: Documento, atual: Documento): Documento {
+  const presentes = documentoComBlocos(normalizarDocumento(atual)).content.filter((b) => b.type === "blocoDados");
+  const texto = novo.content.filter((b) => b.type !== "blocoDados" && b.type !== "semBlocos");
+  return normalizarDocumento({ type: "doc", content: presentes.length ? [...texto, ...presentes] : [...texto, { type: "semBlocos" }] });
+}
+
 /** Texto corrido do documento (prévia, busca). */
 export function textoDoDocumento(doc: Documento): string {
   const partes: string[] = [];

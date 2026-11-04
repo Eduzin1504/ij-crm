@@ -15,7 +15,6 @@ export const TITULO_BLOCO_DADOS: Record<TipoBlocoDados, string> = { cronograma: 
 export const MARCADORES_BLOCO: Record<string, string> = {
   "<!-- bloco:cronograma -->": "[Bloco Cronograma]",
   "<!-- bloco:investimento -->": "[Bloco Investimento]",
-  "<!-- bloco:nenhum -->": "[Blocos Cronograma e Investimento fora da folha]",
 };
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -38,13 +37,49 @@ export function rotuloDaEntrega(e: Pick<Entrega, "dia" | "duracao">): string {
 
 const diasCorridos = (n: number) => `${n} ${n === 1 ? "dia corrido" : "dias corridos"}`;
 
-/** Soma das durações, se TODAS as entregas tiverem duração. Só semanas somam em semanas, como no modelo. */
-function somaDuracoes(entregas: readonly Entrega[]): string | null {
-  if (entregas.length === 0 || entregas.some((e) => e.duracao === null)) return null;
-  const dias = entregas.reduce((s, e) => s + (duracaoEmDias(e.duracao!) ?? 0), 0);
-  if (dias === 0) return null;
+/** Dias somados, se TODAS as entregas tiverem duração que se entenda. */
+function diasDasDuracoes(entregas: readonly Entrega[]): number | null {
+  if (entregas.length === 0) return null;
+  let soma = 0;
+  for (const e of entregas) {
+    const d = e.duracao === null ? null : duracaoEmDias(e.duracao);
+    if (d === null) return null;
+    soma += d;
+  }
+  return soma;
+}
+
+/** Só semanas somam em semanas, como no modelo. */
+function textoDaSoma(entregas: readonly Entrega[], dias: number): string {
   if (entregas.every((e) => /semana/.test(e.duracao!))) return `${dias / 7} ${dias === 7 ? "semana" : "semanas"}`;
   return `${dias} ${dias === 1 ? "dia" : "dias"}`;
+}
+
+/** Total de prazo da tabela: nunca afirma um número que contradiz o prazo do bloco Investimento. */
+function totalDePrazo(e: Estruturado): string {
+  const dias = diasDasDuracoes(e.entregas);
+  if (dias === null) return e.prazoDias !== null ? diasCorridos(e.prazoDias) : "";
+  return e.prazoDias === null || e.prazoDias === dias ? textoDaSoma(e.entregas, dias) : "";
+}
+
+/** Total de valor da tabela: só com parcela em todas as entregas e soma igual ao valor do bloco Investimento. */
+function totalDeValor(e: Estruturado): string {
+  if (e.valor === null || e.entregas.some((x) => x.valor === null)) return "";
+  const soma = somaDasParcelas(e.entregas);
+  return soma !== null && Number(soma) === Number(e.valor) ? formatarReais(soma) : "";
+}
+
+/**
+ * O que não fecha entre o cronograma e o valor ou o prazo. Avisa no cartão e não trava: é
+ * a proposta que decide, e a folha e o PDF deixam o total em branco em vez de contradizer.
+ */
+export function avisosDosDados(e: Estruturado): string[] {
+  const avisos: string[] = [];
+  const soma = somaDasParcelas(e.entregas);
+  if (soma !== null && e.valor !== null && Number(soma) !== Number(e.valor)) avisos.push(`As parcelas somam ${formatarReais(soma)}, e o valor total é ${formatarReais(e.valor)}. A tabela fica sem total de valor.`);
+  const dias = diasDasDuracoes(e.entregas);
+  if (dias !== null && e.prazoDias !== null && dias !== e.prazoDias) avisos.push(`As durações somam ${dias} ${dias === 1 ? "dia" : "dias"}, e o prazo é de ${e.prazoDias}. A tabela fica sem total de duração.`);
+  return avisos;
 }
 
 export type ColunaBloco = { titulo: string; largura: number; alinhar: "esquerda" | "centro" | "direita" };
@@ -68,9 +103,9 @@ export function tabelaCronograma(e: Estruturado): TabelaCronograma | null {
         { titulo: tituloPrazo, largura: 0.24, alinhar: "centro" },
       ];
   const linhas = e.entregas.map((x) => (comValor ? [x.titulo, rotuloDaEntrega(x), x.valor !== null ? formatarReais(x.valor) : "—"] : [x.titulo, rotuloDaEntrega(x)]));
-  const totalPrazo = somaDuracoes(e.entregas) ?? (e.prazoDias !== null ? diasCorridos(e.prazoDias) : "");
-  const soma = comValor ? somaDasParcelas(e.entregas) : null;
-  const total = totalPrazo || soma ? ["Total", totalPrazo, ...(comValor ? [soma ? formatarReais(soma) : ""] : [])] : null;
+  const totalPrazo = totalDePrazo(e);
+  const totalValor = comValor ? totalDeValor(e) : "";
+  const total = totalPrazo || totalValor ? ["Total", totalPrazo, ...(comValor ? [totalValor] : [])] : null;
   return { colunas, linhas, total };
 }
 

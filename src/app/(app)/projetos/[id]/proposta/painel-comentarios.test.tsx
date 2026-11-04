@@ -124,7 +124,7 @@ describe("comentários ao vivo", () => {
     fireEvent.change(screen.getByLabelText("Comentário sobre o trecho"), { target: { value: "pouco" } });
     acoes.comentarAction.mockResolvedValueOnce({ ok: true });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Comentar" })));
-    expect(acoes.comentarAction).toHaveBeenCalledWith("p1", "pouco", { trecho: "30 dias", antes: "Prazo de ", depois: " para o site.\nCronograma\nInvestimento" });
+    expect(acoes.comentarAction).toHaveBeenCalledWith("p1", "pouco", { trecho: "30 dias", antes: "Prazo de ", depois: " para o site.\n\uE001\n\uE002" });
   });
 
   it("resolver, reabrir e responder chamam as actions", async () => {
@@ -216,5 +216,39 @@ describe("comentários ao vivo", () => {
     expect(screen.queryByText("trecho alterado")).toBeNull(); // ainda na pausa
     await act(async () => vi.advanceTimersByTimeAsync(ATRASO_TEXTO_MS));
     expect(screen.getByText("trecho alterado")).toBeTruthy();
+  });
+
+  it("rascunho e resposta sobrevivem a fechar o painel no celular (o provider guarda)", () => {
+    const Tela = ({ aberto }: { aberto: boolean }) => (
+      <ComentariosProvider projetoId="p1" euId="u1" inicial={{ versao: "1.1", threads: [thread()] }}>
+        <TextoComentavel documento={doc} />
+        {aberto ? <PainelComentarios /> : null}
+      </ComentariosProvider>
+    );
+    const { rerender } = render(<Tela aberto />);
+    fireEvent.change(screen.getByLabelText("Comentário geral"), { target: { value: "quase pronto" } });
+    fireEvent.click(screen.getByRole("button", { name: /Responder/ }));
+    fireEvent.change(screen.getByLabelText("Sua resposta"), { target: { value: "minha resposta" } });
+    rerender(<Tela aberto={false} />);
+    rerender(<Tela aberto />);
+    expect(screen.getByLabelText("Comentário geral")).toHaveValue("quase pronto");
+    expect(screen.getByLabelText("Sua resposta")).toHaveValue("minha resposta");
+  });
+
+  it("trecho citado de um bloco aparece pelo título; o caractere reservado não vaza", () => {
+    montar([thread({ ancora: { trecho: "\uE001", antes: "", depois: "" } })], { type: "doc", content: [{ type: "blocoDados", attrs: { tipo: "cronograma" } }] });
+    expect(screen.getByText("“Cronograma”")).toBeTruthy();
+  });
+
+  it("tocar num trecho destacado pede para abrir o painel (celular)", () => {
+    const Pedido = () => <output data-testid="pedido">{useComentarios()?.pedidoPainel}</output>;
+    render(
+      <ComentariosProvider projetoId="p1" euId="u1" inicial={{ versao: "1.1", threads: [thread()] }}>
+        <TextoComentavel documento={doc} />
+        <Pedido />
+      </ComentariosProvider>,
+    );
+    fireEvent.click(document.querySelector("mark[data-comentario='c1']")!);
+    expect(screen.getByTestId("pedido")).toHaveTextContent("1");
   });
 });

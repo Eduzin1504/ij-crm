@@ -9,8 +9,10 @@
  * `CELULAS_MAX` (texto enorme todo diferente), vira "removeu tudo / adicionou
  * tudo" — legível e sem travar o servidor.
  *
- * Marcador de bloco móvel (GAB-100) aparece em palavras, não como comentário HTML,
- * e nunca é pareado com texto: mover o bloco não é "texto alterado".
+ * Blocos móveis (GAB-100): o diff compara a forma de EXIBIÇÃO, com os blocos explícitos
+ * (a mesma regra de `documentoComBlocos`, por linha), para dizer o que aconteceu com eles:
+ * sem marcador, os dois estão no fim; `bloco:nenhum`, nenhum dos dois. Aparecem em
+ * palavras, e nunca pareados com texto: mover o bloco não é "texto alterado".
  */
 import { MARCADORES_BLOCO, rotuloDaEntrega } from "./blocos-dados";
 import type { Estruturado } from "./estruturado";
@@ -27,8 +29,11 @@ const CELULAS_MAX = 2_000_000;
 
 type Op<T> = { tipo: "igual" | "removido" | "adicionado"; item: T };
 
-/** LCS clássico sobre o miolo (sem prefixo/sufixo comuns). */
-function diffSequencia<T>(a: readonly T[], b: readonly T[]): Op<T>[] {
+/**
+ * LCS clássico sobre o miolo (sem prefixo/sufixo comuns). `adicionarAntes`: no empate, o que
+ * entra primeiro em vez de sair; assim, ao mover um bloco, quem aparece movido é o bloco, e não o texto.
+ */
+function diffSequencia<T>(a: readonly T[], b: readonly T[], adicionarAntes?: (item: T) => boolean): Op<T>[] {
   let ini = 0;
   while (ini < a.length && ini < b.length && a[ini] === b[ini]) ini++;
   let fimA = a.length;
@@ -60,7 +65,7 @@ function diffSequencia<T>(a: readonly T[], b: readonly T[]): Op<T>[] {
         ops.push({ tipo: "igual", item: ma[i] });
         i++;
         j++;
-      } else if (tab[(i + 1) * w + j] >= tab[i * w + j + 1]) {
+      } else if (tab[(i + 1) * w + j] > tab[i * w + j + 1] || (tab[(i + 1) * w + j] === tab[i * w + j + 1] && !adicionarAntes?.(mb[j]))) {
         ops.push({ tipo: "removido", item: ma[i++] });
       } else {
         ops.push({ tipo: "adicionado", item: mb[j++] });
@@ -92,12 +97,22 @@ function diffPalavras(antes: string, depois: string): { antes: Trecho[]; depois:
   return { antes: trechos(ops, "antes"), depois: trechos(ops, "depois") };
 }
 
-const linhas = (md: string) => md.split("\n").filter((l) => l.trim() !== "");
+const MARCADOR_NENHUM = "<!-- bloco:nenhum -->";
+
+/** Linhas do Markdown canônico com os blocos em lugares explícitos. */
+function linhas(md: string | null): string[] {
+  if (md === null) return [];
+  const todas = md.split("\n").filter((l) => l.trim() !== "");
+  const semMarcador = todas.filter((l) => l !== MARCADOR_NENHUM);
+  if (semMarcador.length < todas.length || semMarcador.some((l) => Object.hasOwn(MARCADORES_BLOCO, l))) return semMarcador;
+  return [...semMarcador, ...Object.keys(MARCADORES_BLOCO)];
+}
 const ehBloco = (l: string) => Object.hasOwn(MARCADORES_BLOCO, l);
 const legivel = (l: string) => (ehBloco(l) ? MARCADORES_BLOCO[l] : l);
 
-export function diffMarkdown(antes: string, depois: string): LinhaDiff[] {
-  const ops = diffSequencia(linhas(antes), linhas(depois));
+/** `antes` null = não há versão anterior: tudo entrou, inclusive os blocos. */
+export function diffMarkdown(antes: string | null, depois: string): LinhaDiff[] {
+  const ops = diffSequencia(linhas(antes), linhas(depois), ehBloco);
   const out: LinhaDiff[] = [];
   let i = 0;
   while (i < ops.length) {

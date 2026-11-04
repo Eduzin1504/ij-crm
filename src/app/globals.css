@@ -259,9 +259,8 @@
     top: 59%;
     text-align: right;
     font-family: var(--font-poppins), Arial, sans-serif;
-    overflow-wrap: anywhere;
   }
-  .folha-capa-texto b { display: block; font-size: 3.19cqw; line-height: 1.79; font-weight: 700; }
+  .folha-capa-texto b { display: block; font-size: 3.19cqw; line-height: 1.79; font-weight: 700; white-space: nowrap; }
   .folha-capa-data { font-size: 1.93cqw; margin-top: 4.6cqw; }
   .folha-capa-endereco {
     position: absolute;

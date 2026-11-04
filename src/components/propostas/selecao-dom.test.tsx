@@ -51,7 +51,7 @@ describe("ancoraDaSelecaoDom: seleção do leitor → âncora no texto plano", (
     const raiz = screen.getByTestId("documento-proposta");
     const negrito = textoDe(raiz.querySelector("strong")!);
     const sel = selecionar([negrito, 0], [negrito, 8]);
-    expect(ancoraDaSelecaoDom(raiz, plano, sel)).toEqual({ trecho: "com loja", antes: "Escopo\nSite ", depois: " e blog.\nCronograma\nInvestimento" });
+    expect(ancoraDaSelecaoDom(raiz, plano, sel)).toEqual({ trecho: "com loja", antes: "Escopo\nSite ", depois: " e blog.\n\uE001\n\uE002" });
   });
 
   it("seleção atravessando o título e o parágrafo", () => {

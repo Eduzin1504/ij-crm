@@ -905,8 +905,8 @@ async function gerarComVaga(doc: DocumentoPdf, criadoEm: Date): Promise<Uint8Arr
  * qualquer status. O PDF de envio continua sendo o da versão final (`pdfDaProposta`).
  */
 export async function pdfDoRascunho(projetoId: string): Promise<Resultado<{ bytes: Uint8Array; nomeArquivo: string }>> {
-  const p = await db.proposta.findUnique({
-    where: { projetoId },
+  const p = await db.proposta.findFirst({
+    where: { projetoId, projeto: { deletadoEm: null } },
     select: { conteudoMd: true, estruturado: true, criadoEm: true, rascunhoEm: true, projeto: { select: { titulo: true, empresa: { select: SELECAO_NOME_EXIBIDO } } } },
   });
   if (!p) return { ok: false, erro: "PROPOSTA_NAO_ENCONTRADA" };
@@ -990,7 +990,7 @@ export async function diffDaProposta(projetoId: string, opts: { de?: number; par
   return {
     de: de ? resumo(de) : null,
     para: resumo(para),
-    texto: diffMarkdown(de?.conteudoMd ?? "", para.conteudoMd),
+    texto: diffMarkdown(de?.conteudoMd ?? null, para.conteudoMd),
     estruturado: diffEstruturado(de ? lerEstruturadoGravado(de.estruturado) : lerEstruturadoGravado({}), lerEstruturadoGravado(para.estruturado)),
   };
 }

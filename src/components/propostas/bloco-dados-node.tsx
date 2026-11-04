@@ -1,7 +1,7 @@
 "use client";
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { ArrowDown, ArrowUp, GripVertical, MessageSquarePlus, X } from "lucide-react";
 import { ancoraDoBloco } from "@/lib/propostas/ancora";
@@ -152,6 +152,23 @@ export const BlocoDadosNode = Node.create({
       // Um de cada, mesmo colando ou duplicando: o segundo some na hora, não só ao salvar.
       new Plugin({
         key: chaveUmDeCada,
+        props: {
+          // Digitar com o bloco selecionado escreve logo depois dele, em vez de apagá-lo.
+          handleTextInput(view, _de, _ate, texto) {
+            const { state } = view;
+            const sel = state.selection;
+            if (!(sel instanceof NodeSelection) || sel.node.type.name !== "blocoDados") return false;
+            const tr = state.tr;
+            if (state.doc.nodeAt(sel.to)?.type.name === "paragraph") {
+              tr.setSelection(TextSelection.create(tr.doc, sel.to + 1)).insertText(texto);
+            } else {
+              tr.insert(sel.to, state.schema.nodes.paragraph.create(null, state.schema.text(texto)));
+              tr.setSelection(TextSelection.create(tr.doc, sel.to + 1 + texto.length));
+            }
+            view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+        },
         appendTransaction(trs, _antes, estado) {
           if (!trs.some((t) => t.docChanged)) return null;
           const vistos = new Set<string>();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datasPrevistas, diaValido, duracaoEmDias, estruturadoParaEntrada, interpretarEstruturado, lerEstruturadoGravado, mesmoEstruturado, normalizarDuracao, somaDasParcelas, valorParaCampo } from "./estruturado";
+import { datasPrevistas, diaValido, duracaoEmDias, estruturadoParaEntrada, formularioGravavel, interpretarEstruturado, lerEstruturadoGravado, mesmoEstruturado, normalizarDuracao, somaDasParcelas, valorParaCampo } from "./estruturado";
 
 describe("interpretarEstruturado (validação no servidor)", () => {
   it("vazio é válido: tudo nulo, sem entregas", () => {
@@ -77,7 +77,21 @@ describe("duração na entrega (GAB-100)", () => {
   it("nem data nem duração, as duas, ou duração que não se entende são recusadas com o número da entrega", () => {
     expect(interpretarEstruturado({ entregas: [{ titulo: "a" }] })).toEqual({ ok: false, erro: 'Entrega 1: informe a data ou a duração (como "2 semanas").' });
     expect(interpretarEstruturado({ entregas: [{ titulo: "a", dia: "2026-01-01", duracao: "2 semanas" }] })).toEqual({ ok: false, erro: "Entrega 1: informe a data ou a duração, não as duas." });
-    for (const duracao of ["logo", "0 dias", "2", "semanas", "dois meses", "1000 dias"]) expect(interpretarEstruturado({ entregas: [{ titulo: "a", duracao }] }).ok, duracao).toBe(false);
+    for (const duracao of ["logo", "0 dias", "2", "semanas", "dois meses", "3651 dias", "522 semanas", "122 meses"]) expect(interpretarEstruturado({ entregas: [{ titulo: "a", duracao }] }).ok, duracao).toBe(false);
+  });
+
+  it("o teto da duração é o do prazo, inclusive na soma: a data prevista continua dentro do que a execução aceita", () => {
+    expect(interpretarEstruturado({ entregas: [{ titulo: "a", duracao: "3650 dias" }] }).ok).toBe(true);
+    expect(interpretarEstruturado({ entregas: [{ titulo: "a", duracao: "3000 dias" }, { titulo: "b", duracao: "651 dias" }] })).toEqual({ ok: false, erro: "As durações somam mais de 3650 dias." });
+  });
+
+  it("formularioGravavel: grava cada campo válido; o inválido fica como estava; linha nova incompleta fica de fora", () => {
+    const salvo = { valor: "1.000,00", prazoDias: "30", escopoResumo: "x", entregas: [{ titulo: "A", dia: "", duracao: "1 semana", valor: "" }] };
+    const vazia = { titulo: "", dia: "", duracao: "", valor: "" };
+    const b = { titulo: "B", dia: "", duracao: "2 semanas", valor: "" };
+    expect(formularioGravavel({ ...salvo, valor: "2.000,00", prazoDias: "abc", entregas: [...salvo.entregas, b, vazia] }, salvo)).toEqual({ ...salvo, valor: "2.000,00", entregas: [...salvo.entregas, b] });
+    // Linha gravada que está sendo editada: não apaga a entrega por sair da tela.
+    expect(formularioGravavel({ ...salvo, escopoResumo: "y", entregas: [{ ...salvo.entregas[0], titulo: "" }] }, salvo)).toEqual({ ...salvo, escopoResumo: "y" });
   });
 
   it("entrega antiga, gravada só com dia, continua válida e igual depois de relida", () => {

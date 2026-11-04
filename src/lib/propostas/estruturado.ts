@@ -68,10 +68,11 @@ const UNIDADES_DURACAO: { padrao: RegExp; dias: number; um: string; varios: stri
 ];
 
 function partesDaDuracao(bruta: string): { n: number; unidade: (typeof UNIDADES_DURACAO)[number] } | null {
-  const m = /^(\d{1,3})\s*([\p{L}]+)\.?$/u.exec(bruta.trim().toLowerCase());
+  const m = /^(\d{1,4})\s*([\p{L}]+)\.?$/u.exec(bruta.trim().toLowerCase());
   if (!m || Number(m[1]) < 1) return null;
   const unidade = UNIDADES_DURACAO.find((u) => u.padrao.test(m[2]));
-  return unidade ? { n: Number(m[1]), unidade } : null;
+  // Mesmo teto do prazo: a data prevista (`datasPrevistas`) continua dentro do que a execução aceita.
+  return unidade && Number(m[1]) * unidade.dias <= PRAZO_DIAS_MAX ? { n: Number(m[1]), unidade } : null;
 }
 
 /** "2 sem", "2 Semanas" → "2 semanas"; o que não for duração → null. */
@@ -145,11 +146,14 @@ export function interpretarEstruturado(bruto: unknown): ResultadoEstruturado {
     if (!dia && !durBruta) return { ok: false, erro: `${rotulo}: informe a data ou a duração (como "2 semanas").` };
     if (dia && !diaValido(dia)) return { ok: false, erro: `${rotulo}: data inválida (use AAAA-MM-DD).` };
     const duracao = durBruta ? normalizarDuracao(durBruta) : null;
-    if (durBruta && !duracao) return { ok: false, erro: `${rotulo}: duração inválida (use dias, semanas ou meses, como "2 semanas").` };
+    if (durBruta && !duracao) return { ok: false, erro: `${rotulo}: duração inválida (dias, semanas ou meses, como "2 semanas", até ${PRAZO_DIAS_MAX} dias).` };
     const v = lerDinheiro(en.valor ?? "");
     if (!v.ok) return { ok: false, erro: `${rotulo}: valor inválido (formato 12.500,00, não negativo).` };
     entregas.push({ titulo, dia: dia || null, duracao, valor: v.valor });
   }
+
+  const diasDeDuracao = entregas.reduce((soma, x) => soma + (x.duracao ? (duracaoEmDias(x.duracao) ?? 0) : 0), 0);
+  if (diasDeDuracao > PRAZO_DIAS_MAX) return { ok: false, erro: `As durações somam mais de ${PRAZO_DIAS_MAX} dias.` };
 
   return { ok: true, valor: { valor: valor.valor, prazoDias: pz.v, escopoResumo: escopo || null, entregas } };
 }
@@ -197,6 +201,24 @@ export function estruturadoParaEntrada(e: Estruturado): FormularioEstruturado {
     prazoDias: e.prazoDias === null ? "" : String(e.prazoDias),
     escopoResumo: e.escopoResumo ?? "",
     entregas: e.entregas.map((x) => ({ titulo: x.titulo, dia: x.dia ?? "", duracao: x.duracao ?? "", valor: valorParaCampo(x.valor) })),
+  };
+}
+
+/**
+ * O que dá para gravar agora de um formulário com parte inválida (ao sair da tela): cada campo
+ * válido vai, e o inválido fica como estava em `salvo`. No cronograma, a linha incompleta fica
+ * de fora, a não ser que isso encolha a lista: aí pode ser uma entrega gravada que está sendo
+ * editada, e o cronograma salvo continua (sair da tela não apaga entrega).
+ */
+export function formularioGravavel(f: FormularioEstruturado, salvo: FormularioEstruturado): FormularioEstruturado {
+  const ok = (e: EstruturadoEntrada) => interpretarEstruturado(e).ok;
+  const linhas = f.entregas.filter((en) => ok({ entregas: [en] }));
+  const entregas = linhas.length === f.entregas.length || linhas.length >= salvo.entregas.length ? linhas : salvo.entregas;
+  return {
+    valor: ok({ valor: f.valor }) ? f.valor : salvo.valor,
+    prazoDias: ok({ prazoDias: f.prazoDias }) ? f.prazoDias : salvo.prazoDias,
+    escopoResumo: ok({ escopoResumo: f.escopoResumo }) ? f.escopoResumo : salvo.escopoResumo,
+    entregas: ok({ entregas }) ? entregas : salvo.entregas,
   };
 }
 

@@ -2,6 +2,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";
 import { gerarPdf, limparTexto } from "./gerador";
+import { nomeDaCapa } from "./nome-capa";
 import { TEMPLATE_IJ } from "./templates/ij";
 import type { DocumentoPdf } from "./tipos";
 
@@ -82,12 +83,33 @@ describe("modelo da IJ", () => {
     expect(t.texto[1]).toContain("Corpo.");
   });
 
-  it("nome de empresa enorme encolhe e continua inteiro na capa", async () => {
-    const empresa = "Companhia Brasileira de Distribuição e Logística de Alimentos do Sudeste";
+  it("nome longo quebra em linhas na capa, inteiro e dentro da moldura", async () => {
+    const empresa = "COMPANHIA BRASILEIRA DE DISTRIBUIÇÃO E LOGÍSTICA DE ALIMENTOS DO SUDESTE";
     const bytes = await gerarPdf({ titulo: "T", capa: { titulo: "PROPOSTA COMERCIAL", empresa, data: "d", endereco: "e" }, blocos: [] }, TEMPLATE_IJ);
-    const it = (await itens(bytes, 1)).find((i) => i.str.includes("Companhia"))!;
-    expect(it.str).toBe(empresa);
-    expect(it.transform[4]).toBeGreaterThan(0.11 * 595);
+    const it = (await itens(bytes, 1)).filter((i) => nomeDaCapa(empresa).linhas.includes(i.str));
+    expect(it.map((i) => i.str).join(" ")).toBe(empresa);
+    for (const i of it) expect(i.transform[4]).toBeGreaterThan(0.11 * 595);
+  });
+
+  it("título leva junto a tabela inteira do começo: cabeçalho e 1ª linha, mesmo altos", async () => {
+    const enche = Array.from({ length: 900 }, (_, i) => `palavra${i}`).join(" ");
+    for (let n = 0; n < 12; n++) {
+      const blocos: DocumentoPdf["blocos"] = [
+        { tipo: "paragrafo", trechos: [{ texto: enche.slice(0, 3000 + n * 90) }] },
+        { tipo: "titulo", nivel: 2, trechos: [{ texto: "TITULODATABELA" }] },
+        { tipo: "tabela", colunas: [{ titulo: "CABECALHO", largura: 0.5 }, { titulo: "B", largura: 0.5 }], linhas: [["PRIMEIRALINHA " + "x ".repeat(200), "y"]] },
+      ];
+      const t = await texto(await gerarPdf({ titulo: "T", blocos }, TEMPLATE_IJ));
+      const pag = (s: string) => t.texto.findIndex((p) => p.includes(s));
+      expect(pag("TITULODATABELA")).toBe(pag("PRIMEIRALINHA"));
+    }
+  });
+
+  it("marca de rascunho aparece na capa e nas páginas; sem marca, não aparece", async () => {
+    const doc: DocumentoPdf = { titulo: "T", capa: { titulo: "A", empresa: "B", data: "C", endereco: "D" }, blocos: [{ tipo: "paragrafo", trechos: [{ texto: "x" }] }] };
+    const com = await texto(await gerarPdf({ ...doc, marca: "RASCUNHO: prévia" }, TEMPLATE_IJ));
+    for (const p of com.texto) expect(p).toContain("RASCUNHO");
+    expect((await texto(await gerarPdf(doc, TEMPLATE_IJ))).texto.join(" ")).not.toContain("RASCUNHO");
   });
 
   it("parágrafo justificado: linhas com a mesma borda direita, a última não; primeira linha recuada", async () => {

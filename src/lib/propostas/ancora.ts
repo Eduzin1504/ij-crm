@@ -21,14 +21,23 @@
  * para a posição crua) antes de criar ou procurar âncoras — senão o trecho
  * digitado com dois espaços ficaria "alterado" para todo mundo.
  *
- * Bloco móvel (GAB-100): entra no texto plano pelo título FIXO ("Cronograma"), na
- * posição em que está na folha, e nunca pelos dados. Assim o texto plano sai do
- * Markdown sozinho (servidor e MCP não precisam da parte estruturada), mudar valor
- * ou entrega não deixa comentário "alterado", e dá para comentar o bloco citando o
- * título. Tirar o bloco da folha marca o comentário dele como "trecho alterado".
+ * Bloco móvel (GAB-100): entra no texto plano por um caractere reservado, na posição em
+ * que está na folha, e nunca pelos dados nem pelo título. Assim o texto plano sai do
+ * Markdown sozinho, mudar valor ou entrega não deixa comentário "alterado", e a busca trata
+ * o bloco à parte: quem cita a palavra "Cronograma" no texto nunca cai no bloco, e o
+ * comentário do bloco nunca cai num título igual do texto. Tirar o bloco da folha marca o
+ * comentário dele como "trecho alterado". Para mostrar a uma pessoa: `trechoLegivel`.
  */
 import { TITULO_BLOCO_DADOS } from "./blocos-dados";
-import { documentoComBlocos, type Bloco, type Documento, type ItemLista, type TipoBlocoDados } from "./documento";
+import { documentoComBlocos, TIPOS_BLOCO_DADOS, type Bloco, type Documento, type ItemLista, type TipoBlocoDados } from "./documento";
+
+/** Área de uso privado do Unicode: não vem de texto digitado, e a normalização não mexe. */
+export const TOKEN_BLOCO: Record<TipoBlocoDados, string> = { cronograma: "\uE001", investimento: "\uE002" };
+
+/** Trecho como as pessoas e o MCP leem: o bloco pelo título. */
+export function trechoLegivel(trecho: string): string {
+  return TIPOS_BLOCO_DADOS.reduce((t, tipo) => t.replaceAll(TOKEN_BLOCO[tipo], TITULO_BLOCO_DADOS[tipo]), trecho);
+}
 
 export const CONTEXTO_ANCORA = 40;
 export const TRECHO_MAX = 500;
@@ -96,7 +105,7 @@ export function textoPlano(doc: Documento): { texto: string; inicios: Map<object
   let texto = "";
   const visitar = (b: Bloco | ItemLista) => {
     if (b.type === "paragraph" || b.type === "heading" || b.type === "blocoDados") {
-      const t = b.type === "blocoDados" ? TITULO_BLOCO_DADOS[b.attrs.tipo] : (b.content ?? []).map((n) => n.text).join("");
+      const t = b.type === "blocoDados" ? TOKEN_BLOCO[b.attrs.tipo] : (b.content ?? []).map((n) => n.text).join("");
       if (!t) return;
       if (texto) texto += "\n";
       inicios.set(b, texto.length);
@@ -107,12 +116,12 @@ export function textoPlano(doc: Documento): { texto: string; inicios: Map<object
   return { texto, inicios };
 }
 
-/** Âncora que aponta para um bloco móvel (o título dele, com o contexto da posição). null = fora da folha. */
+/** Âncora que aponta para um bloco móvel (com o contexto da posição). null = fora da folha. */
 export function ancoraDoBloco(doc: Documento, tipo: TipoBlocoDados): Ancora | null {
   const { texto, inicios } = textoPlano(doc);
   const bloco = documentoComBlocos(doc).content.find((b) => b.type === "blocoDados" && b.attrs.tipo === tipo);
   const inicio = bloco ? inicios.get(bloco) : undefined;
-  return inicio === undefined ? null : criarAncora(texto, inicio, inicio + TITULO_BLOCO_DADOS[tipo].length);
+  return inicio === undefined ? null : criarAncora(texto, inicio, inicio + TOKEN_BLOCO[tipo].length);
 }
 
 /** Âncora da seleção [inicio, fim) do texto plano. Aparada; vazia ou longa demais → null. */

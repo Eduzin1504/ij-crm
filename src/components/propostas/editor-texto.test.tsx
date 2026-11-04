@@ -123,6 +123,25 @@ describe("blocos móveis no editor (GAB-100)", () => {
     e.destroy();
   });
 
+  it("digitar com o bloco selecionado escreve depois dele, sem apagá-lo", () => {
+    const e = editorCom({ type: "doc", content: [texto("a"), bloco("cronograma")] });
+    e.commands.setNodeSelection(3);
+    const { view } = e;
+    const digitar = (t: string) => view.someProp("handleTextInput", (f) => f(view, view.state.selection.from, view.state.selection.to, t, () => view.state.tr));
+    expect(digitar("x")).toBe(true);
+    const lido = lerDocumento(jsonDoEditor(e))!;
+    expect(lido.content.map((b) => b.type)).toEqual(["paragraph", "blocoDados", "paragraph"]);
+    expect(lido.content[2]).toEqual(texto("x"));
+    e.destroy();
+  });
+
+  it("colar bloco de tipo desconhecido não vira nó (o servidor recusaria o documento)", () => {
+    const e = editorCom('<div data-bloco-dados="lixo"></div><p>a</p>');
+    expect(blocosNoEditor(e)).toEqual({ cronograma: false, investimento: false });
+    expect(lerDocumento(jsonDoEditor(e))).not.toBeNull();
+    e.destroy();
+  });
+
   it("bloco só no nível de cima: a lista não aceita (nem o esquema)", () => {
     const e = editorCom({ type: "doc", content: [texto("a")] });
     expect(e.schema.nodes.listItem.contentMatch.matchType(e.schema.nodes.blocoDados)).toBeFalsy();

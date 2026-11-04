@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentoComBlocos, documentoDoEditor, lerDocumento, normalizarDocumento, type Bloco, type Documento, type NoTexto } from "./documento";
+import { documentoComBlocos, documentoDoEditor, herdarBlocos, lerDocumento, normalizarDocumento, type Bloco, type Documento, type NoTexto } from "./documento";
 import { documentoParaMarkdown, markdownParaDocumento, normalizarMarkdown } from "./markdown";
 
 const t = (text: string, ...marks: ("bold" | "italic")[]): NoTexto => (marks.length ? { type: "text", text, marks: marks.map((type) => ({ type })) } : { type: "text", text });
@@ -312,6 +312,14 @@ describe("blocos móveis (GAB-100)", () => {
       expect(markdownParaDocumento(documentoParaMarkdown(d))).toEqual(d);
       expect(normalizarDocumento(d)).toEqual(d);
     }
+  });
+
+  it("herdarBlocos: texto novo mantém quais blocos estão na folha, no fim", () => {
+    const novo: Documento = { type: "doc", content: [p("Novo.")] };
+    expect(herdarBlocos(novo, { type: "doc", content: [p("A"), b("cronograma"), p("B"), b("investimento"), p("C")] }).content).toEqual([p("Novo.")]);
+    expect(herdarBlocos(novo, { type: "doc", content: [p("A"), b("investimento"), p("B")] }).content).toEqual([p("Novo."), b("investimento")]);
+    expect(herdarBlocos(novo, { type: "doc", content: [p("A"), { type: "semBlocos" }] }).content).toEqual([p("Novo."), { type: "semBlocos" }]);
+    expect(herdarBlocos(novo, { type: "doc", content: [p("A")] }).content).toEqual([p("Novo.")]);
   });
 
   it("JSON do editor: bloco válido entra; tipo desconhecido é recusado; dentro de lista não é do subconjunto", () => {

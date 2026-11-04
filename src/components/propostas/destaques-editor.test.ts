@@ -31,7 +31,7 @@ describe("ancoraDaSelecao", () => {
     const { texto, segmentos } = planoDoEditor(e.state.doc);
     const seg = segmentos[1]; // "Site com loja"
     e.commands.setTextSelection({ from: seg.posicoes[0] + 5, to: seg.posicoes[0] + 13 });
-    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "com loja", antes: texto.slice(0, 12), depois: "\nitem um\nCronograma\nInvestimento" });
+    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "com loja", antes: texto.slice(0, 12), depois: "\nitem um\n\uE001\n\uE002" });
     e.destroy();
   });
 
@@ -81,7 +81,7 @@ describe("espaços que o Markdown não guarda (editor ao vivo × canônico)", ()
 
   it("texto plano do editor = o do documento canônico", () => {
     const e = editor();
-    expect(canonico()).toBe("Prazo: 30 dias\nCronograma\nInvestimento");
+    expect(canonico()).toBe("Prazo: 30 dias\n\uE001\n\uE002");
     expect(planoDoEditor(e.state.doc).texto).toBe(canonico());
     e.destroy();
   });
@@ -90,7 +90,7 @@ describe("espaços que o Markdown não guarda (editor ao vivo × canônico)", ()
     const e = editor();
     const p0 = 1; // início do texto do parágrafo
     e.commands.setTextSelection({ from: p0 + 2, to: p0 + 12 }); // "Prazo:  30"
-    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "Prazo: 30", antes: "", depois: " dias\nCronograma\nInvestimento" });
+    expect(ancoraDaSelecao(e.state)).toEqual({ trecho: "Prazo: 30", antes: "", depois: " dias\n\uE001\n\uE002" });
     e.destroy();
   });
 

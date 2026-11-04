@@ -55,7 +55,8 @@ export function FormEstruturado({ valor, onChange, desativado }: { valor: FormEs
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className={rotulo + " mb-0"}>Cronograma de entregas</span>
           <span className="flex-1" />
-          {entregas.length > 1 ? (
+          {/* Durações valem em sequência: reordenar por data mudaria a conta. */}
+          {entregas.length > 1 && !entregas.some((e) => e.duracao.trim()) ? (
             <Button type="button" variant="ghost" size="xs" onClick={ordenarPorData}>
               <CalendarArrowDown /> Ordenar por data
             </Button>
