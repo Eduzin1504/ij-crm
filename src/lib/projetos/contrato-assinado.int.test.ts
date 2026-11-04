@@ -67,7 +67,7 @@ describe("marcarContratoAssinado", () => {
   it("sem anexo: vai a Ganho com data e valor e segue ao Handoff", async () => {
     const s = await semear();
     await emMontandoContrato(s);
-    expect(await marcarContratoAssinado(s.id, { valorFechado: "12.500,00" }, s.ana)).toEqual({ ok: true, mudou: true, anexo: null });
+    expect(await marcarContratoAssinado(s.id, { valorFechado: "12.500,00" }, s.ana)).toMatchObject({ ok: true, mudou: true, anexo: null });
     const c = await lerCard(s.id);
     expect(c.fase.marco).toBe("HANDOFF");
     expect(c.valorFechado?.toFixed(2)).toBe("12500.00");
@@ -91,6 +91,13 @@ describe("marcarContratoAssinado", () => {
     expect(c.valorFechado).toBeNull();
   });
 
+  it("nome sem extensão recebe .pdf, também com ponto no meio; devolve o valor que ficou", async () => {
+    const s = await semear();
+    await emMontandoContrato(s);
+    const r = await marcarContratoAssinado(s.id, { valorFechado: "12.500,00", arquivo: { nome: "Contrato v1.2", bytes: PDF().bytes } }, s.ana);
+    expect(r).toMatchObject({ ok: true, valorFechado: "12500.00", anexo: { nome: "Contrato v1.2.pdf" } });
+  });
+
   it("de uma subfase depois do marco também vale", async () => {
     const s = await semear();
     await emMontandoContrato(s);
@@ -103,7 +110,7 @@ describe("marcarContratoAssinado", () => {
     await emMontandoContrato(s);
     const { anexarArquivo } = await import("@/lib/anexos/anexos");
     expect(await anexarArquivo(s.id, PDF(), s.ana)).toMatchObject({ ok: true });
-    expect(await marcarContratoAssinado(s.id, { arquivo: PDF() }, s.ana)).toEqual({ ok: true, mudou: true, anexo: null });
+    expect(await marcarContratoAssinado(s.id, { arquivo: PDF() }, s.ana)).toMatchObject({ ok: true, mudou: true, anexo: null });
     expect(await db.anexo.count()).toBe(1);
   });
 

@@ -14,12 +14,12 @@
  */
 import type { Papel } from "@prisma/client";
 import { anexarArquivo, type AnexoCriado } from "@/lib/anexos/anexos";
-import { identificarTipo, MENSAGEM_ERRO_ANEXO, sanitizarNome, type ErroAnexo } from "@/lib/anexos/tipos";
+import { EXTENSOES_ACEITAS, identificarTipo, MENSAGEM_ERRO_ANEXO, sanitizarNome, type ErroAnexo } from "@/lib/anexos/tipos";
 import { podeEscrever } from "@/lib/auth/papeis";
 import { db } from "@/lib/db";
 import { MENSAGEM_ERRO_PROJETO, type ErroProjeto } from "./erros";
 import { moverCard } from "./projetos";
-import { interpretarGanho, PIPELINE_VENDAS, valorParaCampo } from "./terminal-regras";
+import { interpretarGanho, lerDinheiro, PIPELINE_VENDAS, valorParaCampo } from "./terminal-regras";
 import { travaDoContrato } from "./trava-contrato";
 
 export type ErroContratoAssinado = ErroProjeto | ErroAnexo | "CONTRATO_NAO_E_PDF" | "PROJETO_FORA_DE_VENDAS" | "FASE_GANHO_INDISPONIVEL";
@@ -38,7 +38,14 @@ export type DadosContratoAssinado = {
   arquivo?: { nome: string; bytes: Uint8Array } | null;
 };
 
-export type ResultadoContratoAssinado = { ok: true; mudou: boolean; anexo: AnexoCriado | null } | { ok: false; erro: ErroContratoAssinado };
+/** `valorFechado`: como ficou no Projeto ("12500.00"; null = ganho sem valor). */
+export type ResultadoContratoAssinado = { ok: true; mudou: boolean; anexo: AnexoCriado | null; valorFechado: string | null } | { ok: false; erro: ErroContratoAssinado };
+
+/** Nome sem extensão de arquivo (ou com ponto no meio, "Contrato v1.2") ganha `.pdf`; extensão aceita fica, para o tipo ser conferido. */
+function nomeDoContrato(original: string): string {
+  const nome = sanitizarNome(original);
+  return EXTENSOES_ACEITAS.some((e) => nome.toLowerCase().endsWith(e)) ? nome : sanitizarNome(`${nome}.pdf`);
+}
 
 export async function marcarContratoAssinado(projetoId: string, dados: DadosContratoAssinado, por: { id: string; papel: Papel }): Promise<ResultadoContratoAssinado> {
   if (!podeEscrever(por.papel)) return { ok: false, erro: "SEM_PERMISSAO" };
@@ -64,15 +71,18 @@ export async function marcarContratoAssinado(projetoId: string, dados: DadosCont
 
   let anexo: AnexoCriado | null = null;
   if (dados.arquivo) {
-    const tipo = identificarTipo(dados.arquivo.bytes, sanitizarNome(dados.arquivo.nome));
+    const nome = nomeDoContrato(dados.arquivo.nome);
+    const tipo = identificarTipo(dados.arquivo.bytes, nome);
     if (!tipo.ok) return tipo;
     if (tipo.tipo !== "PDF") return { ok: false, erro: "CONTRATO_NAO_E_PDF" };
-    const r = await anexarArquivo(projetoId, dados.arquivo, por);
+    const r = await anexarArquivo(projetoId, { nome, bytes: dados.arquivo.bytes }, por);
     if (r.ok) anexo = r.anexo;
     else if (r.erro !== "DUPLICADO") return r;
   }
 
-  const movido = await moverCard(projetoId, previa.ganhoId, por, { dadosTerminal: { valorFechado: dados.valorFechado ?? previa.valorAtual } });
+  const valorFechado = dados.valorFechado ?? previa.valorAtual;
+  const movido = await moverCard(projetoId, previa.ganhoId, por, { dadosTerminal: { valorFechado } });
   if (!movido.ok) return movido;
-  return { ok: true, mudou: movido.mudou, anexo };
+  const lido = lerDinheiro(valorFechado);
+  return { ok: true, mudou: movido.mudou, anexo, valorFechado: lido.ok ? lido.valor : null };
 }

@@ -85,7 +85,7 @@ export function mensagemLixeira(f: FalhaLixeira): string {
     case "PROPOSTA_NAO_ACEITA":
       return "Este card não tem proposta aceita: ele não volta em Montando contrato nem numa fase depois dela. Escolha uma fase antes de Montando contrato.";
     case "GANHO_SO_DE_MONTANDO_CONTRATO":
-      return "Este card não volta numa fase de ganho: ganho só a partir de Montando contrato. Reveja a fase na Gestão de fases ou escolha outro destino.";
+      return "Este card não volta numa fase de ganho: ganho só a partir de Montando contrato. Para restaurar, tire o tipo ganho dessa fase na Gestão de fases (desarquive antes, se ela estiver arquivada).";
     case "CONFIRMACAO_NAO_CONFERE":
       return "O texto digitado não confere com o título. Nada foi apagado.";
     case "CONTATO_TEM_MESCLADOS":
