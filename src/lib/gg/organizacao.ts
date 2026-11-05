@@ -152,10 +152,13 @@ export function areasGG(areas: AreaB[]): Set<string> {
 
 // ---------------------------------------------------------------- acesso
 
-/** Edita a área G&G: admin, ou conta ligada a membro que ocupa hoje posição em G&G. */
+/**
+ * Edita a área G&G: admin, ou conta ligada a membro que ocupa hoje posição em G&G.
+ * Vale pelo organograma, não pelo papel do CRM: quem é só de G&G deriva VISUALIZADOR
+ * (G&G não é lado de vendas/projetos) e continua só lendo o comercial, mas edita G&G.
+ */
 export async function ehEditorGG(u: { id: string; papel: Papel }): Promise<boolean> {
   if (u.papel === "ADMIN") return true;
-  if (u.papel === "VISUALIZADOR") return false;
   const m = await db.membro.findUnique({ where: { usuarioId: u.id }, select: { id: true } });
   if (!m) return false;
   const base = await carregarBase();
