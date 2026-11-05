@@ -18,7 +18,6 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CSS as DndCSS } from "@dnd-kit/utilities";
 import { ChevronsLeftRight, Plus } from "lucide-react";
 import { cn } from "cn";
 import { Avatar } from "@/components/avatar";
@@ -29,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { executarAcao, falhaDe, FALHA_CONEXAO, type FalhaUI } from "@/lib/erros/cliente";
 import { aplicarExibicao, ordenador, type Exibicao } from "@/lib/tarefas/exibicao";
 import { FILTROS_VAZIOS, escreverFiltros, filtrarTarefas, lerFiltros, type Filtros } from "@/lib/tarefas/filtros";
-import { PRIORIDADES, ROTULO_PRIORIDADE, TITULO_MAX, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
+import { PRIORIDADES, ROTULO_PRIORIDADE, TITULO_MAX, recebeTarefa, rotuloResponsavel, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
 import { COLUNAS, ROTULO_STATUS, SEM_ETIQUETA, SEM_RESPONSAVEL, agrupar, posicaoEntre, type Linha } from "@/lib/tarefas/quadro";
 import { colisaoQuadro } from "../../../kanban/colisao";
 import { colunasAbertas, proximoAlvo } from "../../../kanban/colunas";
@@ -307,7 +306,8 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
       if (k === "s") return abrirAtalho(t.id, "status");
       if (k === "p") return abrirAtalho(t.id, "prio");
       if (k === "a") return abrirAtalho(t.id, "resp");
-      if (k === "enter" || k === " ") {
+      // Enter/espaço só do "nada" (body): num cartão, linha ou botão focado a tecla é dele (abrir, pegar para arrastar, clicar).
+      if ((k === "enter" || k === " ") && (!alvoEl || alvoEl === document.body)) {
         e.preventDefault();
         return setAbertaId(t.id);
       }
@@ -430,7 +430,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
               ? COLUNAS.map((c, i) => ({ valor: c.status, rotulo: c.nome, icone: <IconeStatus status={c.status} className="size-3.5" />, atalho: String(i + 1) }))
               : atalho.campo === "prio"
                 ? PRIORIDADES.map((p) => ({ valor: p.k, rotulo: p.nome, icone: <IconePrioridade prioridade={p.k} className="size-3.5" /> }))
-                : [{ valor: "", rotulo: "Sem responsável" }, ...pessoas.filter((p) => p.ativo).map((p) => ({ valor: p.id, rotulo: p.afastado ? `${p.nome} (afastado)` : p.nome, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]
+                : [{ valor: "", rotulo: "Sem responsável" }, ...pessoas.filter((p) => recebeTarefa(p) || p.id === tarefaAtalho.responsavelId).map((p) => ({ valor: p.id, rotulo: rotuloResponsavel(p), icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]
           }
           selecionadas={[atalho.campo === "status" ? tarefaAtalho.status : atalho.campo === "prio" ? tarefaAtalho.prioridade : (tarefaAtalho.responsavelId ?? "")]}
           onEscolher={(v) => editar(atalho.id, atalho.campo === "status" ? { status: v as StatusTarefa } : atalho.campo === "prio" ? { prioridade: v as PrioridadeTarefa } : { responsavelId: v || null })}
@@ -569,7 +569,8 @@ function CartaoArrastavel({
   onAbrir: () => void;
   onSelecionar: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: tarefa.id });
+  // Sem transform na origem: quem segue o ponteiro é o DragOverlay (com os dois, a cópia apagada ia junto e era cortada pela coluna).
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: tarefa.id });
   const alvo = useDroppable({ id: tarefa.id });
   return (
     <div
@@ -578,7 +579,6 @@ function CartaoArrastavel({
         alvo.setNodeRef(el);
       }}
       data-id={tarefa.id}
-      style={{ transform: DndCSS.Translate.toString(transform) }}
       className={cn("touch-manipulation rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring", isDragging && "opacity-40", alvo.isOver && !isDragging && "ring-1 ring-primary/60", selecionada && "ring-1 ring-primary/50")}
       {...attributes}
       aria-roledescription="tarefa arrastável"
@@ -588,7 +588,7 @@ function CartaoArrastavel({
       onMouseEnter={onSelecionar}
       // Enter abre; espaço e setas seguem para o arrasto por teclado (sem isso o sensor de teclado nunca disparava).
       onKeyDown={(e) => {
-        if (e.key === "Enter") onAbrir();
+        if (e.key === "Enter" && !isDragging) onAbrir();
         else listeners?.onKeyDown?.(e);
       }}
     >
