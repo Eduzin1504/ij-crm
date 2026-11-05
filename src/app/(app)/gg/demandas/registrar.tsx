@@ -72,7 +72,7 @@ export function RegistrarDemanda({ membros }: { membros: M[] }) {
   );
 }
 
-export function Cancelar({ id }: { id: string }) {
+export function Cancelar({ id, rotulo }: { id: string; rotulo: string }) {
   const [confirmar, setConfirmar] = useState(false);
   const { pendente, erro, rodar } = useAcao();
   return confirmar ? (
@@ -86,7 +86,7 @@ export function Cancelar({ id }: { id: string }) {
       <MensagemErro falha={erro} className="text-xs" />
     </span>
   ) : (
-    <Button size="sm" variant="ghost" onClick={() => setConfirmar(true)}>
+    <Button size="sm" variant="ghost" aria-label={rotulo} onClick={() => setConfirmar(true)}>
       Cancelar
     </Button>
   );

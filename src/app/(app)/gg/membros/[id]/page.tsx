@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { contaDifere, LIMITE_DEMANDA, ROTULO_CATEGORIA, ROTULO_FUNCAO, ROTULO_STATUS_MEMBRO, semestreDe, vigente } from "@/lib/gg/modelo";
 import { carregarBase, derivadoDe, ehEditorGG, historicoDe, lideresDe } from "@/lib/gg/organizacao";
 import { listarAusencias, saldoDemandas } from "@/lib/gg/rotina";
+import { diaEmFuso } from "@/lib/projetos/aging";
 import { projetosDe } from "@/lib/projetos/equipe";
 import { EditarMembro, PeriodoIj, PonteCrm } from "./acoes-ficha";
 
@@ -149,6 +150,7 @@ export default async function FichaPage({ params }: { params: Promise<{ id: stri
                 </span>
               </li>
             ))}
+            {!vincs.length ? <li className="px-4 py-3 text-fg-faint">Nenhum período registrado.</li> : null}
           </ul>
           {m.status === "INATIVO" && atuais.length ? <p className="border-t border-border px-4 py-2.5 text-xs text-warn">Desligado com posição aberta: encerre as posições no menu ⋯ (o status não fecha nada sozinho).</p> : null}
         </Painel>
@@ -194,7 +196,7 @@ export default async function FichaPage({ params }: { params: Promise<{ id: stri
         <ul className="divide-y divide-border/60 text-sm">
           {hist.map((h) => (
             <li key={h.id} className="grid grid-cols-[6.5rem_1fr] gap-3 px-4 py-2">
-              <span className="font-mono text-xs text-fg-faint">{diaBR(h.em.slice(0, 10))}</span>
+              <span className="font-mono text-xs text-fg-faint">{diaBR(diaEmFuso(new Date(h.em)))}</span>
               <span>
                 {h.evento} {h.autor ? <span className="text-fg-faint">· {h.autor}</span> : null}
               </span>

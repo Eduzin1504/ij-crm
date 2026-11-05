@@ -37,7 +37,7 @@ export function NovaMeta({ aba, ciclos, objetivos, kpis, membros, fontes }: { ab
   return (
     <span className="ml-auto flex gap-2">
       {botoes.map(([k, n]) => (
-        <Button key={k} variant={k === "kr" ? "outline" : "default"} onClick={() => setAberto(k)} disabled={(k === "objetivo" && !ciclos.length) || (k === "kr" && !objetivos.length)}>
+        <Button key={k} variant={k === "kr" ? "outline" : "default"} onClick={() => setAberto(k)} disabled={(k === "objetivo" && !ciclos.length) || (k === "kr" && !objetivos.length)} title={k === "objetivo" && !ciclos.length ? "Crie um ciclo antes (aba Ciclos)." : k === "kr" && !objetivos.length ? "Crie um objetivo antes." : undefined}>
           {n}
         </Button>
       ))}
@@ -189,10 +189,13 @@ export function AtualizarKr({ id, atual }: { id: string; atual: number }) {
 }
 
 export function ConcluirIniciativa({ id, concluida }: { id: string; concluida: boolean }) {
-  const { pendente, rodar } = useAcao();
+  const { pendente, erro, rodar } = useAcao();
   return (
-    <Button size="sm" variant={concluida ? "ghost" : "outline"} disabled={pendente} onClick={() => rodar(() => concluirIniciativaAction(id, !concluida), "atualizar a iniciativa")}>
-      {concluida ? "Reabrir" : "Concluir"}
-    </Button>
+    <span className="inline-flex items-center gap-1.5">
+      <MensagemErro falha={erro} className="text-xs" />
+      <Button size="sm" variant={concluida ? "ghost" : "outline"} disabled={pendente} onClick={() => rodar(() => concluirIniciativaAction(id, !concluida), "atualizar a iniciativa")}>
+        {concluida ? "Reabrir" : "Concluir"}
+      </Button>
+    </span>
   );
 }

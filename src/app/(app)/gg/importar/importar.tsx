@@ -50,7 +50,7 @@ export function Importar({ areas, cargos, hoje }: { areas: string[]; cargos: str
             <Button variant="outline" onClick={revisar}>
               Revisar prévia
             </Button>
-            {problema ? <span className="text-sm text-danger">{problema}</span> : null}
+            {problema ? <span role="alert" className="text-sm text-danger">{problema}</span> : null}
             {feito !== null ? <span className="text-sm text-success">{feito} membros importados. Revise posições e lideranças no organograma.</span> : null}
           </div>
         </div>

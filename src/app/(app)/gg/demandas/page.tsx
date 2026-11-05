@@ -73,7 +73,7 @@ export default async function DemandasPage({ searchParams }: { searchParams: Pro
               <td className="max-w-md">{d.justificativa}</td>
               <td className="text-fg-mute">{d.registrante}</td>
               <td className="font-mono text-xs">{diaBR(d.em)}</td>
-              <td className="text-right">{d.cancelada ? <Chip>cancelada</Chip> : editor ? <Cancelar id={d.id} /> : null}</td>
+              <td className="text-right">{d.cancelada ? <Chip>cancelada</Chip> : editor ? <Cancelar id={d.id} rotulo={`Cancelar a demanda ${d.tipo === "ROSA" ? "rosa" : "azul"} de ${d.membro}`} /> : null}</td>
             </tr>
           ))}
         </Tabela>

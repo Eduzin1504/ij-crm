@@ -100,7 +100,7 @@ export function EquipeProjeto({
                         </Button>
                       </span>
                     ) : (
-                      <Button size="sm" variant="ghost" onClick={() => setSaindo(m.id)}>
+                      <Button size="sm" variant="ghost" aria-label={`Tirar ${m.nome} da equipe`} onClick={() => setSaindo(m.id)}>
                         Tirar da equipe
                       </Button>
                     )

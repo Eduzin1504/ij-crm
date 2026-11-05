@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { naMeta, progresso } from "@/lib/gg/modelo";
 import { ehEditorGG } from "@/lib/gg/organizacao";
+import { diaEmFuso } from "@/lib/projetos/aging";
 import { carregarMetas, ehFonteCrm, FONTES_CRM } from "@/lib/gg/rotina";
 import { AtualizarKr, ConcluirIniciativa, Medir, NovaMeta } from "./acoes-metas";
 
@@ -44,6 +45,8 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
   const krs = m.objetivos.flatMap((o) => o.resultados);
   const media = krs.length ? Math.round(krs.reduce((s, k) => s + progresso(k.inicial, k.meta, k.atual), 0) / krs.length) : 0;
   const automaticos = m.kpis.filter((k) => k.fonte).length + krs.filter((k) => k.fonte).length;
+  // Dia de São Paulo, como o servidor valida (UTC já é amanhã depois das 21h).
+  const hoje = diaEmFuso(new Date());
   const fontes = Object.entries(FONTES_CRM).map(([k, v]) => ({ id: k, nome: v.rotulo }));
 
   return (
@@ -109,7 +112,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
                   </td>
                   <td className="font-mono tabular">{k.meta}</td>
                   <td>{ehFonteCrm(k.fonte) ? <span title={FONTES_CRM[k.fonte].descricao}><Chip tom="coral">CRM, automático</Chip></span> : <Chip>manual</Chip>}</td>
-                  <td className="text-right">{k.fonte ? atual !== null ? <Chip tom={naMeta(k.direcao, atual, k.meta) ? "ok" : "aviso"}>{naMeta(k.direcao, atual, k.meta) ? "na meta" : "fora da meta"}</Chip> : null : editor ? <Medir kpiId={k.id} hoje={new Date().toISOString().slice(0, 10)} /> : null}</td>
+                  <td className="text-right">{k.fonte ? atual !== null ? <Chip tom={naMeta(k.direcao, atual, k.meta) ? "ok" : "aviso"}>{naMeta(k.direcao, atual, k.meta) ? "na meta" : "fora da meta"}</Chip> : null : editor ? <Medir kpiId={k.id} hoje={hoje} /> : null}</td>
                 </tr>
               );
             })}

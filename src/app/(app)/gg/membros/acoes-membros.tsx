@@ -12,19 +12,26 @@ import { criarMembroAction, ligarContasAction } from "../actions";
 /** Novo membro e "ligar contas pelo e-mail" (só para quem edita G&G). */
 export function AcoesMembros() {
   const [aberto, setAberto] = useState(false);
-  const { pendente, erro, rodar } = useAcao();
+  const { pendente, erro, setErro, rodar } = useAcao();
   const [aviso, setAviso] = useState<string | null>(null);
   return (
-    <>
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" disabled={pendente} onClick={() => rodar(() => ligarContasAction(), "ligar as contas", (r) => setAviso(r && "ligados" in r ? `${r.ligados ?? 0} conta(s) ligada(s).` : null))}>
         Ligar contas pelo e-mail
       </Button>
-      <Button onClick={() => setAberto(true)}>Novo membro</Button>
+      <Button
+        onClick={() => {
+          setErro(null);
+          setAberto(true);
+        }}
+      >
+        Novo membro
+      </Button>
       {aviso || erro ? (
-        <p className="basis-full text-right text-sm text-fg-mute" aria-live="polite">
+        <div className="self-center text-sm text-fg-mute" aria-live="polite">
           {aviso}
-          <MensagemErro falha={erro} />
-        </p>
+          {aberto ? null : <MensagemErro falha={erro} />}
+        </div>
       ) : null}
       <Dialog open={aberto} onOpenChange={setAberto}>
         <DialogContent>
@@ -72,6 +79,6 @@ export function AcoesMembros() {
           </form>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }

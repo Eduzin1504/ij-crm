@@ -83,7 +83,7 @@ export function RegistrarAusencia({ eventos, membros }: { eventos: Opcao[]; memb
   const { pendente, erro, rodar } = useAcao();
   return (
     <>
-      <Button className="ml-auto" onClick={() => setAberto(true)} disabled={!eventos.length}>
+      <Button className="ml-auto" onClick={() => setAberto(true)} disabled={!eventos.length} title={eventos.length ? undefined : "Nenhum evento nos últimos 120 dias para registrar ausência."}>
         Registrar ausência
       </Button>
       <Dialog open={aberto} onOpenChange={setAberto}>
