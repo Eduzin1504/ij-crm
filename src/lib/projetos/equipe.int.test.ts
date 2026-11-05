@@ -98,5 +98,11 @@ describe("equipe do projeto", () => {
     expect((await projetosDe(pedro.id)).map((p) => p.titulo).sort()).toEqual(["App", "Portal"]);
     await criarTarefa(projeto.id, { titulo: "X", responsavelId: pedro.id }, paula);
     expect((await cargaPorPessoa([pedro.id, paula.id])).get(pedro.id)).toEqual({ projetos: 2, tarefas: 1 });
+    // Projeto concluído não é carga atual; projeto na lixeira leva as tarefas junto.
+    const concluido = await db.fase.create({ data: { pipelineId: outro.pipelineId, chave: "concluido", nome: "Concluído", ordem: 1, isTerminal: true, tipoTerminal: "GANHO" } });
+    await db.projeto.update({ where: { id: outro.id }, data: { faseId: concluido.id } });
+    expect((await cargaPorPessoa([pedro.id])).get(pedro.id)).toEqual({ projetos: 1, tarefas: 1 });
+    await db.projeto.update({ where: { id: projeto.id }, data: { deletadoEm: new Date() } });
+    expect((await cargaPorPessoa([pedro.id])).get(pedro.id)).toEqual({ projetos: 0, tarefas: 0 });
   });
 });

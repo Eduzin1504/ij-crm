@@ -133,12 +133,12 @@ export async function projetosDe(usuarioId: string): Promise<ProjetoDaPessoa[]> 
     .sort((a, b) => Number(b.aberto) - Number(a.aberto));
 }
 
-/** Carga atual por pessoa: projetos abertos e tarefas abertas. */
+/** Carga atual por pessoa: projetos abertos (fora da lixeira e de fase terminal) e tarefas abertas (de projeto fora da lixeira). */
 export async function cargaPorPessoa(usuarioIds: string[]): Promise<Map<string, { projetos: number; tarefas: number }>> {
   const hoje = instanteDoPrazo(diaEmFuso(new Date()));
   const [eq, ts] = await Promise.all([
-    db.projetoMembro.groupBy({ by: ["usuarioId"], where: { usuarioId: { in: usuarioIds }, OR: [{ fim: null }, { fim: { gt: hoje } }], projeto: { deletadoEm: null } }, _count: true }),
-    db.tarefa.groupBy({ by: ["responsavelId"], where: { responsavelId: { in: usuarioIds }, deletadoEm: null, status: { notIn: ["FEITA", "CANCELADA"] } }, _count: true }),
+    db.projetoMembro.groupBy({ by: ["usuarioId"], where: { usuarioId: { in: usuarioIds }, OR: [{ fim: null }, { fim: { gt: hoje } }], projeto: { deletadoEm: null, fase: { isTerminal: false } } }, _count: true }),
+    db.tarefa.groupBy({ by: ["responsavelId"], where: { responsavelId: { in: usuarioIds }, deletadoEm: null, status: { notIn: ["FEITA", "CANCELADA"] }, projeto: { deletadoEm: null } }, _count: true }),
   ]);
   const m = new Map<string, { projetos: number; tarefas: number }>();
   for (const id of usuarioIds) m.set(id, { projetos: 0, tarefas: 0 });
