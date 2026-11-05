@@ -65,7 +65,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
         </Painel>
       ) : (
         <Painel
-          titulo={<span className="capitalize">Agenda de {nomeMes}</span>}
+          titulo={`Agenda de ${nomeMes}`}
           acoes={
             <span className="flex items-center gap-1 text-sm">
               <Link href={`?mes=${mesAnt}`} className="rounded-md px-2 py-1 hover:bg-surface-hover" aria-label="Mês anterior">
