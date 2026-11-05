@@ -22,7 +22,7 @@ export const MENSAGEM_ERRO_ROTINA: Record<ErroRotina, string> = {
   DADOS_INVALIDOS: "Dados inválidos.",
   LIMITE: "Limite semestral atingido.",
   SEM_MEMBRO: "Ligue sua conta a um membro ativo (G&G → Membros) antes de assinar uma demanda.",
-  JA_REGISTRADA: "Essa ausência já está registrada.",
+  JA_REGISTRADA: "Isso já está registrado (talvez por outra pessoa agora há pouco). Recarregue a página.",
   EVENTO_FUTURO: "Ausência só depois do evento.",
   FONTE_AUTOMATICA: "Este indicador é medido pelo CRM; não aceita medição manual.",
   JA_MEDIDO: "Já existe medição nessa data. Uma por dia.",
