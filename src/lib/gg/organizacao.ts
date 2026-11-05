@@ -431,6 +431,8 @@ export async function editarPosicao(id: string, d: { nome: string; areaId: strin
     const nome = d.nome.trim();
     if (!nome || nome.length > 200) throw new Recusa("DADOS_INVALIDOS");
     await db.$transaction(async (tx) => {
+      // Mesma trava do validar_hierarquia do G&G: duas edições simultâneas não fecham um ciclo.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(912001)`;
       const atual = await tx.posicao.findUnique({ where: { id } });
       if (!atual) throw new Recusa("NAO_ENCONTRADO");
       if ((atual.areaId !== d.areaId || atual.cargoId !== d.cargoId) && (await tx.ocupacao.count({ where: { posicaoId: id } }))) throw new Recusa("COM_HISTORICO");

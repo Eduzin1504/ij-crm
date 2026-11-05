@@ -8,6 +8,7 @@ import {
   carregarBase,
   criarMembro,
   derivadoDe,
+  editarPosicao,
   ehEditorGG,
   encerrarOcupacao,
   importarMembros,
@@ -140,6 +141,15 @@ describe("organograma (regras do ajustar_ocupacao)", () => {
     expect(await adicionarOcupante("p_sm", m, null, admin)).toMatchObject({ ok: false, erro: "JA_OCUPA" });
     expect(await adicionarOcupante("p_sm", m, "2026-06-01", admin)).toEqual({ ok: true }); // [jan, jun) e [jun, …) só encostam
     expect(await db.ocupacao.count({ where: { membroId: m } })).toBe(2);
+  });
+
+  it("liderança: duas edições simultâneas não fecham um ciclo (trava do validar_hierarquia)", async () => {
+    const { admin } = await semear();
+    const d = (liderancaId: string) => ({ nome: "x", areaId: "proj", cargoId: "sm", liderancaId });
+    await db.posicao.createMany({ data: [{ id: "x1", nome: "x", areaId: "proj", cargoId: "sm" }, { id: "x2", nome: "x", areaId: "proj", cargoId: "sm" }] });
+    const rs = await Promise.all([editarPosicao("x1", d("x2"), admin), editarPosicao("x2", d("x1"), admin)]);
+    expect(rs.filter((r) => r.ok)).toHaveLength(1);
+    expect(rs.find((r) => !r.ok)).toEqual({ ok: false, erro: "CICLO" });
   });
 
   it("saída e reingresso: períodos sem sobreposição; status acompanha", async () => {
