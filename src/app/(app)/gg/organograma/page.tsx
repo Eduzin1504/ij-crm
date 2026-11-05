@@ -82,7 +82,7 @@ function No({ p, base, posicoes, fechados, escopo, editor, opcoesPosicao, opcoes
   const frente = area.tipo === "FRENTE";
   return (
     <li>
-      <article className={cn("relative z-[1] w-[235px] rounded-lg border p-3.5 text-left", filhos.length ? "border-primary/45 bg-primary-soft/40" : "border-border-strong bg-surface", ocupacoes.length ? "" : "border-dashed")}>
+      <article className={cn("relative z-[1] w-[235px] rounded-lg border p-3.5 text-left has-[details[open]]:z-30", filhos.length ? "border-primary/45 bg-primary-soft/40" : "border-border-strong bg-surface", ocupacoes.length ? "" : "border-dashed")}>
         <div className="mb-1.5 flex items-start justify-between gap-2">
           <span className={cn("pt-1.5 font-mono text-[11px] tracking-wide", frente ? "text-chart-5" : "text-primary/80")}>{area.nome}</span>
           {editor ? (

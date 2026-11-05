@@ -73,7 +73,7 @@ export default async function FichaPage({ params }: { params: Promise<{ id: stri
         desligado={m.status === "INATIVO" ? { cards: responsavelDe?.[0] ?? 0, tarefas: responsavelDe?.[1] ?? 0 } : null}
       />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Painel titulo="Posições atuais" contagem={atuais.length}>
           <ul className="divide-y divide-border/60">
             {atuais.map((o) => (

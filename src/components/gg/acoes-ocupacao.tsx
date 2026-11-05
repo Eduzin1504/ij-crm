@@ -34,11 +34,21 @@ export function MenuOcupacao({ posicao, ocupantes, posicoes, membros, hoje }: { 
 
   return (
     <>
-      <details ref={detalhes} className="relative" onKeyDown={(e) => e.key === "Escape" && detalhes.current?.removeAttribute("open")}>
+      <details
+        ref={detalhes}
+        className="relative"
+        onKeyDown={(e) => {
+          if (e.key !== "Escape" || !e.currentTarget.open) return;
+          e.currentTarget.removeAttribute("open");
+          e.currentTarget.querySelector("summary")?.focus();
+        }}
+        // Fecha ao sair do menu (clique fora ou Tab adiante), como um menu de verdade.
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && e.currentTarget.removeAttribute("open")}
+      >
         <summary aria-label={`Ações de ${posicao.nome}`} className="grid size-7 cursor-pointer list-none place-items-center rounded-md text-fg-mute hover:bg-surface-hover hover:text-foreground [&::-webkit-details-marker]:hidden">
           <MoreHorizontal className="size-4" />
         </summary>
-        <div role="menu" className="absolute right-0 z-20 mt-1 grid w-60 rounded-lg border border-border-strong bg-popover p-1 text-left text-sm shadow-lg">
+        <div role="menu" tabIndex={-1} className="absolute right-0 z-20 mt-1 grid w-60 rounded-lg outline-none border border-border-strong bg-popover p-1 text-left text-sm shadow-lg">
           {membros ? <Item onClick={() => abrir({ tipo: "adicionar", posicao })}>Adicionar ocupante</Item> : null}
           {ocupantes.map((o) => (
             <div key={o.ocupacaoId} className="mt-1 border-t border-border pt-1 first:mt-0 first:border-0 first:pt-0">
