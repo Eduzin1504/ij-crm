@@ -182,4 +182,12 @@ describe("importação (importar_membros)", () => {
     expect(await db.membro.count()).toBe(2);
     expect(await db.posicao.findFirst({ where: { nome: "Membro regular de RH" } })).not.toBeNull();
   });
+
+  it("membro já cadastrado pelo nome (sem e-mail) recusa o lote, como no G&G", async () => {
+    const { admin } = await semear();
+    await novo("Clara Souza", admin);
+    const lote = validarImportacao([{ nome: "Vitor" }, { nome: " clara souza " }], HOJE);
+    expect(await importarMembros(lote, "00000000-0000-0000-0000-000000000003", admin)).toMatchObject({ ok: false, erro: "IMPORTACAO", detalhe: "Linha 2: membro já cadastrado." });
+    expect(await db.membro.count()).toBe(1);
+  });
 });

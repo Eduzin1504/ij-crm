@@ -466,7 +466,9 @@ export async function importarMembros(linhas: LinhaImportacao[], chave: string, 
         if (l.area && !area) throw new Recusa("IMPORTACAO", `${linha}: área "${l.area}" não existe.`);
         if (l.cargo && !cargo) throw new Recusa("IMPORTACAO", `${linha}: cargo "${l.cargo}" não existe.`);
         if (!!area !== !!cargo) throw new Recusa("IMPORTACAO", `${linha}: informe área e cargo juntos.`);
-        if (l.email && (await tx.membro.count({ where: { email: { equals: l.email, mode: "insensitive" } } }))) throw new Recusa("IMPORTACAO", `${linha}: e-mail já cadastrado.`);
+        // Como no importar_membros do G&G: já existe pelo nome ou pelo e-mail (sem caixa) → recusa o lote.
+        const jaExiste = await tx.membro.count({ where: { OR: [{ nome: { equals: l.nome, mode: "insensitive" } }, ...(l.email ? [{ email: { equals: l.email, mode: "insensitive" as const } }] : [])] } });
+        if (jaExiste) throw new Recusa("IMPORTACAO", `${linha}: membro já cadastrado.`);
         const m = await tx.membro.create({ data: { nome: l.nome, email: l.email, status: l.status, usuarioId: await contaPorEmail(tx, l.email) } });
         const entrada = l.entrada ? instanteDoPrazo(l.entrada) : null;
         await tx.vinculoIj.create({ data: { membroId: m.id, entrada } });
