@@ -83,3 +83,19 @@ export function posicaoEntre(antes: number | null, depois: number | null): numbe
   if (depois !== null) return depois - 1;
   return 1;
 }
+
+/**
+ * Posição ao soltar numa coluna (`naColuna` na ordem exibida, sem a tarefa arrastada), antes de
+ * `antesDeId` ou no fim. Vizinhos só valem na ordem manual crescente: ordenado por prazo,
+ * prioridade… (ou decrescente) a coluna não mostra a posição, então soltar na mesma coluna não
+ * muda nada (null) e em outra vai para o fim, sem bagunçar a ordem manual.
+ */
+export function posicaoAoSoltar(naColuna: readonly { id: string; posicao: number }[], antesDeId: string | null, o: { manual: boolean; mesmaColuna: boolean }): number | null {
+  if (!o.manual) {
+    if (o.mesmaColuna) return null;
+    return posicaoEntre(naColuna.length ? Math.max(...naColuna.map((x) => x.posicao)) : null, null);
+  }
+  const i = antesDeId ? naColuna.findIndex((x) => x.id === antesDeId) : -1;
+  if (i === -1) return posicaoEntre(naColuna.at(-1)?.posicao ?? null, null);
+  return posicaoEntre(i > 0 ? naColuna[i - 1].posicao : null, naColuna[i].posicao);
+}

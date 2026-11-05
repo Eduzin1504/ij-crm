@@ -29,7 +29,7 @@ import { executarAcao, falhaDe, FALHA_CONEXAO, type FalhaUI } from "@/lib/erros/
 import { aplicarExibicao, ordenador, type Exibicao } from "@/lib/tarefas/exibicao";
 import { FILTROS_VAZIOS, escreverFiltros, filtrarTarefas, lerFiltros, type Filtros } from "@/lib/tarefas/filtros";
 import { PRIORIDADES, ROTULO_PRIORIDADE, TITULO_MAX, recebeTarefa, rotuloResponsavel, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
-import { COLUNAS, ROTULO_STATUS, SEM_ETIQUETA, SEM_RESPONSAVEL, agrupar, posicaoEntre, type Linha } from "@/lib/tarefas/quadro";
+import { COLUNAS, ROTULO_STATUS, SEM_ETIQUETA, SEM_RESPONSAVEL, agrupar, posicaoAoSoltar, type Linha } from "@/lib/tarefas/quadro";
 import { colisaoQuadro } from "../../../kanban/colisao";
 import { colunasAbertas, proximoAlvo } from "../../../kanban/colunas";
 import { criarTarefaAction, editarTarefaAction, moverTarefaAction, salvarExibicaoTarefasAction } from "./actions";
@@ -186,10 +186,8 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
     if (!t) return;
     const patch = patchDaColuna(coluna);
     const naColuna = grupos.find((g) => g.chave === coluna)?.tarefas.filter((x) => x.id !== id) ?? [];
-    const i = antesDeId ? naColuna.findIndex((x) => x.id === antesDeId) : -1;
-    const antes = i === -1 ? (naColuna.at(-1)?.posicao ?? null) : i > 0 ? naColuna[i - 1].posicao : null;
-    const depois = i === -1 ? null : naColuna[i].posicao;
-    const posicao = posicaoEntre(antes, depois);
+    const posicao = posicaoAoSoltar(naColuna, antesDeId, { manual: exibicao.ordenar === "posicao" && !exibicao.ordemDesc, mesmaColuna: colunaDoAlvo(id) === coluna });
+    if (posicao === null) return;
     const status = patch.status ?? t.status;
     const mudaResp = patch.responsavelId !== undefined && patch.responsavelId !== t.responsavelId;
     const mudaPrio = patch.prioridade !== undefined && patch.prioridade !== t.prioridade;

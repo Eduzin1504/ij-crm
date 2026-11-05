@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agrupar, agruparPorResponsavel, posicaoEntre, SEM_RESPONSAVEL } from "./quadro";
+import { agrupar, agruparPorResponsavel, posicaoAoSoltar, posicaoEntre, SEM_RESPONSAVEL } from "./quadro";
 import { ROTULO_STATUS } from "./quadro";
 import { ROTULO_PRIORIDADE } from "./modelo";
 
@@ -57,5 +57,26 @@ describe("agrupar", () => {
     expect(agrupar(xs, pessoas, "etiqueta", ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => [l.chave, l.tarefas.map((t) => t.id)])).toEqual([["backend", ["1"]], ["none", ["2"]]]);
     expect(agrupar(xs, pessoas, "nenhum", ROTULO_STATUS, ROTULO_PRIORIDADE)).toHaveLength(1);
     expect(agrupar(xs, pessoas, "resp", ROTULO_STATUS, ROTULO_PRIORIDADE).map((l) => l.chave)).toEqual(["p", SEM_RESPONSAVEL]);
+  });
+});
+
+describe("posicaoAoSoltar", () => {
+  const col = [
+    { id: "a", posicao: 1 },
+    { id: "b", posicao: 2 },
+    { id: "c", posicao: 3 },
+  ];
+  const manual = { manual: true, mesmaColuna: true };
+  it("ordem manual: antes do alvo, entre os vizinhos; no topo; sem alvo, no fim; coluna vazia, 1", () => {
+    expect(posicaoAoSoltar(col, "b", manual)).toBe(1.5);
+    expect(posicaoAoSoltar(col, "a", manual)).toBe(0);
+    expect(posicaoAoSoltar(col, null, manual)).toBe(4);
+    expect(posicaoAoSoltar([], null, manual)).toBe(1);
+  });
+  it("ordenado por outro critério (ou decrescente): mesma coluna não mexe; outra coluna vai para o fim pela maior posição", () => {
+    const porPrazo = [col[2], col[0], col[1]]; // exibida fora da ordem manual
+    expect(posicaoAoSoltar(porPrazo, "a", { manual: false, mesmaColuna: true })).toBeNull();
+    expect(posicaoAoSoltar(porPrazo, "a", { manual: false, mesmaColuna: false })).toBe(4);
+    expect(posicaoAoSoltar([], "a", { manual: false, mesmaColuna: false })).toBe(1);
   });
 });
