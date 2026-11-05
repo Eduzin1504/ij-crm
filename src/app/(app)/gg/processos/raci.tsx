@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { criarProcessoAction, definirRaciAction } from "../actions";
 
 const ORDEM: (PapelRaci | null)[] = [null, "R", "A", "C", "I"];
-const COR: Record<PapelRaci, string> = { R: "border-chart-2 bg-chart-2/10 text-chart-2", A: "border-primary bg-primary-soft text-primary", C: "border-warn/60 text-warn", I: "border-border-strong text-fg-soft" };
+const COR: Record<PapelRaci, string> = { R: "border-chart-5 bg-chart-5/10 text-chart-5", A: "border-primary bg-primary-soft text-primary", C: "border-warn/60 text-warn", I: "border-border-strong text-fg-soft" };
 
 export function CelulaRaci({ processoId, cargoId, papel, editor, rotulo }: { processoId: string; cargoId: string; papel: PapelRaci | null; editor: boolean; rotulo: string }) {
   const { pendente, erro, rodar } = useAcao();

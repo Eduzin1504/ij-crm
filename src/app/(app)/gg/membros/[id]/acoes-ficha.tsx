@@ -9,6 +9,7 @@ import { useAcao } from "@/components/gg/use-acao";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Derivado } from "@/lib/gg/modelo";
+import { ROTULO_AREA } from "@/lib/auth/areas";
 import { ROTULO_STATUS_MEMBRO, STATUS_MEMBRO } from "@/lib/gg/modelo";
 import { aplicarNoCrmAction, convidarParaCrmAction, editarMembroAction, registrarEntradaAction, registrarSaidaAction } from "../../actions";
 
@@ -108,7 +109,8 @@ export function PonteCrm({
 }) {
   const { pendente, erro, rodar } = useAcao();
   const [link, setLink] = useState<string | null>(null);
-  const sugestao = d.conflito ? `duas áreas (${d.conflito.join(" e ")}): marque a posição principal` : d.papel ? `${d.papel}${d.area ? ` · ${d.area}` : ""}${d.gp ? " · GP" : ""}` : "sem posição: nada a sugerir";
+  const descrever = (papel: Papel, area: Area | null, gp: boolean) => `papel ${papel} · ${area ? `área ${ROTULO_AREA[area]}` : "sem área"}${gp ? " · GP" : ""}`;
+  const sugestao = d.conflito ? `duas áreas (${d.conflito.map((a) => ROTULO_AREA[a]).join(" e ")}): marque a posição principal` : d.papel ? descrever(d.papel, d.area, d.gp) : "sem posição: nada a sugerir";
   return (
     <section className="grid gap-2 rounded-xl border border-primary/35 bg-primary-soft/30 p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -122,8 +124,7 @@ export function PonteCrm({
       </p>
       {conta ? (
         <p className="font-mono text-xs text-fg-mute">
-          Hoje no CRM: {conta.papel} · {conta.area ?? "sem área"}
-          {conta.gp ? " · GP" : ""}
+          Hoje no CRM: {descrever(conta.papel, conta.area, conta.gp)}
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">

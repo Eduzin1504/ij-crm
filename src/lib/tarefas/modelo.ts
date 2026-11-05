@@ -48,6 +48,13 @@ export type TarefaLista = {
   criadoEmMs: number;
 };
 
-export type PessoaTarefa = { id: string; nome: string; fotoEm: number | null; ativo: boolean };
+export type PessoaTarefa = {
+  id: string;
+  nome: string;
+  fotoEm: number | null;
+  ativo: boolean;
+  /** Afastado segundo G&G (status do membro): aviso ao atribuir. */
+  afastado?: boolean;
+};
 
 export type ProjetoTarefas = { id: string; titulo: string; pipelineChave: string };

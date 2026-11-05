@@ -11,7 +11,7 @@ import { DiaAgenda, RegistrarAusencia } from "./acoes-agenda";
 
 export const metadata = { title: "Agenda · G&G" };
 
-const COR = { RG: "border-primary/50 text-primary", REUNIAO: "border-chart-2/50 text-chart-2", EVENTO: "border-warn/50 text-warn" } as const;
+const COR = { RG: "border-primary/50 text-primary", REUNIAO: "border-chart-5/50 text-chart-5", EVENTO: "border-warn/50 text-warn" } as const;
 
 /** Calendário do mês (RG, reunião, evento) e faltas. Só ausências são registradas; ninguém é marcado presente. */
 export default async function AgendaPage({ searchParams }: { searchParams: Promise<{ mes?: string; aba?: string }> }) {

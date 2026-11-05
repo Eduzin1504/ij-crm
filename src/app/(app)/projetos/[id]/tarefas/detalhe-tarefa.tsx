@@ -109,10 +109,11 @@ export function DetalheTarefa({
                   {pessoas.map((p) => (
                     <option key={p.id} value={p.id} disabled={!p.ativo && p.id !== tarefa.responsavelId}>
                       {p.nome}
-                      {p.ativo ? "" : " (inativo)"}
+                      {p.ativo ? (p.afastado ? " (afastado)" : "") : " (inativo)"}
                     </option>
                   ))}
                 </select>
+                {pessoas.find((p) => p.id === tarefa.responsavelId)?.afastado ? <span className="text-xs text-warn">Afastado segundo G&amp;G: confira antes de contar com essa pessoa.</span> : null}
               </label>
               <label className="flex flex-col gap-1">
                 <span className="eyebrow">Prazo</span>

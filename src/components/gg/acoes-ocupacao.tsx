@@ -183,7 +183,7 @@ function Item({ children, onClick, perigo }: { children: React.ReactNode; onClic
 
 function Opcao({ nome, valor, titulo, texto, padrao }: { nome: string; valor: string; titulo: string; texto: string; padrao?: boolean }) {
   return (
-    <label className="grid cursor-pointer grid-cols-[auto_1fr] gap-x-2.5 rounded-lg border border-border-strong p-3 has-checked:border-chart-2 has-checked:bg-chart-2/10">
+    <label className="grid cursor-pointer grid-cols-[auto_1fr] gap-x-2.5 rounded-lg border border-border-strong p-3 has-checked:border-chart-5 has-checked:bg-chart-5/10">
       <input type="radio" name={nome} value={valor} defaultChecked={padrao} className="mt-1" />
       <span>
         <b className="text-sm font-medium">{titulo}</b>

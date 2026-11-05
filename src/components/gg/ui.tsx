@@ -45,7 +45,7 @@ const TOM = {
   neutro: "border-border-strong text-fg-mute",
   coral: "border-primary/40 bg-primary-soft text-primary",
   azul: "border-chart-4/40 text-chart-4",
-  gg: "border-chart-2/40 text-chart-2",
+  gg: "border-chart-5/40 text-chart-5",
   ok: "border-success/40 text-success",
   aviso: "border-warn/40 text-warn",
   perigo: "border-danger/40 text-danger",

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { CentralizarNaRaiz } from "./centralizar";
 import { cn } from "cn";
 import { Avatar } from "@/components/avatar";
 import { MenuOcupacao } from "@/components/gg/acoes-ocupacao";
@@ -43,7 +44,8 @@ export default async function OrganogramaPage({ searchParams }: { searchParams: 
         </nav>
         <span className="font-mono text-xs text-fg-faint">{posicoes.length} posições · vínculos vigentes</span>
       </div>
-      <section className="org-canvas overflow-auto rounded-xl border border-border bg-surface p-6">
+      <section id="org-canvas" className="org-canvas overflow-auto rounded-xl border border-border bg-surface p-6">
+        <CentralizarNaRaiz alvo="org-canvas" />
         <p className="eyebrow mb-8 flex items-center gap-2">
           <span aria-hidden className="size-1.5 rounded-full bg-primary" />
           {escopo === "gg" ? "gente & gestão" : "inteli júnior"}
@@ -82,7 +84,7 @@ function No({ p, base, posicoes, fechados, escopo, editor, opcoesPosicao, opcoes
     <li>
       <article className={cn("relative z-[1] w-[235px] rounded-lg border p-3.5 text-left", filhos.length ? "border-primary/45 bg-primary-soft/40" : "border-border-strong bg-surface", ocupacoes.length ? "" : "border-dashed")}>
         <div className="mb-1.5 flex items-start justify-between gap-2">
-          <span className={cn("pt-1.5 font-mono text-[11px] tracking-wide", frente ? "text-chart-2" : "text-primary/80")}>{area.nome}</span>
+          <span className={cn("pt-1.5 font-mono text-[11px] tracking-wide", frente ? "text-chart-5" : "text-primary/80")}>{area.nome}</span>
           {editor ? (
             <MenuOcupacao
               posicao={{ id: p.id, nome: p.nome }}

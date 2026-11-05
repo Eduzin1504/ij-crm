@@ -163,7 +163,7 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
         <MenuOpcoes
           ancora={edicao.ancora}
           titulo="Responsável"
-          opcoes={[{ valor: "", rotulo: "Sem responsável", icone: <span className="size-4 rounded-full border border-dashed border-border-strong" /> }, ...pessoas.map((p) => ({ valor: p.id, rotulo: p.ativo ? p.nome : `${p.nome} (inativo)`, desabilitada: !p.ativo && p.id !== t.responsavelId, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]}
+          opcoes={[{ valor: "", rotulo: "Sem responsável", icone: <span className="size-4 rounded-full border border-dashed border-border-strong" /> }, ...pessoas.map((p) => ({ valor: p.id, rotulo: p.ativo ? (p.afastado ? `${p.nome} (afastado)` : p.nome) : `${p.nome} (inativo)`, desabilitada: !p.ativo && p.id !== t.responsavelId, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]}
           selecionadas={[t.responsavelId ?? ""]}
           onEscolher={(v) => onEditar(t.id, { responsavelId: v || null })}
           onFechar={() => setEdicao(null)}

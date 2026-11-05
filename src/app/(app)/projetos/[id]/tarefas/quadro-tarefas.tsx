@@ -430,7 +430,7 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
               ? COLUNAS.map((c, i) => ({ valor: c.status, rotulo: c.nome, icone: <IconeStatus status={c.status} className="size-3.5" />, atalho: String(i + 1) }))
               : atalho.campo === "prio"
                 ? PRIORIDADES.map((p) => ({ valor: p.k, rotulo: p.nome, icone: <IconePrioridade prioridade={p.k} className="size-3.5" /> }))
-                : [{ valor: "", rotulo: "Sem responsável" }, ...pessoas.filter((p) => p.ativo).map((p) => ({ valor: p.id, rotulo: p.nome, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]
+                : [{ valor: "", rotulo: "Sem responsável" }, ...pessoas.filter((p) => p.ativo).map((p) => ({ valor: p.id, rotulo: p.afastado ? `${p.nome} (afastado)` : p.nome, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]
           }
           selecionadas={[atalho.campo === "status" ? tarefaAtalho.status : atalho.campo === "prio" ? tarefaAtalho.prioridade : (tarefaAtalho.responsavelId ?? "")]}
           onEscolher={(v) => editar(atalho.id, atalho.campo === "status" ? { status: v as StatusTarefa } : atalho.campo === "prio" ? { prioridade: v as PrioridadeTarefa } : { responsavelId: v || null })}

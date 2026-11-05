@@ -20,7 +20,7 @@ const COR_DA_AREA: Record<Area, { ponto: string; texto: string; borda: string }>
 };
 
 /** Gente & Gestão: área do hub sem lado no CRM (ver `ITENS_GG`). */
-const COR_GG = { ponto: "bg-chart-2", texto: "text-chart-2", borda: "border-chart-2/40" };
+const COR_GG = { ponto: "bg-chart-5", texto: "text-chart-5", borda: "border-chart-5/40" };
 
 /** O ícone da IJ: abre a gaveta, não navega (§4.1). */
 export function BotaoGaveta({ tamanho, className }: { tamanho: number; className?: string }) {
