@@ -128,4 +128,10 @@ describe("escala do projeto (equipe)", () => {
     expect(podeEditarEquipe({ ...pedro, id: "gp" }, comEquipe)).toBe(true);
     expect(podeVerTarefasDoProjeto(ana, semEquipe)).toBe(false);
   });
+  it("responsável ou GP fora do time de projetos (ex.: vendedor antes do GP no handoff) não monta a equipe", () => {
+    expect(podeEditarEquipe(ana, { ...comEquipe, responsavelId: "ana" })).toBe(false);
+    expect(podeEditarEquipe(ana, { ...comEquipe, gpId: "ana" })).toBe(false);
+    expect(podeEditarEquipe(com("GESTOR", "VENDAS", "gv"), { ...comEquipe, responsavelId: "gv" })).toBe(false);
+    expect(podeEditarEquipe({ ...pedro, id: "x" }, comEquipe)).toBe(true); // responsável do time de projetos segue
+  });
 });

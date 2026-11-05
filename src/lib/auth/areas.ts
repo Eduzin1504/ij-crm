@@ -129,7 +129,11 @@ export function podeSerResponsavelNoProjeto(u: PessoaComLado & { id: string }, e
   return podeVerTarefas(u) && (e.equipe.length === 0 || escalado(u.id, e));
 }
 
-/** Monta a equipe: diretoria, admin, o GP do projeto e o responsável do card. */
+/**
+ * Monta a equipe: diretoria, admin, o GP do projeto e o responsável do card, sempre do
+ * time de projetos (mesmo portão da aba): o vendedor que ainda é responsável no handoff
+ * ou o ex-GP que mudou de lado não decidem quem vê as tarefas.
+ */
 export function podeEditarEquipe(u: PessoaComLado & { id: string }, e: EscalaProjeto): boolean {
-  return podeEscrever(u.papel) && (ehDiretoriaDeProjetos(u) || e.gpId === u.id || e.responsavelId === u.id);
+  return podeEscrever(u.papel) && podeVerTarefas(u) && (ehDiretoriaDeProjetos(u) || e.gpId === u.id || e.responsavelId === u.id);
 }
