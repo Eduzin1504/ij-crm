@@ -159,7 +159,8 @@ export function areasGG(areas: AreaB[]): Set<string> {
  */
 export async function ehEditorGG(u: { id: string; papel: Papel }): Promise<boolean> {
   if (u.papel === "ADMIN") return true;
-  const m = await db.membro.findUnique({ where: { usuarioId: u.id }, select: { id: true } });
+  // Quem saiu da IJ (INATIVO) perde a caneta já: a saída não fecha as ocupações.
+  const m = await db.membro.findFirst({ where: { usuarioId: u.id, status: { not: "INATIVO" } }, select: { id: true } });
   if (!m) return false;
   const base = await carregarBase();
   const gg = areasGG(base.areas);
