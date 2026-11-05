@@ -105,6 +105,21 @@ describe("modelo da IJ", () => {
     }
   });
 
+  it("títulos em sequência vão juntos com o começo do bloco seguinte", async () => {
+    const enche = Array.from({ length: 900 }, (_, i) => `palavra${i}`).join(" ");
+    for (let n = 0; n < 14; n++) {
+      const blocos: DocumentoPdf["blocos"] = [
+        { tipo: "paragrafo", trechos: [{ texto: enche.slice(0, 3000 + n * 80) }] },
+        { tipo: "titulo", nivel: 2, trechos: [{ texto: "TITULOUM" }] },
+        { tipo: "titulo", nivel: 3, trechos: [{ texto: "TITULODOIS" }] },
+        { tipo: "tabela", colunas: [{ titulo: "CABECALHO", largura: 1 }], linhas: [["PRIMEIRALINHA"]] },
+      ];
+      const t = await texto(await gerarPdf({ titulo: "T", blocos }, TEMPLATE_IJ));
+      const pag = (s: string) => t.texto.findIndex((p) => p.includes(s));
+      expect(pag("TITULOUM")).toBe(pag("PRIMEIRALINHA"));
+    }
+  });
+
   it("marca de rascunho aparece na capa e nas páginas; sem marca, não aparece", async () => {
     const doc: DocumentoPdf = { titulo: "T", capa: { titulo: "A", empresa: "B", data: "C", endereco: "D" }, blocos: [{ tipo: "paragrafo", trechos: [{ texto: "x" }] }] };
     const com = await texto(await gerarPdf({ ...doc, marca: "RASCUNHO: prévia" }, TEMPLATE_IJ));

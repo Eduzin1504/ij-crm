@@ -247,9 +247,10 @@ export function PainelComentarios({ alinhar = false }: { alinhar?: boolean }) {
   const visiveis = verResolvidos ? (c?.threads ?? []) : abertos;
   const posicoes = usePosicoes(lista, visiveis, alinhar);
 
+  const consumirFoco = c?.consumirFoco;
   useEffect(() => {
-    if (pedidoFoco > 0) campo.current?.focus({ preventScroll: alinhar });
-  }, [pedidoFoco, alinhar]);
+    if (consumirFoco?.()) campo.current?.focus({ preventScroll: alinhar });
+  }, [pedidoFoco, alinhar, consumirFoco]);
 
   // Abriu o painel no celular a partir de um trecho: mostra o comentário dele.
   const ativo = c?.ativo ?? null;

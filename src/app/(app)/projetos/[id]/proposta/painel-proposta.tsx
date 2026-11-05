@@ -11,7 +11,7 @@ import type { DadosCapa } from "@/components/propostas/folha";
 import { BotaoComentarTrecho, useComentarios, useDestaquesDoEditor } from "./comentarios-contexto";
 import { Autosave, type EstadoAutosave, type RespostaGravacao } from "@/lib/propostas/autosave";
 import { herdarBlocos, normalizarDocumento, type Documento } from "@/lib/propostas/documento";
-import { ESTRUTURADO_VAZIO, formularioGravavel, interpretarEstruturado, type Estruturado } from "@/lib/propostas/estruturado";
+import { ESTRUTURADO_VAZIO, formularioGravavel, interpretarEstruturado, paraEnvio, type Estruturado } from "@/lib/propostas/estruturado";
 import { urlPreviaDaProposta } from "@/lib/propostas/url";
 import { mensagemConflito, NOTA_VERSAO_MAX } from "@/lib/propostas/regras";
 import type { AcaoCaneta } from "@/lib/propostas/caneta";
@@ -34,12 +34,14 @@ const ATRASO_AUTOSAVE_MS = 1200;
 
 /** Dados como os blocos da folha mostram; enquanto o cartão está inválido, fica o último válido. */
 const dadosDoForm = (f: FormEstruturadoValor, antes: Estruturado = ESTRUTURADO_VAZIO): Estruturado => {
-  const r = interpretarEstruturado(f);
+  const r = interpretarEstruturado(paraEnvio(f));
   return r.ok ? r.valor : antes;
 };
 
 /** Forma canônica: só mudança que vai para o Markdown agenda gravação (o parágrafo vazio de depois do bloco não vai). */
 const canonico = (d: Documento) => JSON.stringify(normalizarDocumento(d));
+
+const chavesDe = (f: FormEstruturadoValor) => f.entregas.flatMap((e) => (e.chaveNova ? [e.chaveNova] : []));
 
 function SalvoHa({ em }: { em: Date }) {
   const [agora, setAgora] = useState(() => Date.now());
@@ -162,15 +164,31 @@ export function PainelProposta({
     if (timerDados.current) clearTimeout(timerDados.current);
     timerDados.current = null;
   };
+  /** Gravou: o que foi é o novo `salvo`, e as linhas que foram junto deixam de ser novas. */
+  const confirmarSalvo = useCallback((enviado: FormEstruturadoValor, chaves: readonly string[]) => {
+    atual.current.salvo = enviado;
+    if (chaves.length === 0) return;
+    const limpar = (f: FormEstruturadoValor) => ({
+      ...f,
+      entregas: f.entregas.map((e) => {
+        if (!e.chaveNova || !chaves.includes(e.chaveNova)) return e;
+        const { titulo, dia, duracao, valor } = e;
+        return { titulo, dia, duracao, valor };
+      }),
+    });
+    atual.current.form = limpar(atual.current.form);
+    setForm(limpar);
+  }, []);
+
   /** O que dá para gravar agora, deixando de fora só o que está incompleto. */
-  const gravarParteValida = useCallback(() => {
+  const gravarParteValida = useCallback(async () => {
     const { form: f, salvo, sujo } = atual.current;
-    if (!sujo) return Promise.resolve();
-    const g = formularioGravavel(f, salvo);
-    if (JSON.stringify(g) === JSON.stringify(salvo)) return Promise.resolve();
-    atual.current.salvo = g;
-    return autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, g)));
-  }, [autosave, projetoId]);
+    if (!sujo) return;
+    const { form: g, chaves } = formularioGravavel(f, salvo);
+    if (JSON.stringify(g) === JSON.stringify(salvo)) return;
+    const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, g)));
+    if (r?.ok) confirmarSalvo(g, chaves);
+  }, [autosave, projetoId, confirmarSalvo]);
 
   // Saiu da tela (link, caneta mudou de mão): grava o que está pendente em vez de perder.
   useEffect(() => {
@@ -192,7 +210,8 @@ export function PainelProposta({
   async function gravarDados(): Promise<{ erro: string } | null> {
     pararTimerDados();
     if (!atual.current.sujo) return null;
-    const { form: f, versao } = atual.current;
+    const { form: comMarcas, versao } = atual.current;
+    const f = paraEnvio(comMarcas);
     const v = interpretarEstruturado(f);
     if (!v.ok) {
       setDadosPendentes(v.erro);
@@ -203,7 +222,7 @@ export function PainelProposta({
     const r = await autosave.executar(async (rev) => paraGravacao(await salvarEstruturadoAction(projetoId, rev, f)));
     setGravandoDados(false);
     if (r?.ok) {
-      atual.current.salvo = f;
+      confirmarSalvo(f, chavesDe(comMarcas));
       marcarLimpo(versao);
       return null;
     }
@@ -245,7 +264,8 @@ export function PainelProposta({
     pararTimerDados();
     startTransition(async () => {
       let numero: number | undefined;
-      const { versao, sujo, form: f } = atual.current;
+      const { versao, sujo, form: comMarcas } = atual.current;
+      const f = paraEnvio(comMarcas);
       const r = await autosave.executar(async (rev) => {
         const resp = await salvarVersaoAction(projetoId, rev, {
           documento: editor.current?.documento(),
@@ -261,7 +281,7 @@ export function PainelProposta({
         if (sujo) void gravarDados();
       }
       if (r?.ok) {
-        if (sujo) atual.current.salvo = f;
+        if (sujo) confirmarSalvo(f, chavesDe(comMarcas));
         setNota("");
         marcarLimpo(versao);
         setDadosPendentes(null);
@@ -298,7 +318,7 @@ export function PainelProposta({
     // Devolver e concluir a revisão (GAB-89) salvam a versão do que está na tela.
     if (acao === "devolver" || acao === "concluirRevisao") {
       pararTimerDados();
-      return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(atual.current.sujo ? { estruturado: atual.current.form } : {}) };
+      return { revisao: autosave.revisaoAtual, documento: editor.current?.documento(), ...(atual.current.sujo ? { estruturado: paraEnvio(atual.current.form) } : {}) };
     }
     // Marcar inviável encerra a proposta: dado incompleto no cartão não pode impedir.
     if (acao === "inviavel") {

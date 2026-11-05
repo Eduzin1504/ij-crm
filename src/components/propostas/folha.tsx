@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
+import { cn } from "cn";
 import { nomeDaCapa } from "@/lib/pdf/nome-capa";
 
 export type DadosCapa = { empresa: string; data: string; endereco: string };
@@ -9,7 +11,7 @@ export type DadosCapa = { empresa: string; data: string; endereco: string };
 /** Pontos da A4 → unidade da folha, como `lib/pdf/templates/ij.ts`. */
 const pt = (n: number) => `${(n * 100) / 595.28}cqw`;
 
-function Capa({ dados, recolher }: { dados: DadosCapa; recolher?: () => void }) {
+function Capa({ dados }: { dados: DadosCapa }) {
   const nome = nomeDaCapa(dados.empresa);
   return (
     <section className="folha folha-capa" aria-label="Capa da proposta">
@@ -25,11 +27,6 @@ function Capa({ dados, recolher }: { dados: DadosCapa; recolher?: () => void }) 
         <div className="folha-capa-data">{dados.data}</div>
       </div>
       <div className="folha-capa-endereco">{dados.endereco}</div>
-      {recolher ? (
-        <button type="button" onClick={recolher} className="absolute top-2 left-2 z-[1] rounded-md border border-border-strong bg-surface-strong px-2 py-0.5 font-sans text-xs text-foreground">
-          Recolher a capa
-        </button>
-      ) : null}
     </section>
   );
 }
@@ -46,22 +43,29 @@ function Capa({ dados, recolher }: { dados: DadosCapa; recolher?: () => void }) 
  */
 export function Folha({ capa: dados, recolhivel = false, children }: { capa: DadosCapa; recolhivel?: boolean; children: ReactNode }) {
   const [recolhida, setRecolhida] = useState(recolhivel);
+  const idCapa = useId();
   return (
     <div className="folha-pilha" data-folha>
-      {recolhida ? (
-        <section className="flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-surface p-2" aria-label="Capa da proposta">
-          <Image src="/images/proposta/capa.webp" alt="" width={36} height={51} className="shrink-0 rounded-sm bg-white" />
+      {recolhivel ? (
+        <div className="flex min-w-0 items-center gap-3 rounded-[10px] border border-border bg-surface p-2">
+          {recolhida ? <Image src="/images/proposta/capa.webp" alt="" width={36} height={51} className="shrink-0 rounded-sm bg-white" /> : null}
           <p className="min-w-0 flex-1 truncate text-xs text-fg-soft">
-            <span className="eyebrow mr-2">capa</span>
             {dados.empresa} · {dados.data}
           </p>
-          <button type="button" onClick={() => setRecolhida(false)} className="shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-hover">
-            Ver a capa
+          <button
+            type="button"
+            aria-expanded={!recolhida}
+            aria-controls={idCapa}
+            onClick={() => setRecolhida((r) => !r)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-hover"
+          >
+            Capa <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", !recolhida && "rotate-180")} />
           </button>
-        </section>
-      ) : (
-        <Capa dados={dados} recolher={recolhivel ? () => setRecolhida(true) : undefined} />
-      )}
+        </div>
+      ) : null}
+      <div id={idCapa} hidden={recolhida}>
+        {recolhida ? null : <Capa dados={dados} />}
+      </div>
       <section className="folha folha-corpo" aria-label="Texto da proposta">
         <Image src="/images/proposta/faixa.webp" alt="" width={1132} height={155} className="block h-auto w-full" />
         <div className="folha-miolo">

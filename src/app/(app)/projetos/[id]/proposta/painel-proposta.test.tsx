@@ -140,11 +140,11 @@ describe("PainelProposta", () => {
     acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 7 });
     fireEvent.click(screen.getByRole("button", { name: "Manter o meu texto e sobrescrever" }));
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(screen.getByPlaceholderText("12.500,00")).toHaveValue("25.000,00");
+    expect(screen.getByPlaceholderText("ex.: 12.500,00")).toHaveValue("25.000,00");
     expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
 
     acoes.salvarEstruturadoAction.mockResolvedValueOnce({ ok: true, revisao: 8 });
-    fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+    fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "30" } });
     await act(() => vi.advanceTimersByTimeAsync(1500));
     expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 7, expect.objectContaining({ valor: "25.000,00", prazoDias: "30" }));
   });
@@ -159,7 +159,7 @@ describe("PainelProposta", () => {
     fireEvent.change(screen.getByLabelText("texto"), { target: { value: "meu" } });
     await act(() => vi.advanceTimersByTimeAsync(1500));
     // Com o conflito aberto, nada grava sozinho: nem o texto, nem os dados.
-    fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "30.000,00" } });
+    fireEvent.change(screen.getByPlaceholderText("ex.: 12.500,00"), { target: { value: "30.000,00" } });
     await act(() => vi.advanceTimersByTimeAsync(1500));
     expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
     acoes.salvarTextoAction.mockResolvedValueOnce({ ok: true, revisao: 7 });
@@ -181,12 +181,84 @@ describe("PainelProposta", () => {
     it("ao sair da tela grava o que está sujo e válido, deixando de fora só a linha incompleta", async () => {
       acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
       const { unmount } = montar();
-      fireEvent.change(screen.getByPlaceholderText("12.500,00"), { target: { value: "5.000,00" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 12.500,00"), { target: { value: "5.000,00" } });
       fireEvent.click(screen.getByRole("button", { name: "Adicionar entrega" }));
       unmount();
       await act(() => vi.advanceTimersByTimeAsync(0));
       expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
       expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ valor: "5.000,00", entregas: [] }));
+    });
+
+    describe("sair da tela nunca apaga entrega gravada (re-revisão)", () => {
+      const linha = (titulo: string) => ({ titulo, dia: "2027-01-10", duracao: "", valor: "" });
+      const salvas = [linha("A"), linha("B"), linha("C")];
+      const montarSalvas = () => render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} ultimaVersao={null} estruturado={{ ...vazio, entregas: salvas }} />);
+      const nova = (n: number, titulo: string) => {
+        fireEvent.click(screen.getByRole("button", { name: "Adicionar entrega" }));
+        fireEvent.change(screen.getByLabelText(`Entrega ${n}: nome`), { target: { value: titulo } });
+        fireEvent.change(screen.getByLabelText(`Entrega ${n}: duração`), { target: { value: "1 semana" } });
+      };
+      const limparData = (n: number) => fireEvent.change(screen.getByLabelText(`Entrega ${n}: data`), { target: { value: "" } });
+
+      it("B incompleta + D nova: as três gravadas continuam, e o valor válido vai", async () => {
+        acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+        const { unmount } = montarSalvas();
+        fireEvent.change(screen.getByPlaceholderText("ex.: 12.500,00"), { target: { value: "5.000,00" } });
+        limparData(2);
+        nova(4, "D");
+        unmount();
+        await act(() => vi.advanceTimersByTimeAsync(0));
+        expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
+        expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, { ...vazio, valor: "5.000,00", entregas: salvas });
+      });
+
+      it("A e C incompletas com D e E novas: nada de gravar cronograma diferente", async () => {
+        const { unmount } = montarSalvas();
+        limparData(1);
+        limparData(3);
+        nova(4, "D");
+        nova(5, "E");
+        unmount();
+        await act(() => vi.advanceTimersByTimeAsync(0));
+        expect(acoes.salvarEstruturadoAction).not.toHaveBeenCalled();
+      });
+
+      it("linha nova já gravada deixa de ser nova: incompleta depois, não é descartada", async () => {
+        acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+        const { unmount } = montarSalvas();
+        nova(4, "D");
+        await act(() => vi.advanceTimersByTimeAsync(1500));
+        const gravado = acoes.salvarEstruturadoAction.mock.calls[0][2];
+        expect(gravado.entregas[3]).toEqual({ titulo: "D", dia: "", duracao: "1 semana", valor: "" });
+        fireEvent.change(screen.getByLabelText("Entrega 4: duração"), { target: { value: "" } });
+        unmount();
+        await act(() => vi.advanceTimersByTimeAsync(0));
+        expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
+      });
+
+      it("gravação que falha ao sair não muda o `salvo`; marca de edição nunca vai no payload", async () => {
+        acoes.salvarEstruturadoAction.mockResolvedValue({ ok: false, erro: "falhou" });
+        montarSalvas();
+        nova(4, "D");
+        await act(() => vi.advanceTimersByTimeAsync(1500));
+        expect(JSON.stringify(acoes.salvarEstruturadoAction.mock.calls)).not.toContain("chaveNova");
+      });
+
+      it("marcar inviável com B incompleta e D nova mantém as gravadas", async () => {
+        acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
+        acoes.marcarInviavelAction.mockResolvedValue({ ok: true, revisao: 6 });
+        const caneta = { acoes: ["inviavel"] as "inviavel"[], mesmoLado: [], outroLado: [], rotuloOutroLado: "Vendas" };
+        render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} ultimaVersao={1} estruturado={{ ...vazio, entregas: salvas }} caneta={caneta} />);
+        fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "30" } });
+        limparData(2);
+        nova(4, "D");
+        fireEvent.click(screen.getByRole("button", { name: "Marcar inviável" }));
+        fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: "sem verba" } });
+        fireEvent.click(screen.getAllByRole("button", { name: "Marcar inviável" }).at(-1)!);
+        await act(() => vi.advanceTimersByTimeAsync(0));
+        expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, { ...vazio, prazoDias: "30", entregas: salvas });
+        expect(acoes.marcarInviavelAction).toHaveBeenCalled();
+      });
     });
 
     it("sair sem nada sujo não grava", async () => {
@@ -203,7 +275,7 @@ describe("PainelProposta", () => {
       const avisos = screen.getByRole("list", { name: "Avisos dos dados" });
       expect(avisos).toHaveTextContent(/parcelas somam R\$ 400,00/);
       expect(avisos).toHaveTextContent(/durações somam 7 dias/);
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "31" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "31" } });
       await act(() => vi.advanceTimersByTimeAsync(1500));
       expect(acoes.salvarEstruturadoAction).toHaveBeenCalled();
     });
@@ -238,7 +310,7 @@ describe("PainelProposta", () => {
       acoes.marcarInviavelAction.mockResolvedValue({ ok: true, revisao: 6 });
       const caneta = { acoes: ["inviavel"] as "inviavel"[], mesmoLado: [], outroLado: [], rotuloOutroLado: "Vendas" };
       render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "abc" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "abc" } });
       fireEvent.click(screen.getByRole("button", { name: "Marcar inviável" }));
       fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: "sem verba" } });
       fireEvent.click(screen.getAllByRole("button", { name: "Marcar inviável" }).at(-1)!);
@@ -263,7 +335,7 @@ describe("PainelProposta", () => {
       acoes.salvarEstruturadoAction.mockResolvedValue({ ok: true, revisao: 5 });
       montar();
       expect(screen.queryByRole("button", { name: "Salvar dados" })).toBeNull();
-      const valor = screen.getByPlaceholderText("12.500,00");
+      const valor = screen.getByPlaceholderText("ex.: 12.500,00");
       fireEvent.change(valor, { target: { value: "12.500,00" } });
       await act(() => vi.advanceTimersByTimeAsync(1500));
       expect(acoes.salvarEstruturadoAction).toHaveBeenCalledTimes(1);
@@ -293,9 +365,9 @@ describe("PainelProposta", () => {
       let terminar: (r: unknown) => void = () => undefined;
       acoes.salvarEstruturadoAction.mockImplementationOnce(() => new Promise((res) => (terminar = res))).mockResolvedValue({ ok: true, revisao: 6 });
       montar();
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "30" } });
       await act(() => vi.advanceTimersByTimeAsync(1500));
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "31" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "31" } });
       await act(async () => terminar({ ok: true, revisao: 5 }));
       await act(() => vi.advanceTimersByTimeAsync(1500));
       expect(acoes.salvarEstruturadoAction).toHaveBeenLastCalledWith("p1", 5, expect.objectContaining({ prazoDias: "31" }));
@@ -314,7 +386,7 @@ describe("PainelProposta", () => {
       acoes.passarCanetaAction.mockResolvedValue({ ok: true, revisao: 6 });
       const caneta = { acoes: ["passar"] as "passar"[], mesmoLado: [{ id: "bia", nome: "Bia" }], outroLado: [], rotuloOutroLado: "Projetos" };
       render(<PainelProposta projetoId="p1" revisao={4} documento={{ type: "doc", content: [] }} estruturado={vazio} ultimaVersao={1} caneta={caneta} />);
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "abc" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "abc" } });
       fireEvent.click(screen.getByRole("button", { name: "Passar a caneta" }));
       fireEvent.change(screen.getByLabelText("Passar para"), { target: { value: "bia" } });
       fireEvent.click(screen.getByRole("button", { name: "Passar" }));
@@ -322,7 +394,7 @@ describe("PainelProposta", () => {
       expect(acoes.passarCanetaAction).not.toHaveBeenCalled();
       expect(screen.getByRole("alert")).toHaveTextContent(/Dados da proposta: Prazo inválido/);
 
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "30" } });
       fireEvent.click(screen.getByRole("button", { name: "Passar" }));
       await act(() => vi.advanceTimersByTimeAsync(0));
       expect(acoes.salvarEstruturadoAction).toHaveBeenCalledWith("p1", 4, expect.objectContaining({ prazoDias: "30" }));
@@ -358,7 +430,7 @@ describe("PainelProposta", () => {
 
     it("concordar com dados alterados e não salvos é barrado na tela; recusa do servidor aparece com o texto dela", async () => {
       montarComCaneta();
-      fireEvent.change(screen.getByPlaceholderText("60"), { target: { value: "30" } });
+      fireEvent.change(screen.getByPlaceholderText("ex.: 60"), { target: { value: "30" } });
       fireEvent.click(screen.getByRole("button", { name: "Concordar" }));
       fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
       await act(() => vi.advanceTimersByTimeAsync(0));

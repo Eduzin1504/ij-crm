@@ -247,20 +247,20 @@ describe("GAB-98: só comenta quem vê a proposta", () => {
 });
 
 describe("âncora nos blocos móveis (GAB-100)", () => {
-  it("o título de bloco é tratado à parte: citar 'Cronograma' vai para o bloco mesmo com título igual no texto; sem o bloco, vai para o texto", async () => {
+  it("citar uma palavra: o texto real vem primeiro; sem ele, o título comenta o bloco; o comentário do bloco não migra para o texto", async () => {
     const { projeto, paula, ana, revisao } = await semear();
     const r = await salvarRascunho(projeto.id, { revisao, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:cronograma -->\n\nFim." } }, ana);
-    await comentar(projeto.id, { texto: "no bloco", trecho: "Cronograma" }, paula);
     const lista = async () => (await listarComentarios(projeto.id))!.threads;
-    expect((await lista())[0].ancora?.trecho).toBe(TOKEN_BLOCO.cronograma);
-    // Só o texto citado continua achado no texto, sem cair no bloco.
-    await comentar(projeto.id, { texto: "no texto", trecho: "Crono" }, paula);
-    expect((await lista())[1].ancora?.trecho).toBe("Crono");
-    await salvarRascunho(projeto.id, { revisao: r.ok ? r.revisao : -1, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:nenhum -->" } }, ana);
-    // O bloco saiu: o comentário dele fica alterado, em vez de migrar para o título igual.
-    expect((await lista())[0].trechoAlterado).toBe(true);
-    await comentar(projeto.id, { texto: "agora no título", trecho: "Cronograma" }, paula);
-    expect((await lista())[2].ancora?.trecho).toBe("Cronograma");
+    await comentar(projeto.id, { texto: "no título do texto", trecho: "Cronograma" }, paula);
+    expect((await lista())[0].ancora?.trecho).toBe("Cronograma");
+    // Investimento não está na folha nem no texto.
+    expect(await comentar(projeto.id, { texto: "fora", trecho: "Investimento" }, paula)).toEqual({ ok: false, erro: "TRECHO_NAO_ENCONTRADO" });
+    const s2 = await salvarRascunho(projeto.id, { revisao: r.ok ? r.revisao : -1, conteudo: { markdown: "Texto.\n\n<!-- bloco:cronograma -->\n\nFim." } }, ana);
+    await comentar(projeto.id, { texto: "agora no bloco", trecho: "Cronograma" }, paula);
+    const doBloco = (await lista()).find((t) => t.texto === "agora no bloco")!;
+    expect(doBloco.ancora?.trecho).toBe(TOKEN_BLOCO.cronograma);
+    await salvarRascunho(projeto.id, { revisao: s2.ok ? s2.revisao : -1, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:nenhum -->" } }, ana);
+    expect((await lista()).find((t) => t.texto === "agora no bloco")!.trechoAlterado).toBe(true);
   });
 
   it("comentar o bloco citando o título (como o MCP): não fica alterado ao mudar dados nem ao movê-lo; tirá-lo da folha marca", async () => {

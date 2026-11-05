@@ -2,19 +2,21 @@
  * Nome da empresa na capa (GAB-100): quebra em até 3 linhas, depois encolhe, e só por
  * último corta com reticências. Decide por uma estimativa de largura (sem as métricas da
  * fonte) para dar EXATAMENTE as mesmas linhas no PDF e na folha, que não mede igual.
- * A estimativa é folgada para a Poppins Bold: a linha sempre cabe na moldura. Puro.
+ * A estimativa nunca fica abaixo da Poppins Bold (`nome-capa.test.ts` confere na fonte), então a
+ * linha cabe na moldura. Pode quebrar antes do necessário em nome com muita letra larga. Puro.
  */
 export const TAMANHOS_NOME_CAPA = [19, 16, 14, 12] as const;
 const LINHAS_MAX = 3;
 /** Largura útil do texto da capa, em pontos: de 11% a 88,2% da A4. */
 export const LARGURA_NOME_CAPA = 595.28 * (1 - 0.118 - 0.11);
 
-function larguraDoCaractere(c: string): number {
+/** Largura estimada, em "em". Acima da real na Poppins Bold para os caracteres de nomes em português. */
+export function larguraDoCaractere(c: string): number {
   if (c === " ") return 0.3;
-  if (/[MWmw@]/.test(c)) return 1.02;
-  if (/[il.,:;'|!]/.test(c)) return 0.36;
+  if (/[MWmw@%&—]/.test(c)) return 1.1;
+  if (/[il.,:;'|!]/.test(c)) return 0.4;
   if (/\p{Lu}/u.test(c)) return 0.84;
-  return 0.68;
+  return 0.7;
 }
 
 const estimar = (t: string, tamanho: number) => [...t].reduce((s, c) => s + larguraDoCaractere(c), 0) * tamanho;

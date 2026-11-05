@@ -190,7 +190,7 @@ export function AcoesCaneta({
       {principal ? botao(principal, true) : null}
       {secundarias}
       {demais.length ? <div className="grid grid-cols-1 gap-1.5">{demais.map((a) => botao(a, false))}</div> : null}
-      <p className="text-xs text-fg-mute">
+      {lista.length === 0 ? null : <p className="text-xs text-fg-mute">
         {envio.includes("concluirRevisao")
           ? "O cliente pediu revisão. Mudou só o texto? Conclua a revisão e reenvie. Mudou valor, prazo, escopo ou entregas? Devolva para projetos avaliar."
           : envio.includes("responder")
@@ -200,7 +200,7 @@ export function AcoesCaneta({
               : acoes.includes("devolver")
                 ? `Terminou? Devolva para ${rotuloOutroLado.toLowerCase()} avaliar (salva uma versão) ou, se a última versão veio de lá e está boa, concorde.`
                 : "O que você pode fazer na proposta agora:"}
-      </p>
+      </p>}
       {aberta === "passar" ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {seletor(mesmoLado, "Passar para")}

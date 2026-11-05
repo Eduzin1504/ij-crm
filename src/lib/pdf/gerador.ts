@@ -288,15 +288,17 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   const alturaDaLinhaDeTabela = (b: Extract<BlocoPdf, { tipo: "tabela" }>, textos: string[], negrito: boolean) =>
     Math.max(1, ...textos.map((t, i) => quebrarLinhas([{ texto: t, negrito }], est.tabela, f, limpar, b.colunas[i].largura * larguraUtil - PAD_TABELA_H * 2).length)) * est.tabela.tamanho * est.tabela.entrelinha + PAD_TABELA_V * 2;
 
-  /** Altura real do começo do bloco, para o título que vem antes não ficar órfão no pé da página. */
-  const alturaDoComeco = (b: BlocoPdf | undefined): number => {
+  /** Altura real do começo do bloco `i`, para o título que vem antes não ficar órfão. Título seguido de título soma os dois. */
+  const alturaDoComeco = (i: number): number => {
+    const b = blocos[i];
     const linhaDeTexto = est.texto.tamanho * est.texto.entrelinha;
     switch (b?.tipo) {
       case undefined:
         return 0;
       case "titulo": {
         const e = estiloDoTitulo(b.nivel);
-        return e.antes + e.tamanho * e.entrelinha + e.depois;
+        const largura = larguraUtil - (e.recuo ?? 0);
+        return e.antes + quebrarLinhas(b.trechos, e, f, limpar, largura).length * e.tamanho * e.entrelinha + e.depois + alturaDoComeco(i + 1);
       }
       case "tabela":
         return est.tabela.antes + alturaDaLinhaDeTabela(b, b.colunas.map((c) => c.titulo), true) + alturaDaLinhaDeTabela(b, b.linhas[0] ?? b.total ?? [], !b.linhas[0]);
@@ -312,7 +314,7 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
     const primeiro = i === 0;
     switch (b.tipo) {
       case "titulo":
-        textoCorrido(b.trechos, estiloDoTitulo(b.nivel), margem.esquerda, larguraUtil, primeiro, false, alturaDoComeco(blocos[i + 1]));
+        textoCorrido(b.trechos, estiloDoTitulo(b.nivel), margem.esquerda, larguraUtil, primeiro, false, alturaDoComeco(i + 1));
         break;
       case "paragrafo":
         textoCorrido(b.trechos, i < nAbertura ? est.rotulo : est.texto, margem.esquerda, larguraUtil, primeiro, b.semRecuo);

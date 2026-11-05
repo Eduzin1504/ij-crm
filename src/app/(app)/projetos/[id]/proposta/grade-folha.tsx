@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MessageSquare, PanelRight } from "lucide-react";
 import { Folha, type DadosCapa } from "@/components/propostas/folha";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ function useTelaLarga(): boolean {
 export function GradeFolha({ centro, direita }: { centro: ReactNode; direita: ReactNode }) {
   const larga = useTelaLarga();
   const c = useComentarios();
+  const titulo = useRef<HTMLHeadingElement>(null);
   const [painel, setPainel] = useState<"comentarios" | "infos" | null>(null);
   // Citou um trecho ou tocou num destacado, no celular: o comentário está no painel.
   const pedido = (c?.pedidoFoco ?? 0) + (c?.pedidoPainel ?? 0);
@@ -69,9 +70,10 @@ export function GradeFolha({ centro, direita }: { centro: ReactNode; direita: Re
         <aside className="grade-proposta-direita min-w-0 space-y-3">{direita}</aside>
       ) : (
         <Sheet open={painel !== null} onOpenChange={(aberto) => !aberto && setPainel(null)}>
-          <SheetContent side="right" className="w-[min(92vw,24rem)] overflow-y-auto sm:max-w-none">
+          <SheetContent side="right" initialFocus={titulo} className="w-[min(92vw,24rem)] overflow-y-auto sm:max-w-none">
             <SheetHeader>
-              <SheetTitle>{painel === "comentarios" ? "Comentários" : "Ações e informações"}</SheetTitle>
+              {/* Foco no título: abrir o painel no celular não abre o teclado. */}
+              <SheetTitle ref={titulo} tabIndex={-1} className="outline-none">{painel === "comentarios" ? "Comentários" : "Ações e informações"}</SheetTitle>
             </SheetHeader>
             <div className="space-y-3 px-4 pb-6">{painel === "comentarios" ? <PainelComentarios /> : direita}</div>
           </SheetContent>

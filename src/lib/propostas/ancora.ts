@@ -146,9 +146,7 @@ function prefixoComum(a: string, b: string): number {
   return n;
 }
 
-/** Onde a âncora está no texto atual; null = trecho alterado/apagado. */
-export function localizarAncora(texto: string, a: Ancora): Faixa | null {
-  if (!a.trecho) return null;
+function buscar(texto: string, a: Ancora): Faixa | null {
   let melhor: Faixa | null = null;
   let pontos = -1;
   let n = 0;
@@ -161,6 +159,39 @@ export function localizarAncora(texto: string, a: Ancora): Faixa | null {
     }
   }
   return melhor;
+}
+
+const TOKENS = new Set(Object.values(TOKEN_BLOCO));
+
+/** Texto sem as linhas dos blocos; `mapa[i]` = índice original do i-ésimo caractere. */
+function semBlocos(t: string): { texto: string; mapa: number[] } {
+  let texto = "";
+  const mapa: number[] = [];
+  for (let i = 0; i < t.length; i++) {
+    if (TOKENS.has(t[i])) {
+      if (t[i + 1] === "\n") i++;
+      continue;
+    }
+    texto += t[i];
+    mapa.push(i);
+  }
+  return { texto: texto.replace(/\n+$/, ""), mapa };
+}
+
+/**
+ * Onde a âncora está no texto atual; null = trecho alterado/apagado. Trecho de texto que
+ * atravessa blocos continua achado se um bloco entrou, saiu ou mudou de lugar no meio dele: a segunda
+ * busca ignora os blocos. O comentário do próprio bloco não tem segunda busca.
+ */
+export function localizarAncora(texto: string, a: Ancora): Faixa | null {
+  if (!a.trecho) return null;
+  const exato = buscar(texto, a);
+  if (exato) return exato;
+  const trecho = semBlocos(a.trecho).texto;
+  if (!trecho) return null;
+  const plano = semBlocos(texto);
+  const f = buscar(plano.texto, { trecho, antes: semBlocos(a.antes).texto, depois: semBlocos(a.depois).texto });
+  return f ? { inicio: plano.mapa[f.inicio], fim: plano.mapa[f.fim - 1] + 1 } : null;
 }
 
 export type Destaque = Faixa & { id: string };

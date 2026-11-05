@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { Editor } from "@tiptap/core";
+import { Fragment, Slice } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 import { ancoraDoBloco, textoPlano } from "@/lib/propostas/ancora";
 import { documentoParaEditor, lerDocumento, type Documento } from "@/lib/propostas/documento";
@@ -132,6 +133,19 @@ describe("blocos móveis no editor (GAB-100)", () => {
     const lido = lerDocumento(jsonDoEditor(e))!;
     expect(lido.content.map((b) => b.type)).toEqual(["paragraph", "blocoDados", "paragraph"]);
     expect(lido.content[2]).toEqual(texto("x"));
+    e.destroy();
+  });
+
+  it("com parágrafo depois, digitar cria parágrafo próprio; colar também não substitui o bloco", () => {
+    const e = editorCom({ type: "doc", content: [texto("a"), bloco("cronograma"), texto("b")] });
+    const { view } = e;
+    e.commands.setNodeSelection(3);
+    view.someProp("handleTextInput", (f) => f(view, 3, 4, "x", () => view.state.tr));
+    expect(lerDocumento(jsonDoEditor(e))!.content).toEqual([texto("a"), bloco("cronograma"), texto("x"), texto("b")]);
+    e.commands.setNodeSelection(3);
+    const trecho = new Slice(Fragment.from(e.schema.nodes.paragraph.create(null, e.schema.text("colado"))), 1, 1);
+    view.someProp("handlePaste", (f) => f(view, new Event("paste") as ClipboardEvent, trecho));
+    expect(lerDocumento(jsonDoEditor(e))!.content).toEqual([texto("a"), bloco("cronograma"), texto("colado"), texto("x"), texto("b")]);
     e.destroy();
   });
 

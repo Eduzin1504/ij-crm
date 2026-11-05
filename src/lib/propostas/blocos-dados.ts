@@ -55,10 +55,13 @@ function textoDaSoma(entregas: readonly Entrega[], dias: number): string {
   return `${dias} ${dias === 1 ? "dia" : "dias"}`;
 }
 
-/** Total de prazo da tabela: nunca afirma um número que contradiz o prazo do bloco Investimento. */
+/**
+ * Total de prazo da tabela: só com duração em todas as entregas, para não contradizer as linhas, e
+ * sem contradizer o prazo do bloco Investimento. Em cronograma com datas, fica em branco.
+ */
 function totalDePrazo(e: Estruturado): string {
   const dias = diasDasDuracoes(e.entregas);
-  if (dias === null) return e.prazoDias !== null ? diasCorridos(e.prazoDias) : "";
+  if (dias === null) return "";
   return e.prazoDias === null || e.prazoDias === dias ? textoDaSoma(e.entregas, dias) : "";
 }
 
@@ -79,6 +82,10 @@ export function avisosDosDados(e: Estruturado): string[] {
   if (soma !== null && e.valor !== null && Number(soma) !== Number(e.valor)) avisos.push(`As parcelas somam ${formatarReais(soma)}, e o valor total é ${formatarReais(e.valor)}. A tabela fica sem total de valor.`);
   const dias = diasDasDuracoes(e.entregas);
   if (dias !== null && e.prazoDias !== null && dias !== e.prazoDias) avisos.push(`As durações somam ${dias} ${dias === 1 ? "dia" : "dias"}, e o prazo é de ${e.prazoDias}. A tabela fica sem total de duração.`);
+  if (dias === null && e.prazoDias !== null) {
+    const conhecidos = e.entregas.reduce((soma, x) => soma + (x.duracao === null ? 0 : (duracaoEmDias(x.duracao) ?? 0)), 0);
+    if (conhecidos > e.prazoDias) avisos.push(`As durações informadas já somam ${conhecidos} dias, mais que o prazo de ${e.prazoDias}.`);
+  }
   return avisos;
 }
 

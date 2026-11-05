@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizarDocumento, type Documento } from "./documento";
-import { trechoLegivel, ancoraDoBloco, CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarBloco, normalizarContexto, normalizarTrecho, OCORRENCIAS_MAX, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
+import { TOKEN_BLOCO, trechoLegivel, ancoraDoBloco, CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarBloco, normalizarContexto, normalizarTrecho, OCORRENCIAS_MAX, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
 
 const doc: Documento = {
   type: "doc",
@@ -139,6 +139,22 @@ describe("âncora e blocos móveis (GAB-100)", () => {
     // Citar a palavra no texto, com o título apagado e o bloco na folha: alterado, não migra para o bloco.
     const citado = { trecho: "Cronograma", antes: "", depois: "" };
     expect(localizarAncora(textoPlano({ type: "doc", content: [p("meio"), b("cronograma")] }).texto, citado)).toBeNull();
+  });
+
+  it("trecho que atravessa um bloco continua achado se o bloco sair ou mudar de lugar; o do próprio bloco, não", () => {
+    const com = textoPlano({ type: "doc", content: [p("Um."), b("cronograma"), p("Dois."), { type: "semBlocos" }] }).texto;
+    const a = criarAncora(com, 0, com.length)!;
+    expect(a.trecho).toContain(TOKEN_BLOCO.cronograma);
+    const sem = textoPlano({ type: "doc", content: [p("Um."), p("Dois."), { type: "semBlocos" }] }).texto;
+    expect(localizarAncora(sem, a)).toEqual({ inicio: 0, fim: sem.length });
+    const trecho = { trecho: "Um.\nDois.", antes: "", depois: "" };
+    const f = localizarAncora(com, trecho)!;
+    expect(com.slice(f.inicio, f.fim)).toBe(com);
+    expect(localizarAncora(sem, { trecho: TOKEN_BLOCO.cronograma, antes: "", depois: "" })).toBeNull();
+  });
+
+  it("caractere reservado colado no texto é retirado na normalização", () => {
+    expect(normalizarDocumento({ type: "doc", content: [p("a\uE001b\uE002c")] }).content).toEqual([p("abc")]);
   });
 
   it("mover o bloco não deixa alterado o comentário de quem cita o texto em volta", () => {

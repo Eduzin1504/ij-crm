@@ -55,7 +55,9 @@ type Contexto = {
   /** Rascunhos ("novo" ou id da thread): aqui, para não sumirem ao fechar o painel no celular. */
   rascunhos: Record<string, string>;
   escreverRascunho: (chave: string, texto: string) => void;
-  /** Incrementa quando tocam num trecho destacado: no celular, abre o painel de comentários. */
+  /** Citação nova ainda sem foco no campo: reabrir o painel depois não abre o teclado. */
+  consumirFoco: () => boolean;
+  /** Incrementa quando tocam num trecho destacado na leitura: no celular, abre o painel de comentários. */
   pedidoPainel: number;
 };
 
@@ -81,6 +83,7 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
   const [pedidoPainel, setPedidoPainel] = useState(0);
   const escreverRascunho = useCallback((chave: string, valor: string) => setRascunhos((r) => ({ ...r, [chave]: valor })), []);
+  const focoPendente = useRef(false);
   const versao = useRef(inicial.versao);
   const fonte = useRef<(() => Ancora | null) | null>(null);
   // Respostas fora de ordem (polling + recarga depois de comentar): só a da última requisição vale.
@@ -163,7 +166,8 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
       const el = (e.target as Element | null)?.closest?.("[data-comentario]");
       if (!el) return;
       ativar(el.getAttribute("data-comentario"), "texto");
-      setPedidoPainel((n) => n + 1);
+      // No editor o toque é para pôr o cursor: não cobre o texto (o painel abre pelo botão).
+      if (!el.closest(".ProseMirror")) setPedidoPainel((n) => n + 1);
     };
     document.addEventListener("click", clique);
     return () => document.removeEventListener("click", clique);
@@ -171,7 +175,15 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
 
   const citar = useCallback((a: Ancora | null) => {
     setCitado(a);
-    if (a) setPedidoFoco((n) => n + 1);
+    if (a) {
+      focoPendente.current = true;
+      setPedidoFoco((n) => n + 1);
+    }
+  }, []);
+  const consumirFoco = useCallback(() => {
+    const pendente = focoPendente.current;
+    focoPendente.current = false;
+    return pendente;
   }, []);
   const registrarSelecao = useCallback((fn: () => Ancora | null) => {
     fonte.current = fn;
@@ -216,9 +228,10 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
       ancoras,
       rascunhos,
       escreverRascunho,
+      consumirFoco,
       pedidoPainel,
     }),
-    [projetoId, euId, threads, erroCarga, recarregar, alterado, ativo, ativar, citado, citar, pedidoFoco, registrarSelecao, lerSelecao, informarTexto, ancoras, rascunhos, escreverRascunho, pedidoPainel],
+    [projetoId, euId, threads, erroCarga, recarregar, alterado, ativo, ativar, citado, citar, pedidoFoco, registrarSelecao, lerSelecao, informarTexto, ancoras, rascunhos, escreverRascunho, consumirFoco, pedidoPainel],
   );
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

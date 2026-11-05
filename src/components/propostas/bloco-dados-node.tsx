@@ -1,7 +1,7 @@
 "use client";
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
-import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { ArrowDown, ArrowUp, GripVertical, MessageSquarePlus, X } from "lucide-react";
 import { ancoraDoBloco } from "@/lib/propostas/ancora";
@@ -117,6 +117,14 @@ function BlocoDadosNo({ node, editor, getPos }: NodeViewProps) {
 
 const chaveUmDeCada = new PluginKey("blocoDadosUmDeCada");
 
+/** Com um bloco selecionado: transação que abre um parágrafo vazio depois dele, com o cursor dentro. null = não há bloco selecionado. */
+function paragrafoDepoisDoBloco(state: EditorState) {
+  const sel = state.selection;
+  if (!(sel instanceof NodeSelection) || sel.node.type.name !== "blocoDados") return null;
+  const tr = state.tr.insert(sel.to, state.schema.nodes.paragraph.create());
+  return tr.setSelection(TextSelection.create(tr.doc, sel.to + 1));
+}
+
 /**
  * Bloco móvel como nó do ProseMirror: átomo arrastável, com grupo próprio para só
  * existir no nível de cima (nunca dentro de lista). Guarda só o `tipo`; atributos do
@@ -153,19 +161,17 @@ export const BlocoDadosNode = Node.create({
       new Plugin({
         key: chaveUmDeCada,
         props: {
-          // Digitar com o bloco selecionado escreve logo depois dele, em vez de apagá-lo.
+          // Digitar ou colar com o bloco selecionado escreve num parágrafo próprio logo depois dele, sem apagá-lo.
           handleTextInput(view, _de, _ate, texto) {
-            const { state } = view;
-            const sel = state.selection;
-            if (!(sel instanceof NodeSelection) || sel.node.type.name !== "blocoDados") return false;
-            const tr = state.tr;
-            if (state.doc.nodeAt(sel.to)?.type.name === "paragraph") {
-              tr.setSelection(TextSelection.create(tr.doc, sel.to + 1)).insertText(texto);
-            } else {
-              tr.insert(sel.to, state.schema.nodes.paragraph.create(null, state.schema.text(texto)));
-              tr.setSelection(TextSelection.create(tr.doc, sel.to + 1 + texto.length));
-            }
-            view.dispatch(tr.scrollIntoView());
+            const tr = paragrafoDepoisDoBloco(view.state);
+            if (!tr) return false;
+            view.dispatch(tr.insertText(texto).scrollIntoView());
+            return true;
+          },
+          handlePaste(view, _evento, trecho) {
+            const tr = paragrafoDepoisDoBloco(view.state);
+            if (!tr) return false;
+            view.dispatch(tr.replaceSelection(trecho).scrollIntoView());
             return true;
           },
         },

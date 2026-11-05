@@ -149,4 +149,12 @@ describe("Autosave", () => {
     expect(salvarTexto).toHaveBeenCalledWith(1, "texto");
     expect(a.situacao.tipo).toBe("salvo");
   });
+
+  it("'tentar de novo' sem nada pendente limpa o erro de outra gravação", async () => {
+    const a = new Autosave<string>({ revisao: 1, atrasoMs: 10, salvarTexto: vi.fn(), aoMudar: () => undefined });
+    await a.executar(async () => ({ ok: false, erro: "falhou" }));
+    expect(a.situacao.tipo).toBe("erro");
+    await a.agora();
+    expect(a.situacao.tipo).toBe("salvo");
+  });
 });

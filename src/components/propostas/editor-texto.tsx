@@ -134,10 +134,10 @@ function Barra({ editor, fim }: { editor: Editor; fim?: ReactNode }) {
       </Botao>
       <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao largo rotulo="Bloco Cronograma: põe no cursor ou tira da folha" ativo={s.cronograma} onClick={() => alternarBloco(editor, "cronograma")}>
-        <CalendarRange className="size-4" /> <span className="hidden min-[1400px]:inline">Cronograma</span>
+        <CalendarRange className="size-4" /> <span className="hidden max-lg:inline min-[1400px]:inline">Cronograma</span>
       </Botao>
       <Botao largo rotulo="Bloco Investimento: põe no cursor ou tira da folha" ativo={s.investimento} onClick={() => alternarBloco(editor, "investimento")}>
-        <CircleDollarSign className="size-4" /> <span className="hidden min-[1400px]:inline">Investimento</span>
+        <CircleDollarSign className="size-4" /> <span className="hidden max-lg:inline min-[1400px]:inline">Investimento</span>
       </Botao>
       <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <Botao rotulo="Desfazer (Ctrl+Z)" desativado={!s.desfazer} onClick={() => c().undo().run()}>

@@ -104,7 +104,12 @@ export class Autosave<Doc> {
   }
 
   private async gravarTexto(): Promise<void> {
-    if (this.estado.tipo === "conflito" || this.pendenteDoc === null) return;
+    if (this.estado.tipo === "conflito") return;
+    if (this.pendenteDoc === null) {
+      // "Tentar de novo" sem nada pendente (o erro foi de outra gravação, já resolvida): limpa o aviso.
+      if (this.estado.tipo === "erro") this.mudar({ tipo: "salvo", em: this.ultimoSalvo });
+      return;
+    }
     const doc = this.pendenteDoc;
     this.pendenteDoc = null;
     this.mudar({ tipo: "salvando" });

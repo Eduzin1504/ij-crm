@@ -85,13 +85,32 @@ describe("duração na entrega (GAB-100)", () => {
     expect(interpretarEstruturado({ entregas: [{ titulo: "a", duracao: "3000 dias" }, { titulo: "b", duracao: "651 dias" }] })).toEqual({ ok: false, erro: "As durações somam mais de 3650 dias." });
   });
 
-  it("formularioGravavel: grava cada campo válido; o inválido fica como estava; linha nova incompleta fica de fora", () => {
-    const salvo = { valor: "1.000,00", prazoDias: "30", escopoResumo: "x", entregas: [{ titulo: "A", dia: "", duracao: "1 semana", valor: "" }] };
-    const vazia = { titulo: "", dia: "", duracao: "", valor: "" };
-    const b = { titulo: "B", dia: "", duracao: "2 semanas", valor: "" };
-    expect(formularioGravavel({ ...salvo, valor: "2.000,00", prazoDias: "abc", entregas: [...salvo.entregas, b, vazia] }, salvo)).toEqual({ ...salvo, valor: "2.000,00", entregas: [...salvo.entregas, b] });
-    // Linha gravada que está sendo editada: não apaga a entrega por sair da tela.
-    expect(formularioGravavel({ ...salvo, escopoResumo: "y", entregas: [{ ...salvo.entregas[0], titulo: "" }] }, salvo)).toEqual({ ...salvo, escopoResumo: "y" });
+  describe("formularioGravavel", () => {
+    const l = (titulo: string, o: object = {}) => ({ titulo, dia: "2027-01-10", duracao: "", valor: "", ...o });
+    const salvo = { valor: "1.000,00", prazoDias: "30", escopoResumo: "x", entregas: [l("A"), l("B"), l("C")] };
+
+    it("cada campo válido vai; o inválido fica como estava; linha nova incompleta fica de fora", () => {
+      const r = formularioGravavel({ ...salvo, valor: "2.000,00", prazoDias: "abc", entregas: [...salvo.entregas, l("D", { chaveNova: "n1" }), l("", { dia: "", chaveNova: "n2" })] }, salvo);
+      expect(r.form).toEqual({ ...salvo, valor: "2.000,00", entregas: [...salvo.entregas, l("D")] });
+      expect(r.chaves).toEqual(["n1"]);
+    });
+
+    it("B incompleta + D nova: cronograma salvo inteiro (nunca A, C, D)", () => {
+      const r = formularioGravavel({ ...salvo, escopoResumo: "y", entregas: [l("A"), l("B", { dia: "" }), l("C"), l("D", { chaveNova: "n1" })] }, salvo);
+      expect(r.form).toEqual({ ...salvo, escopoResumo: "y" });
+      expect(r.chaves).toEqual([]);
+    });
+
+    it("A e C incompletas com D e E novas: cronograma salvo inteiro", () => {
+      const r = formularioGravavel({ ...salvo, entregas: [l("A", { dia: "" }), l("B"), l("C", { titulo: "" }), l("D", { chaveNova: "n1" }), l("E", { chaveNova: "n2" })] }, salvo);
+      expect(r.form).toEqual(salvo);
+    });
+
+    it("gravada removida de propósito continua removida; payload sem marca de edição", () => {
+      const r = formularioGravavel({ ...salvo, entregas: [l("A"), l("C"), l("", { dia: "", chaveNova: "n1" })] }, salvo);
+      expect(r.form.entregas).toEqual([l("A"), l("C")]);
+      expect(JSON.stringify(r.form)).not.toContain("chaveNova");
+    });
   });
 
   it("entrega antiga, gravada só com dia, continua válida e igual depois de relida", () => {

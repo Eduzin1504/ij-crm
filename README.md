@@ -475,12 +475,13 @@ infos abrem em painel.
   de comentário, o bloco entra por um caractere reservado (`TOKEN_BLOCO`), nunca pelos dados nem pelo título; o MCP
   comenta o bloco citando o título. O diff compara a forma de exibição, com os blocos explícitos.
 - **Totais**: a tabela só mostra total de valor com parcela em todas as entregas e soma igual ao valor, e total de
-  duração só se bater com o prazo. O que não fecha vira aviso no cartão, sem travar.
+  duração só com duração em todas as entregas e sem contradizer o prazo. O que não fecha vira aviso no cartão, sem travar.
 - **Duração**: a entrega tem `dia` ou `duracao` ("2 semanas"), nunca as duas. `dia` é `null` na que só tem duração;
   a cópia para a execução (`execucao-entrada.ts`) calcula a data prevista com `datasPrevistas` (`estruturado.ts`): durações
   em sequência a partir da entrada em Execução, e entrega com data vira o novo ponto de partida.
 - **Cartão "Dados da proposta"**: grava sozinho pela mesma `revisao` do texto. Dado incompleto não vai
-  ao servidor: fica no cartão com o motivo, e segura passar a caneta. Ao sair da tela, grava o que está válido.
+  ao servidor: fica no cartão com o motivo, e segura passar a caneta. Ao sair da tela, grava o que está válido, sem nunca
+  apagar entrega gravada: com uma linha já gravada incompleta, o cronograma salvo fica inteiro; só linha marcada como nova é descartada.
 
 ## Comentários na proposta (GAB-91)
 

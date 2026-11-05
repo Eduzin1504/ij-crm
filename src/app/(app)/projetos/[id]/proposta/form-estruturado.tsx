@@ -8,6 +8,8 @@ import { DURACAO_MAX_CAMPO, ENTREGAS_MAX, ESCOPO_RESUMO_MAX, TITULO_ENTREGA_MAX,
 export type FormEstruturadoValor = FormularioEstruturado;
 type EntregaForm = FormEstruturadoValor["entregas"][number];
 
+let linhasNovas = 0;
+
 const rotulo = "mb-1 block font-mono text-[11px] text-fg-mute uppercase";
 
 /**
@@ -33,11 +35,11 @@ export function FormEstruturado({ valor, onChange, desativado }: { valor: FormEs
       <div className="grid grid-cols-2 gap-2">
         <label className="block min-w-0">
           <span className={rotulo}>Valor total (R$)</span>
-          <Input inputMode="decimal" placeholder="12.500,00" value={valor.valor} onChange={(e) => set("valor", e.target.value)} />
+          <Input inputMode="decimal" placeholder="ex.: 12.500,00" className="placeholder:text-fg-faint" value={valor.valor} onChange={(e) => set("valor", e.target.value)} />
         </label>
         <label className="block min-w-0">
           <span className={rotulo}>Prazo (dias)</span>
-          <Input inputMode="numeric" placeholder="60" value={valor.prazoDias} onChange={(e) => set("prazoDias", e.target.value)} />
+          <Input inputMode="numeric" placeholder="ex.: 60" className="placeholder:text-fg-faint" value={valor.prazoDias} onChange={(e) => set("prazoDias", e.target.value)} />
         </label>
       </div>
       <label className="block">
@@ -87,7 +89,7 @@ export function FormEstruturado({ valor, onChange, desativado }: { valor: FormEs
           ))}
         </ol>
         {entregas.length < ENTREGAS_MAX ? (
-          <Button type="button" variant="outline" size="xs" className="mt-2" onClick={() => set("entregas", [...entregas, { titulo: "", dia: "", duracao: "", valor: "" }])}>
+          <Button type="button" variant="outline" size="xs" className="mt-2" onClick={() => set("entregas", [...entregas, { titulo: "", dia: "", duracao: "", valor: "", chaveNova: `nova-${++linhasNovas}` }])}>
             <Plus /> Adicionar entrega
           </Button>
         ) : null}

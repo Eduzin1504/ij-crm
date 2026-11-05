@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { LARGURA_NOME_CAPA, nomeDaCapa } from "./nome-capa";
+import { readFile } from "node:fs/promises";
+import fontkit from "@pdf-lib/fontkit";
+import { LARGURA_NOME_CAPA, larguraDoCaractere, nomeDaCapa } from "./nome-capa";
 
 describe("nomeDaCapa", () => {
+  it("a estimativa nunca fica abaixo da largura real na Poppins Bold", async () => {
+    const fonte = fontkit.create(await readFile("src/lib/pdf/fontes/Poppins-Bold.ttf"));
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ÁÀÃÂÉÊÍÓÕÔÚÇáàãâéêíóõôúç .,:;-–—/&()'\"!?%+@";
+    for (const c of chars) expect(larguraDoCaractere(c), c).toBeGreaterThanOrEqual(fonte.layout(c).advanceWidth / fonte.unitsPerEm);
+  });
+
   it("nome curto: uma linha, no tamanho cheio", () => {
     expect(nomeDaCapa("Tropcargo  Logística")).toEqual({ linhas: ["Tropcargo Logística"], tamanho: 19 });
   });

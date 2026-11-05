@@ -191,8 +191,11 @@ export function valorParaCampo(v: string | null): string {
   return v === null ? "" : BR.format(Number(v)).replace(/ /g, " ");
 }
 
-/** O formulário da tela: tudo texto, tudo presente. */
-export type FormularioEstruturado = { valor: string; prazoDias: string; escopoResumo: string; entregas: { titulo: string; dia: string; duracao: string; valor: string }[] };
+/**
+ * O formulário da tela: tudo texto, tudo presente. `chaveNova` marca, só na edição, a linha que ainda
+ * não foi gravada (nunca vai para o servidor: ver `paraEnvio`).
+ */
+export type FormularioEstruturado = { valor: string; prazoDias: string; escopoResumo: string; entregas: { titulo: string; dia: string; duracao: string; valor: string; chaveNova?: string }[] };
 
 /** Forma gravada → entrada (para o formulário começar do que está salvo). */
 export function estruturadoParaEntrada(e: Estruturado): FormularioEstruturado {
@@ -204,21 +207,32 @@ export function estruturadoParaEntrada(e: Estruturado): FormularioEstruturado {
   };
 }
 
+/** O formulário sem as marcas de edição: é a única forma que vai para o servidor. */
+export function paraEnvio(f: FormularioEstruturado): FormularioEstruturado {
+  return { ...f, entregas: f.entregas.map(({ titulo, dia, duracao, valor }) => ({ titulo, dia, duracao, valor })) };
+}
+
 /**
- * O que dá para gravar agora de um formulário com parte inválida (ao sair da tela): cada campo
- * válido vai, e o inválido fica como estava em `salvo`. No cronograma, a linha incompleta fica
- * de fora, a não ser que isso encolha a lista: aí pode ser uma entrega gravada que está sendo
- * editada, e o cronograma salvo continua (sair da tela não apaga entrega).
+ * O que dá para gravar agora de um formulário com parte inválida (ao sair da tela, ao marcar
+ * inviável): cada campo válido vai, e o inválido fica como estava em `salvo`. No cronograma, só
+ * linha marcada como nova (`chaveNova`) pode ser descartada. Qualquer linha já gravada incompleta
+ * mantém `salvo.entregas` inteiro: nada aqui apaga entrega gravada. `chaves` = linhas novas que foram junto.
  */
-export function formularioGravavel(f: FormularioEstruturado, salvo: FormularioEstruturado): FormularioEstruturado {
+export function formularioGravavel(f: FormularioEstruturado, salvo: FormularioEstruturado): { form: FormularioEstruturado; chaves: string[] } {
   const ok = (e: EstruturadoEntrada) => interpretarEstruturado(e).ok;
-  const linhas = f.entregas.filter((en) => ok({ entregas: [en] }));
-  const entregas = linhas.length === f.entregas.length || linhas.length >= salvo.entregas.length ? linhas : salvo.entregas;
+  const valida = (en: FormularioEstruturado["entregas"][number]) => ok({ entregas: paraEnvio({ ...f, entregas: [en] }).entregas });
+  const gravadaIncompleta = f.entregas.some((en) => !en.chaveNova && !valida(en));
+  const linhas = gravadaIncompleta ? [] : f.entregas.filter(valida);
+  const entregas = paraEnvio({ ...f, entregas: linhas }).entregas;
+  const cabe = !gravadaIncompleta && ok({ entregas });
   return {
-    valor: ok({ valor: f.valor }) ? f.valor : salvo.valor,
-    prazoDias: ok({ prazoDias: f.prazoDias }) ? f.prazoDias : salvo.prazoDias,
-    escopoResumo: ok({ escopoResumo: f.escopoResumo }) ? f.escopoResumo : salvo.escopoResumo,
-    entregas: ok({ entregas }) ? entregas : salvo.entregas,
+    form: {
+      valor: ok({ valor: f.valor }) ? f.valor : salvo.valor,
+      prazoDias: ok({ prazoDias: f.prazoDias }) ? f.prazoDias : salvo.prazoDias,
+      escopoResumo: ok({ escopoResumo: f.escopoResumo }) ? f.escopoResumo : salvo.escopoResumo,
+      entregas: cabe ? entregas : salvo.entregas,
+    },
+    chaves: cabe ? linhas.flatMap((en) => (en.chaveNova ? [en.chaveNova] : [])) : [],
   };
 }
 

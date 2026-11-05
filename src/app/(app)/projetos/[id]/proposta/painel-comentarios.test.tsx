@@ -251,4 +251,41 @@ describe("comentários ao vivo", () => {
     fireEvent.click(document.querySelector("mark[data-comentario='c1']")!);
     expect(screen.getByTestId("pedido")).toHaveTextContent("1");
   });
+
+  it("foco no campo só em citação nova: reabrir o painel não foca de novo", () => {
+    let citar: ((a: { trecho: string; antes: string; depois: string }) => void) | undefined;
+    const Citador = () => {
+      citar = useComentarios()?.citar;
+      return null;
+    };
+    const Tela = ({ aberto }: { aberto: boolean }) => (
+      <ComentariosProvider projetoId="p1" euId="u1" inicial={{ versao: "1.1", threads: [] }}>
+        <Citador />
+        {aberto ? <PainelComentarios /> : null}
+      </ComentariosProvider>
+    );
+    const { rerender } = render(<Tela aberto={false} />);
+    act(() => citar!({ trecho: "x", antes: "", depois: "" }));
+    rerender(<Tela aberto />);
+    const campo = screen.getByLabelText("Comentário sobre o trecho");
+    expect(document.activeElement).toBe(campo);
+    rerender(<Tela aberto={false} />);
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    rerender(<Tela aberto />);
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Comentário sobre o trecho"));
+  });
+
+  it("toque em trecho dentro do editor não pede para abrir o painel", () => {
+    const Pedido = () => <output data-testid="pedido">{useComentarios()?.pedidoPainel}</output>;
+    render(
+      <ComentariosProvider projetoId="p1" euId="u1" inicial={{ versao: "1.1", threads: [] }}>
+        <div className="ProseMirror">
+          <span data-comentario="c1">trecho</span>
+        </div>
+        <Pedido />
+      </ComentariosProvider>,
+    );
+    fireEvent.click(screen.getByText("trecho"));
+    expect(screen.getByTestId("pedido")).toHaveTextContent("0");
+  });
 });

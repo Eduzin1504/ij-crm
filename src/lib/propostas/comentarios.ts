@@ -145,15 +145,12 @@ export async function comentar(projetoId: string, e: { texto: string; trecho?: A
     const citado = normalizarTrecho(e.trecho);
     if (!citado || citado.length > TRECHO_MAX) return { ok: false, erro: "TRECHO_INVALIDO" };
     const doc = markdownParaDocumento(p.conteudoMd);
-    // Citar o título de um bloco que está na folha é comentar o bloco (MCP, GAB-100).
+    const plano = textoPlano(doc).texto;
+    const i = plano.indexOf(citado);
+    // O texto real vem primeiro; sem ele, citar o título de um bloco que está na folha é comentar o bloco (MCP, GAB-100).
     const bloco = TIPOS_BLOCO_DADOS.find((tipo) => TITULO_BLOCO_DADOS[tipo] === citado);
-    ancora = bloco ? ancoraDoBloco(doc, bloco) : null;
-    if (!ancora) {
-      const plano = textoPlano(doc).texto;
-      const i = plano.indexOf(citado);
-      if (i === -1) return { ok: false, erro: "TRECHO_NAO_ENCONTRADO" };
-      ancora = criarAncora(plano, i, i + citado.length);
-    }
+    ancora = i !== -1 ? criarAncora(plano, i, i + citado.length) : bloco ? ancoraDoBloco(doc, bloco) : null;
+    if (!ancora) return { ok: false, erro: "TRECHO_NAO_ENCONTRADO" };
   } else if (e.trecho) {
     ancora = ancoraDaTela(e.trecho);
     if (!ancora) return { ok: false, erro: "TRECHO_INVALIDO" };
