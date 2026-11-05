@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { PrioridadeTarefa, StatusTarefa } from "@prisma/client";
 import { ChevronDown, Plus } from "lucide-react";
 import { cn } from "cn";
@@ -11,6 +12,9 @@ import { COLUNAS, type Linha } from "@/lib/tarefas/quadro";
 import { IconePrioridade, IconeStatus, corEtiqueta, diaCurto, estadoPrazo } from "./cartao-tarefa";
 import { MenuOpcoes } from "./menu";
 import type { PatchLocal } from "./detalhe-tarefa";
+
+/** Id de alvo de um grupo/coluna no arrasto (mesmo formato no quadro e na lista). */
+export const idColuna = (chave: string) => `col:${chave}`;
 
 const ALTURA: Record<Exibicao["dens"], string> = { compacta: "h-9", padrao: "h-11", confortavel: "h-13" };
 
@@ -28,6 +32,8 @@ type Props = {
   onSelecionar: (id: string | null) => void;
   onEditar: (id: string, patch: PatchLocal) => void;
   onNovo: (grupo: Linha<TarefaLista>) => void;
+  /** Durante o arrasto, grupos vazios aparecem para receber a tarefa. */
+  arrastando: boolean;
 };
 
 type Edicao = { id: string; campo: "status" | "prio" | "resp"; ancora: HTMLElement } | null;
@@ -37,7 +43,7 @@ type Edicao = { id: string; campo: "status" | "prio" | "resp"; ancora: HTMLEleme
  * linhas finas, valores em mono. Edição direta de status, prioridade,
  * responsável (menus) e prazo (campo de data) sem abrir o painel.
  */
-export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e, hoje, selecionada, fechados, onAlternarGrupo, onAbrir, onSelecionar, onEditar, onNovo }: Props) {
+export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e, hoje, selecionada, fechados, onAlternarGrupo, onAbrir, onSelecionar, onEditar, onNovo, arrastando }: Props) {
   const [edicao, setEdicao] = useState<Edicao>(null);
   const P = e.props;
   const grade = { gridTemplateColumns: `20px 56px minmax(240px,1fr) ${P.etiquetas ? "minmax(120px,auto)" : "0"} ${P.prio ? "96px" : "0"} ${P.prazo ? "150px" : "0"} ${P.criada ? "72px" : "0"} 28px` };
@@ -49,7 +55,7 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
   const t = edicao ? porId.get(edicao.id) : undefined;
 
   return (
-    <div className="min-w-[56rem] rounded-lg border border-border" role="table" aria-label="Tarefas">
+    <div className="min-w-[56rem] flex-1 self-start rounded-lg border border-border" role="table" aria-label="Tarefas">
       <div role="row" className="eyebrow sticky top-0 z-10 grid h-9 items-center gap-4 border-b border-border bg-background px-4" style={grade}>
         <span />
         <span role="columnheader">ID</span>
@@ -61,10 +67,10 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
         <span />
       </div>
       {linhas.map((l) => {
-        if (!l.tarefas.length && !e.vazios) return null;
+        if (!l.tarefas.length && !e.vazios && !arrastando) return null;
         const fechado = fechados.has(`l:${l.chave}`);
         return (
-          <section key={l.chave} aria-label={`${l.nome || "Tarefas"}, ${l.tarefas.length}`}>
+          <Grupo key={l.chave} chave={l.chave} rotulo={`${l.nome || "Tarefas"}, ${l.tarefas.length}`}>
             {l.nome ? (
               <div className="flex h-9 items-center gap-2 border-b border-white/5 bg-muted/60 px-4 text-sm font-medium">
                 <button type="button" onClick={() => onAlternarGrupo(`l:${l.chave}`)} aria-expanded={!fechado} className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -85,14 +91,11 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
                   const estado = x.prazo && !fim ? estadoPrazo(x.prazo, hoje) : null;
                   const filhos = [...porId.values()].filter((f) => f.paiId === x.id);
                   return (
-                    <div
+                    <LinhaArrastavel
                       key={x.id}
-                      role="row"
-                      tabIndex={0}
-                      data-id={x.id}
-                      onClick={() => onAbrir(x.id)}
-                      onMouseEnter={() => onSelecionar(x.id)}
-                      onKeyDown={(ev) => ev.key === "Enter" && onAbrir(x.id)}
+                      tarefa={x}
+                      onAbrir={() => onAbrir(x.id)}
+                      onSelecionar={() => onSelecionar(x.id)}
                       className={cn("group/tr grid cursor-pointer items-center gap-4 border-b border-white/5 px-4 text-sm outline-none last:border-b-0 hover:bg-white/[.03] focus-visible:bg-white/[.03]", ALTURA[e.dens], selecionada === x.id && "bg-white/[.06]", fim && "opacity-60")}
                       style={grade}
                     >
@@ -144,10 +147,10 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
                       ) : (
                         <span />
                       )}
-                    </div>
+                    </LinhaArrastavel>
                   );
                 })}
-          </section>
+          </Grupo>
         );
       })}
       {edicao && t && edicao.campo === "status" ? (
@@ -166,6 +169,48 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
           onFechar={() => setEdicao(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Grupo da lista como alvo: soltar no cabeçalho ou no vão do grupo manda para o fim dele. */
+function Grupo({ chave, rotulo, children }: { chave: string; rotulo: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: idColuna(chave) });
+  return (
+    <section ref={setNodeRef} aria-label={rotulo} className={cn("transition-colors", isOver && "bg-primary/[.06] ring-1 ring-primary/40 ring-inset")}>
+      {children}
+    </section>
+  );
+}
+
+/** Linha arrastável e alvo: soltar sobre ela põe a tarefa logo antes (linha de inserção no topo). */
+function LinhaArrastavel({ tarefa, onAbrir, onSelecionar, className, style, children }: { tarefa: TarefaLista; onAbrir: () => void; onSelecionar: () => void; className: string; style: React.CSSProperties; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: tarefa.id });
+  const alvo = useDroppable({ id: tarefa.id });
+  return (
+    <div
+      ref={(el) => {
+        setNodeRef(el);
+        alvo.setNodeRef(el);
+      }}
+      {...attributes}
+      {...listeners}
+      role="row"
+      data-id={tarefa.id}
+      aria-roledescription="tarefa arrastável"
+      aria-label={`#${tarefa.numero} ${tarefa.titulo}. Enter abre; espaço pega para mover.`}
+      onClick={onAbrir}
+      onMouseEnter={onSelecionar}
+      // Enter abre; o resto (espaço, setas) vai para o arrasto por teclado.
+      onKeyDown={(ev) => {
+        if (ev.target !== ev.currentTarget) return; // espaço/Enter num botão da linha é do botão
+        if (ev.key === "Enter") onAbrir();
+        else listeners?.onKeyDown?.(ev);
+      }}
+      className={cn(className, "touch-manipulation", isDragging && "opacity-40", alvo.isOver && !isDragging && "shadow-[inset_0_2px_0_var(--color-primary)]")}
+      style={style}
+    >
+      {children}
     </div>
   );
 }

@@ -37,7 +37,7 @@ import { criarTarefaAction, editarTarefaAction, moverTarefaAction, salvarExibica
 import { BarraTarefas } from "./barra-tarefas";
 import { CartaoTarefa, IconePrioridade, IconeStatus, corEtiqueta } from "./cartao-tarefa";
 import { DetalheTarefa, type PatchLocal } from "./detalhe-tarefa";
-import { ListaTarefas } from "./lista-tarefas";
+import { ListaTarefas, idColuna } from "./lista-tarefas";
 import { MenuOpcoes } from "./menu";
 
 type Props = {
@@ -55,7 +55,6 @@ type Pre = { status: StatusTarefa; responsavelId: string | null; prioridade?: Pr
 type Atalho = { id: string; campo: "status" | "prio" | "resp"; ancora: HTMLElement | null } | null;
 type MenuAberto = { tipo: "filtro" | "exibicao"; ancora: HTMLElement | null } | null;
 
-const idColuna = (chave: string) => `col:${chave}`;
 const colunaDe = (id: string | number | undefined): string | null => {
   const s = String(id ?? "");
   return s.startsWith("col:") ? s.slice(4) : null;
@@ -355,20 +354,20 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
       ) : null}
 
       <div ref={refQuadro} className="-mx-4 flex min-h-0 flex-1 overflow-auto px-4 pb-2 md:-mx-8 md:px-8">
-        {exibicao.vista === "lista" ? (
-          <ListaTarefas linhas={grupos} porId={porId} pessoaPorId={pessoaPorId} pessoas={pessoas} exibicao={exibicao} hoje={hoje} selecionada={selecionada} fechados={fechados} onAlternarGrupo={alternarGrupo} onAbrir={setAbertaId} onSelecionar={setSelecionada} onEditar={editar} onNovo={(l) => setCriarEm({ coluna: "", pre: preDe(l) })} />
-        ) : (
-          <DndContext
-            id={`tarefas-${projetoId}`}
-            sensors={sensors}
-            collisionDetection={colisaoQuadro}
-            // Faixas abrem quando o arrasto passa por cima: re-mede os alvos.
-            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
-            onDragCancel={fimArrasto}
-          >
+        <DndContext
+          id={`tarefas-${projetoId}`}
+          sensors={sensors}
+          collisionDetection={colisaoQuadro}
+          // Faixas (quadro) e grupos vazios (lista) aparecem durante o arrasto: re-mede os alvos.
+          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+          onDragCancel={fimArrasto}
+        >
+          {exibicao.vista === "lista" ? (
+            <ListaTarefas linhas={grupos} porId={porId} pessoaPorId={pessoaPorId} pessoas={pessoas} exibicao={exibicao} hoje={hoje} selecionada={selecionada} fechados={fechados} onAlternarGrupo={alternarGrupo} onAbrir={setAbertaId} onSelecionar={setSelecionada} onEditar={editar} onNovo={(l) => setCriarEm({ coluna: "", pre: preDe(l) })} arrastando={arrastando} />
+          ) : (
             <div className="flex min-h-0 flex-1 snap-x snap-mandatory gap-3 md:snap-none">
               {grupos.map((g) => {
                 const colapsada = !abertas.has(g.chave);
@@ -404,15 +403,21 @@ export function QuadroTarefas({ projetoId, tarefas: doServidor, pessoas, etiquet
                 );
               })}
             </div>
-            <DragOverlay>
-              {ativa ? (
-                <div className="w-72">
-                  <CartaoTarefa tarefa={ativa} pessoa={pessoaPorId.get(ativa.responsavelId ?? "")} subtarefas={subtarefasDe(ativa.id)} mostrarAvatar={mostrarAvatar} props={exibicao.props} dens={exibicao.dens} hoje={hoje} arrastando />
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        )}
+          )}
+          <DragOverlay>
+            {ativa && exibicao.vista === "lista" ? (
+              <div className="flex h-10 w-[28rem] items-center gap-3 rounded-lg border border-border-strong bg-surface px-4 text-sm shadow-lg shadow-black/40">
+                <IconeStatus status={ativa.status} className="size-3.5" />
+                <span className="font-mono text-[11px] text-fg-mute">#{ativa.numero}</span>
+                <span className="truncate">{ativa.titulo}</span>
+              </div>
+            ) : ativa ? (
+              <div className="w-72">
+                <CartaoTarefa tarefa={ativa} pessoa={pessoaPorId.get(ativa.responsavelId ?? "")} subtarefas={subtarefasDe(ativa.id)} mostrarAvatar={mostrarAvatar} props={exibicao.props} dens={exibicao.dens} hoje={hoje} arrastando />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {atalho && tarefaAtalho ? (
@@ -581,8 +586,10 @@ function CartaoArrastavel({
       {...listeners}
       onClick={onAbrir}
       onMouseEnter={onSelecionar}
+      // Enter abre; espaço e setas seguem para o arrasto por teclado (sem isso o sensor de teclado nunca disparava).
       onKeyDown={(e) => {
         if (e.key === "Enter") onAbrir();
+        else listeners?.onKeyDown?.(e);
       }}
     >
       <CartaoTarefa tarefa={tarefa} pai={pai} pessoa={pessoa} subtarefas={subtarefas} mostrarAvatar={mostrarAvatar} props={exibicao.props} dens={exibicao.dens} hoje={hoje} />
