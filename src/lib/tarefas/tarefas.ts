@@ -150,8 +150,9 @@ async function listarPessoas(responsaveis: string[], escala: EscalaProjeto): Pro
   });
   const afastados = new Set((await db.membro.findMany({ where: { status: "AFASTADO", usuarioId: { in: us.map((u) => u.id) } }, select: { usuarioId: true } })).map((m) => m.usuarioId));
   return us
-    .filter((u) => responsaveis.includes(u.id) || (u.ativo && podeSerResponsavelNoProjeto(u, escala)))
-    .map((u) => ({ id: u.id, nome: u.nome, fotoEm: u.foto?.atualizadoEm.getTime() ?? null, ativo: u.ativo, afastado: afastados.has(u.id) }));
+    .map((u) => ({ u, podeReceber: u.ativo && podeSerResponsavelNoProjeto(u, escala) }))
+    .filter(({ u, podeReceber }) => podeReceber || responsaveis.includes(u.id))
+    .map(({ u, podeReceber }) => ({ id: u.id, nome: u.nome, fotoEm: u.foto?.atualizadoEm.getTime() ?? null, ativo: u.ativo, afastado: afastados.has(u.id), podeReceber }));
 }
 
 export type NovaTarefa = { titulo: string; status?: StatusTarefa; prioridade?: PrioridadeTarefa; responsavelId?: string | null; prazo?: string | null; etiquetas?: string[]; paiId?: string | null };

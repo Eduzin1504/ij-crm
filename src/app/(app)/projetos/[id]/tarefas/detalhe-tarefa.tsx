@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { executarAcao, type FalhaUI } from "@/lib/erros/cliente";
 import { COLUNAS } from "@/lib/tarefas/quadro";
-import { DESCRICAO_MAX, ETIQUETA_MAX, PRIORIDADES, TITULO_MAX, normalizarEtiquetas, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
+import { DESCRICAO_MAX, ETIQUETA_MAX, PRIORIDADES, TITULO_MAX, normalizarEtiquetas, recebeTarefa, rotuloResponsavel, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
 import { editarTarefaAction, excluirTarefaAction } from "./actions";
 import { IconePrioridade, IconeStatus, corEtiqueta } from "./cartao-tarefa";
 
@@ -46,10 +46,16 @@ export function DetalheTarefa({
   function salvar(patch: PatchLocal) {
     if (!tarefa) return;
     setErro(null);
-    onMudou(tarefa.id, patch);
+    // Valores de antes, para desfazer o otimista se o servidor recusar (ex.: responsável fora da equipe).
+    const antes = Object.fromEntries(Object.keys(patch).map((k) => [k, tarefa[k as keyof PatchLocal]])) as PatchLocal;
+    const id = tarefa.id;
+    onMudou(id, patch);
     startTransition(async () => {
-      const falha = await executarAcao(() => editarTarefaAction(projetoId, tarefa.id, patch), "salvar a tarefa");
-      if (falha) setErro(falha);
+      const falha = await executarAcao(() => editarTarefaAction(projetoId, id, patch), "salvar a tarefa");
+      if (falha) {
+        onMudou(id, antes);
+        setErro(falha);
+      }
     });
   }
 
@@ -107,9 +113,8 @@ export function DetalheTarefa({
                 <select value={tarefa.responsavelId ?? ""} onChange={(e) => salvar({ responsavelId: e.target.value || null })} className={CAMPO}>
                   <option value="">Sem responsável</option>
                   {pessoas.map((p) => (
-                    <option key={p.id} value={p.id} disabled={!p.ativo && p.id !== tarefa.responsavelId}>
-                      {p.nome}
-                      {p.ativo ? (p.afastado ? " (afastado)" : "") : " (inativo)"}
+                    <option key={p.id} value={p.id} disabled={!recebeTarefa(p) && p.id !== tarefa.responsavelId}>
+                      {rotuloResponsavel(p)}
                     </option>
                   ))}
                 </select>

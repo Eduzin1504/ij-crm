@@ -55,6 +55,20 @@ export type PessoaTarefa = {
   ativo: boolean;
   /** Afastado segundo G&G (status do membro): aviso ao atribuir. */
   afastado?: boolean;
+  /** false = responsável atual que não pode receber tarefa nova (saiu da equipe): aparece só para reatribuir. */
+  podeReceber?: boolean;
 };
+
+/** Pode ser escolhida como responsável de uma tarefa que ainda não é dela. */
+export function recebeTarefa(p: PessoaTarefa): boolean {
+  return p.ativo && p.podeReceber !== false;
+}
+
+/** Rótulo no menu de responsável: inativo e fora da equipe ficam marcados (e desabilitados para outras tarefas). */
+export function rotuloResponsavel(p: PessoaTarefa): string {
+  if (!p.ativo) return `${p.nome} (inativo)`;
+  if (p.podeReceber === false) return `${p.nome} (fora da equipe)`;
+  return p.afastado ? `${p.nome} (afastado)` : p.nome;
+}
 
 export type ProjetoTarefas = { id: string; titulo: string; pipelineChave: string };

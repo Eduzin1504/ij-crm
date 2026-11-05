@@ -7,7 +7,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import { cn } from "cn";
 import { Avatar } from "@/components/avatar";
 import type { Exibicao } from "@/lib/tarefas/exibicao";
-import { PRIORIDADES, ROTULO_PRIORIDADE, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
+import { PRIORIDADES, ROTULO_PRIORIDADE, recebeTarefa, rotuloResponsavel, type PessoaTarefa, type TarefaLista } from "@/lib/tarefas/modelo";
 import { COLUNAS, type Linha } from "@/lib/tarefas/quadro";
 import { IconePrioridade, IconeStatus, corEtiqueta, diaCurto, estadoPrazo } from "./cartao-tarefa";
 import { MenuOpcoes } from "./menu";
@@ -163,7 +163,7 @@ export function ListaTarefas({ linhas, porId, pessoaPorId, pessoas, exibicao: e,
         <MenuOpcoes
           ancora={edicao.ancora}
           titulo="Responsável"
-          opcoes={[{ valor: "", rotulo: "Sem responsável", icone: <span className="size-4 rounded-full border border-dashed border-border-strong" /> }, ...pessoas.map((p) => ({ valor: p.id, rotulo: p.ativo ? (p.afastado ? `${p.nome} (afastado)` : p.nome) : `${p.nome} (inativo)`, desabilitada: !p.ativo && p.id !== t.responsavelId, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]}
+          opcoes={[{ valor: "", rotulo: "Sem responsável", icone: <span className="size-4 rounded-full border border-dashed border-border-strong" /> }, ...pessoas.map((p) => ({ valor: p.id, rotulo: rotuloResponsavel(p), desabilitada: !recebeTarefa(p) && p.id !== t.responsavelId, icone: <Avatar nome={p.nome} usuarioId={p.id} fotoEm={p.fotoEm} className="size-4 text-[8px]" /> }))]}
           selecionadas={[t.responsavelId ?? ""]}
           onEscolher={(v) => onEditar(t.id, { responsavelId: v || null })}
           onFechar={() => setEdicao(null)}
