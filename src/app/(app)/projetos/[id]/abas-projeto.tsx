@@ -2,15 +2,16 @@ import Link from "next/link";
 import { cn } from "cn";
 
 /**
- * Abas do projeto (Visão geral | Tarefas): o kanban interno fica DENTRO do projeto,
- * não como página solta. Só aparece para quem vê tarefas e em card do quadro de
- * Projetos (quem chama decide); sem isso, a página do card fica como sempre foi.
+ * Abas do projeto (Visão geral | Tarefas | Equipe): o kanban interno e a equipe ficam
+ * DENTRO do projeto. Só no quadro de Projetos e para o time de projetos (quem chama
+ * decide). `tarefasAbertas` null = a pessoa não está escalada: a aba Tarefas some.
  */
-export function AbasProjeto({ projetoId, ativa, tarefasAbertas }: { projetoId: string; ativa: "geral" | "tarefas"; tarefasAbertas: number }) {
+export function AbasProjeto({ projetoId, ativa, tarefasAbertas }: { projetoId: string; ativa: "geral" | "tarefas" | "equipe"; tarefasAbertas: number | null }) {
   const abas = [
     { chave: "geral", rotulo: "Visão geral", href: `/projetos/${projetoId}`, contagem: null },
-    { chave: "tarefas", rotulo: "Tarefas", href: `/projetos/${projetoId}/tarefas`, contagem: tarefasAbertas },
-  ] as const;
+    ...(tarefasAbertas !== null ? [{ chave: "tarefas", rotulo: "Tarefas", href: `/projetos/${projetoId}/tarefas`, contagem: tarefasAbertas }] : []),
+    { chave: "equipe", rotulo: "Equipe", href: `/projetos/${projetoId}/equipe`, contagem: null },
+  ];
   return (
     <nav aria-label="Seções do projeto" className="mb-4 flex shrink-0 gap-1 border-b border-border">
       {abas.map((a) => (

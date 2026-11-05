@@ -69,11 +69,11 @@ describe("numeração por projeto", () => {
 });
 
 describe("quem acessa (spec §5)", () => {
-  it("vendedor, gestor de vendas, gestor sem área e visualizador são recusados em toda operação", async () => {
-    const { projeto, paula, ana, gestorVendas, gestorSemArea, visual } = await semear();
+  it("vendedor, gestor de vendas e visualizador são recusados em toda operação", async () => {
+    const { projeto, paula, ana, gestorVendas, visual } = await semear();
     const t = await criarTarefa(projeto.id, { titulo: "X" }, paula);
     if (!t.ok) throw new Error();
-    for (const quem of [ana, gestorVendas, gestorSemArea, visual]) {
+    for (const quem of [ana, gestorVendas, visual]) {
       expect(await listarQuadro(projeto.id, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
       expect(await criarTarefa(projeto.id, { titulo: "Y" }, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
       expect(await editarTarefa(projeto.id, t.id, { titulo: "Z" }, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
@@ -84,9 +84,9 @@ describe("quem acessa (spec §5)", () => {
     expect(await db.tarefa.count()).toBe(1);
   });
 
-  it("PROJETOS, gestor de projetos e admin passam", async () => {
-    const { projeto, paula, gestorProj, admin } = await semear();
-    for (const quem of [paula, gestorProj, admin]) {
+  it("PROJETOS, gestor de projetos, diretoria sem área e admin passam", async () => {
+    const { projeto, paula, gestorProj, gestorSemArea, admin } = await semear();
+    for (const quem of [paula, gestorProj, gestorSemArea, admin]) {
       const t = await criarTarefa(projeto.id, { titulo: `De ${quem.nome}` }, quem);
       expect(t.ok).toBe(true);
       const q = await listarQuadro(projeto.id, quem);
@@ -94,9 +94,9 @@ describe("quem acessa (spec §5)", () => {
     }
     const q = await listarQuadro(projeto.id, admin);
     if (!q.ok) throw new Error();
-    expect(q.tarefas.map((t) => t.numero)).toEqual([1, 2, 3]);
+    expect(q.tarefas.map((t) => t.numero)).toEqual([1, 2, 3, 4]);
     // Pessoas que podem receber tarefa: só quem passa na regra (ordem por nome).
-    expect(q.pessoas.map((p) => p.nome)).toEqual(["Alice", "Guto", "Paula", "Pedro"]);
+    expect(q.pessoas.map((p) => p.nome)).toEqual(["Alice", "Gil", "Guto", "Paula", "Pedro"]);
   });
 });
 

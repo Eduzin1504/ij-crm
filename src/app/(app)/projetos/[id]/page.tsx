@@ -32,7 +32,7 @@ import { Timeline, type CardRelacionado } from "./timeline";
 import { Vinculos } from "./vinculos";
 import { ExcluirCard } from "@/components/lixeira/excluir-card";
 import { podeVerTarefas } from "@/lib/auth/areas";
-import { resumoTarefas } from "@/lib/tarefas/tarefas";
+import { podeVerTarefasNoProjeto, resumoTarefas } from "@/lib/tarefas/tarefas";
 import { AbasProjeto } from "./abas-projeto";
 import { podeEscrever, temPapelMinimo } from "@/lib/auth/papeis";
 import { podeEditarCard, podeEditarChecklistHandoff, podeTrocarResponsavel } from "@/lib/auth/visibilidade";
@@ -62,7 +62,9 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
   // A proposta só para quem a vê: seção, link e os eventos dela na Timeline.
   const veProposta = await podeVerPropostaDoProjeto(ator, card.id);
   // Kanban interno: só time de projetos e só card no quadro de Projetos (spec do kanban interno §4/§5).
-  const comTarefas = podeVerTarefas(ator) && card.pipeline.chave === "projetos";
+  // Abas do projeto: o time de projetos vê a equipe; as tarefas, só quem está escalado (ou a diretoria).
+  const comAbas = podeVerTarefas(ator) && card.pipeline.chave === "projetos";
+  const comTarefas = comAbas && (await podeVerTarefasNoProjeto(card.id, ator)) === true;
   const tarefas = comTarefas ? await resumoTarefas(card.id, ator.id, diaEmFuso(new Date())) : null;
   const timeline = veProposta ? card.timeline : timelineSemProposta(card.timeline);
   const motivoPerda = veProposta ? card.motivoPerda : mascararMotivoInviavel(card.motivoPerda);
@@ -162,7 +164,7 @@ export default async function CardPage({ params }: { params: Promise<{ id: strin
         </div>
       </header>
 
-      {tarefas ? <AbasProjeto projetoId={card.id} ativa="geral" tarefasAbertas={tarefas.abertas} /> : null}
+      {comAbas ? <AbasProjeto projetoId={card.id} ativa="geral" tarefasAbertas={tarefas?.abertas ?? null} /> : null}
 
       <ResultadoTerminal card={{ ...card, motivoPerda }} />
 

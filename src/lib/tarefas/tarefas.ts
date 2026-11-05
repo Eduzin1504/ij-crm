@@ -3,7 +3,8 @@
  * docs/superpowers/specs/2026-11-04-kanban-interno-projeto-design.md.
  *
  * Regras que não podem furar:
- * - Toda operação passa por `podeVerTarefas` (ponto único em `auth/areas.ts`).
+ * - Toda operação passa por `podeVerTarefasDoProjeto` (ponto único em `auth/areas.ts`): com
+ *   equipe montada, só quem está escalado (equipe, responsável do card, GP) e a diretoria.
  * - Só card no quadro de Projetos (`pipeline.chave === "projetos"`); fora dele, a
  *   tarefa continua no banco e volta a aparecer quando o card retorna.
  * - A tarefa precisa ser do projeto informado (nada de id de outro projeto).
@@ -14,10 +15,11 @@
  *   atribui a si mesmo.
  */
 import type { PrioridadeTarefa, StatusTarefa } from "@prisma/client";
-import { podeVerTarefas, type PessoaComLado } from "@/lib/auth/areas";
+import { podeSerResponsavelNoProjeto, podeVerTarefas, podeVerTarefasDoProjeto, type EscalaProjeto, type PessoaComLado } from "@/lib/auth/areas";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { diaDoPrazo, instanteDoPrazo } from "@/lib/calendario/semana";
 import { db } from "@/lib/db";
+import { escalaDoProjeto } from "@/lib/projetos/equipe";
 import { STATUS_TAREFA, TITULO_MAX, DESCRICAO_MAX, PRIORIDADES, fechada, normalizarEtiquetas, type TarefaLista, type PessoaTarefa, type ProjetoTarefas } from "./modelo";
 
 export type Ator = PessoaComLado & { id: string; nome: string };
@@ -25,7 +27,7 @@ export type Ator = PessoaComLado & { id: string; nome: string };
 export type ErroTarefa = "SEM_PERMISSAO" | "PROJETO_NAO_ENCONTRADO" | "TAREFA_NAO_ENCONTRADA" | "RESPONSAVEL_INVALIDO" | "DADOS_INVALIDOS";
 
 export const MENSAGEM_ERRO_TAREFA: Record<ErroTarefa, string> = {
-  SEM_PERMISSAO: "Só o time de projetos mexe nas tarefas.",
+  SEM_PERMISSAO: "Só a equipe do projeto e a diretoria mexem nestas tarefas.",
   PROJETO_NAO_ENCONTRADO: "Projeto não encontrado no quadro de Projetos.",
   TAREFA_NAO_ENCONTRADA: "Tarefa não encontrada neste projeto.",
   RESPONSAVEL_INVALIDO: "Essa pessoa não pode receber tarefas deste projeto.",
@@ -54,17 +56,26 @@ export async function projetoComTarefas(projetoId: string): Promise<ProjetoTaref
 type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
 /** Trava a linha do projeto (numeração e posição são por projeto) e reconfere o quadro sob o lock. */
-async function travarProjeto(tx: Tx, projetoId: string): Promise<ProjetoTarefas> {
+async function travarProjeto(tx: Tx, projetoId: string, ator: PessoaComLado & { id: string }): Promise<ProjetoTarefas & { escala: EscalaProjeto }> {
   await tx.$queryRaw`SELECT id FROM oportunidade WHERE id = ${projetoId} FOR UPDATE`;
   const p = await tx.projeto.findFirst({ where: { id: projetoId, deletadoEm: null }, select: { id: true, titulo: true, pipeline: { select: { chave: true } } } });
   if (!p || p.pipeline.chave !== PIPELINE_PROJETOS) throw new ErroDeRegra("PROJETO_NAO_ENCONTRADO");
-  return { id: p.id, titulo: p.titulo, pipelineChave: p.pipeline.chave };
+  const escala = await escalaDoProjeto(projetoId, tx);
+  if (!escala || !podeVerTarefasDoProjeto(ator, escala)) throw new ErroDeRegra("SEM_PERMISSAO");
+  return { id: p.id, titulo: p.titulo, pipelineChave: p.pipeline.chave, escala };
 }
 
-/** Responsável válido: pessoa ativa que passa em `podeVerTarefas`. */
-async function conferirResponsavel(tx: Tx, usuarioId: string): Promise<void> {
-  const u = await tx.usuario.findFirst({ where: { id: usuarioId, ativo: true }, select: { papel: true, area: true, cargos: true } });
-  if (!u || !podeVerTarefas(u)) throw new ErroDeRegra("RESPONSAVEL_INVALIDO");
+/** Portão por projeto para páginas (aba Tarefas, visão geral): null = card fora do quadro de Projetos. */
+export async function podeVerTarefasNoProjeto(projetoId: string, ator: PessoaComLado & { id: string }): Promise<boolean | null> {
+  if (!podeVerTarefas(ator)) return false;
+  const escala = await escalaDoProjeto(projetoId);
+  return escala ? podeVerTarefasDoProjeto(ator, escala) : null;
+}
+
+/** Responsável válido: pessoa ativa do time de projetos e, havendo equipe, escalada no projeto. */
+async function conferirResponsavel(tx: Tx, usuarioId: string, escala: EscalaProjeto): Promise<void> {
+  const u = await tx.usuario.findFirst({ where: { id: usuarioId, ativo: true }, select: { id: true, papel: true, area: true, cargos: true } });
+  if (!u || !podeSerResponsavelNoProjeto(u, escala)) throw new ErroDeRegra("RESPONSAVEL_INVALIDO");
 }
 
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
@@ -103,10 +114,12 @@ async function avisarAtribuicao(
   await emitirAvisos([{ usuarioId: depois, tipo: "TAREFA_ATRIBUIDA", titulo: `${ator.nome} te atribuiu #${tarefa.numero} ${titulo} em ${projeto.titulo}`, projetoId: projeto.id }]);
 }
 
-export async function listarQuadro(projetoId: string, ator: PessoaComLado): Promise<Resultado<{ projeto: ProjetoTarefas; tarefas: TarefaLista[]; pessoas: PessoaTarefa[]; /** Etiquetas já usadas no projeto (sugestão, sem tela de administração). */ etiquetas: string[] }>> {
+export async function listarQuadro(projetoId: string, ator: PessoaComLado & { id: string }): Promise<Resultado<{ projeto: ProjetoTarefas; tarefas: TarefaLista[]; pessoas: PessoaTarefa[]; /** Etiquetas já usadas no projeto (sugestão, sem tela de administração). */ etiquetas: string[] }>> {
   if (!podeVerTarefas(ator)) return { ok: false, erro: "SEM_PERMISSAO" };
   const projeto = await projetoComTarefas(projetoId);
   if (!projeto) return { ok: false, erro: "PROJETO_NAO_ENCONTRADO" };
+  const escala = await escalaDoProjeto(projetoId);
+  if (!escala || !podeVerTarefasDoProjeto(ator, escala)) return { ok: false, erro: "SEM_PERMISSAO" };
   const linhas = await db.tarefa.findMany({ where: { projetoId, deletadoEm: null }, orderBy: [{ posicao: "asc" }, { numero: "asc" }] });
   const tarefas: TarefaLista[] = linhas.map((t) => ({
     id: t.id,
@@ -123,20 +136,20 @@ export async function listarQuadro(projetoId: string, ator: PessoaComLado): Prom
     concluidaEmMs: t.concluidaEm?.getTime() ?? null,
     criadoEmMs: t.criadoEm.getTime(),
   }));
-  const pessoas = await listarPessoas(tarefas.map((t) => t.responsavelId).filter((id): id is string => id !== null));
+  const pessoas = await listarPessoas(tarefas.map((t) => t.responsavelId).filter((id): id is string => id !== null), escala);
   const etiquetas = [...new Set(tarefas.flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   return { ok: true, projeto, tarefas, pessoas, etiquetas };
 }
 
-/** Ativos que passam na regra + responsáveis inativos de tarefas vivas (continuam visíveis e reatribuíveis). */
-async function listarPessoas(responsaveis: string[]): Promise<PessoaTarefa[]> {
+/** Quem pode receber tarefa (equipe, ou o time sem equipe) + responsáveis atuais de tarefas vivas (continuam visíveis e reatribuíveis). */
+async function listarPessoas(responsaveis: string[], escala: EscalaProjeto): Promise<PessoaTarefa[]> {
   const us = await db.usuario.findMany({
     where: { OR: [{ ativo: true }, { id: { in: responsaveis } }] },
     orderBy: { nome: "asc" },
     select: { id: true, nome: true, papel: true, area: true, cargos: true, ativo: true, foto: { select: { atualizadoEm: true } } },
   });
   return us
-    .filter((u) => (u.ativo ? podeVerTarefas(u) : true))
+    .filter((u) => responsaveis.includes(u.id) || (u.ativo && podeSerResponsavelNoProjeto(u, escala)))
     .map((u) => ({ id: u.id, nome: u.nome, fotoEm: u.foto?.atualizadoEm.getTime() ?? null, ativo: u.ativo }));
 }
 
@@ -153,8 +166,8 @@ export async function criarTarefa(projetoId: string, dados: NovaTarefa, ator: At
     if (!PRIORIDADES.some((p) => p.k === prioridade)) throw new ErroDeRegra("DADOS_INVALIDOS");
     const etiquetas = normalizarEtiquetas(dados.etiquetas ?? []);
     const criada = await db.$transaction(async (tx) => {
-      const projeto = await travarProjeto(tx, projetoId);
-      if (dados.responsavelId) await conferirResponsavel(tx, dados.responsavelId);
+      const projeto = await travarProjeto(tx, projetoId, ator);
+      if (dados.responsavelId) await conferirResponsavel(tx, dados.responsavelId, projeto.escala);
       if (dados.paiId) {
         // Subtarefa de um nível só: o pai é do mesmo projeto, vivo e não é subtarefa.
         const pai = await tx.tarefa.findFirst({ where: { id: dados.paiId, projetoId, deletadoEm: null }, select: { paiId: true } });
@@ -217,10 +230,10 @@ export async function editarTarefa(projetoId: string, tarefaId: string, patch: P
     if (prazo !== undefined) dados.prazo = prazo;
 
     const r = await db.$transaction(async (tx) => {
-      const projeto = await travarProjeto(tx, projetoId);
+      const projeto = await travarProjeto(tx, projetoId, ator);
       const atual = await tx.tarefa.findFirst({ where: { id: tarefaId, projetoId, deletadoEm: null }, select: { numero: true, titulo: true, status: true, responsavelId: true } });
       if (!atual) throw new ErroDeRegra("TAREFA_NAO_ENCONTRADA");
-      if (dados.responsavelId) await conferirResponsavel(tx, dados.responsavelId);
+      if (dados.responsavelId && dados.responsavelId !== atual.responsavelId) await conferirResponsavel(tx, dados.responsavelId, projeto.escala);
       if (dados.status !== undefined && fechada(dados.status) !== fechada(atual.status)) dados.concluidaEm = fechada(dados.status) ? new Date() : null;
       const t = await tx.tarefa.update({ where: { id: tarefaId }, data: dados, select: { numero: true, titulo: true, responsavelId: true } });
       return { projeto, antes: atual.responsavelId, t };
@@ -240,11 +253,11 @@ export async function moverTarefa(projetoId: string, tarefaId: string, para: Des
   try {
     if (!STATUS_TAREFA.includes(para.status) || !Number.isFinite(para.posicao)) throw new ErroDeRegra("DADOS_INVALIDOS");
     const r = await db.$transaction(async (tx) => {
-      const projeto = await travarProjeto(tx, projetoId);
+      const projeto = await travarProjeto(tx, projetoId, ator);
       const atual = await tx.tarefa.findFirst({ where: { id: tarefaId, projetoId, deletadoEm: null }, select: { numero: true, titulo: true, status: true, responsavelId: true } });
       if (!atual) throw new ErroDeRegra("TAREFA_NAO_ENCONTRADA");
       const responsavelId = para.responsavelId === undefined ? atual.responsavelId : para.responsavelId || null;
-      if (responsavelId && responsavelId !== atual.responsavelId) await conferirResponsavel(tx, responsavelId);
+      if (responsavelId && responsavelId !== atual.responsavelId) await conferirResponsavel(tx, responsavelId, projeto.escala);
       const t = await tx.tarefa.update({
         where: { id: tarefaId },
         data: {
@@ -269,7 +282,7 @@ export async function excluirTarefa(projetoId: string, tarefaId: string, ator: A
   if (!podeVerTarefas(ator)) return { ok: false, erro: "SEM_PERMISSAO" };
   try {
     await db.$transaction(async (tx) => {
-      await travarProjeto(tx, projetoId);
+      await travarProjeto(tx, projetoId, ator);
       const r = await tx.tarefa.updateMany({ where: { projetoId, deletadoEm: null, OR: [{ id: tarefaId }, { paiId: tarefaId }] }, data: { deletadoEm: new Date() } });
       if (r.count === 0) throw new ErroDeRegra("TAREFA_NAO_ENCONTRADA");
     });

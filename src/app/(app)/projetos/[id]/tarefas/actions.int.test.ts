@@ -46,7 +46,6 @@ describe("actions do kanban interno", () => {
     const recusados = [
       await pessoa("Ana", "VENDEDOR", "VENDAS"),
       await pessoa("Gabi", "GESTOR", "VENDAS"),
-      await pessoa("Gil", "GESTOR"),
       await pessoa("Vera", "VISUALIZADOR"),
     ];
     for (const quem of recusados) {
@@ -56,7 +55,7 @@ describe("actions do kanban interno", () => {
       await expect(moverTarefaAction(projeto.id, t.id, { status: "FEITA", posicao: 1 })).rejects.toBe(proibido);
       await expect(excluirTarefaAction(projeto.id, t.id)).rejects.toBe(proibido);
     }
-    expect(redirect).toHaveBeenCalledTimes(16);
+    expect(redirect).toHaveBeenCalledTimes(12);
     expect(redirect).toHaveBeenCalledWith("/403");
     expect(await db.tarefa.findMany()).toEqual([expect.objectContaining({ titulo: "X", status: "A_FAZER", deletadoEm: null })]);
   });
