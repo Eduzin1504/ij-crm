@@ -7,7 +7,7 @@
 import type { CategoriaEvento, DirecaoKpi, PapelRaci, Prisma, TipoDemanda } from "@prisma/client";
 import { temPapelMinimo } from "@/lib/auth/papeis";
 import { emitirAvisos } from "@/lib/avisos/avisos";
-import { diaDoPrazo, instanteDoPrazo } from "@/lib/calendario/semana";
+import { diaDoPrazo, instanteDoPrazo, segundaDe } from "@/lib/calendario/semana";
 import { db } from "@/lib/db";
 import { diaEmFuso } from "@/lib/projetos/aging";
 import { somarDias } from "@/lib/projetos/proxima-acao";
@@ -237,14 +237,17 @@ export async function medirFonte(f: FonteCrm, agora = new Date()): Promise<numbe
     return Math.round(Number(s._sum.valorFechado ?? 0) / 100) / 10;
   }
   if (f === "projetos_no_prazo") {
-    const feitas = await db.projetoEntrega.findMany({ where: { canceladaEm: null, realizadoEm: { not: null, gte: instanteDoPrazo(`${dia.slice(0, 4)}-01-01`) } }, select: { realizadoEm: true, previstoOriginal: true } });
+    const feitas = await db.projetoEntrega.findMany({ where: { canceladaEm: null, projeto: { deletadoEm: null }, realizadoEm: { not: null, gte: instanteDoPrazo(`${dia.slice(0, 4)}-01-01`) } }, select: { realizadoEm: true, previstoOriginal: true } });
     return feitas.length ? Math.round((feitas.filter((e) => e.realizadoEm! <= e.previstoOriginal).length / feitas.length) * 100) : 0;
   }
-  const segunda = (() => {
-    const d = new Date(`${dia}T12:00:00Z`);
-    return somarDias(dia, -((d.getUTCDay() + 6) % 7));
-  })();
-  return db.projetoCheckin.count({ where: { status: "VERMELHO", semana: instanteDoPrazo(segunda) } });
+  // Mais de um check-in na semana vale e o último é o status (registrarCheckin): conta projetos, não linhas.
+  const ultimos = await db.projetoCheckin.findMany({
+    where: { semana: instanteDoPrazo(segundaDe(dia)), projeto: { deletadoEm: null } },
+    orderBy: [{ projetoId: "asc" }, { em: "desc" }, { id: "desc" }],
+    distinct: ["projetoId"],
+    select: { status: true },
+  });
+  return ultimos.filter((c) => c.status === "VERMELHO").length;
 }
 
 /** Cron: grava a medição do dia de cada KPI e o valor atual de cada KR com fonte do CRM. */

@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Papel } from "@prisma/client";
 import { dbTeste, limparBanco } from "@/test/db";
+import { segundaDe } from "@/lib/calendario/semana";
 import { somarDias } from "@/lib/projetos/proxima-acao";
 import type { AtorGG } from "./organizacao";
 import {
@@ -13,6 +14,7 @@ import {
   definirRaci,
   eventosDoUsuario,
   lembrarEventosGG,
+  medirFonte,
   listarAusencias,
   registrarAusencia,
   registrarDemanda,
@@ -41,7 +43,7 @@ async function semear() {
 }
 
 beforeEach(async () => {
-  await limparBanco(["aviso", "lembrete_evento", "ausencia", "evento_agenda", "demanda", "medicao_kpi", "kpi", "raci", "processo", "ocupacao", "vinculo_ij", "membro", "posicao", "cargo_org", "area_org", "usuario"]);
+  await limparBanco(["projeto_entrega", "projeto_checkin", "oportunidade", "fase", "pipeline", "aviso", "lembrete_evento", "ausencia", "evento_agenda", "demanda", "medicao_kpi", "kpi", "raci", "processo", "ocupacao", "vinculo_ij", "membro", "posicao", "cargo_org", "area_org", "usuario"]);
 });
 
 describe("demandas Rosa/Azul", () => {
@@ -98,6 +100,27 @@ describe("metas e RACI", () => {
     expect(await registrarMedicao(manual.id!, HOJE, 9, helena.ator)).toEqual({ ok: true });
     expect(await registrarMedicao(manual.id!, HOJE, 8, helena.ator)).toEqual({ ok: false, erro: "JA_MEDIDO" });
     expect(await db.medicaoKpi.count({ where: { kpiId: auto.id } })).toBe(1); // medido na criação
+  });
+
+  it("fontes do CRM: check-in vale o último da semana por projeto; projeto na lixeira não conta", async () => {
+    const { admin } = await semear();
+    const pipe = await db.pipeline.create({ data: { chave: "projetos", nome: "Projetos", ordem: 0, fases: { create: [{ chave: "p1", nome: "Fase", ordem: 0 }] } }, include: { fases: true } });
+    const card = (titulo: string, deletadoEm: Date | null = null) => db.projeto.create({ data: { pipelineId: pipe.id, faseId: pipe.fases[0].id, titulo, responsavelId: admin.id, criadoVia: "UI", deletadoEm } });
+    const [a, b, c] = [await card("A"), await card("B"), await card("C", new Date())];
+    const semana = segundaDe(HOJE);
+    const checkin = (projetoId: string, status: "VERDE" | "VERMELHO", minuto: number) =>
+      db.projetoCheckin.create({ data: { projetoId, status, motivo: "x", semana: new Date(`${semana}T00:00:00Z`), porId: admin.id, em: new Date(Date.now() - (60 - minuto) * 60_000) } });
+    await checkin(a.id, "VERMELHO", 1);
+    await checkin(a.id, "VERMELHO", 2); // dois vermelhos no mesmo projeto: um projeto
+    await checkin(b.id, "VERMELHO", 1);
+    await checkin(b.id, "VERDE", 2); // o último é o status
+    await checkin(c.id, "VERMELHO", 1); // na lixeira
+    expect(await medirFonte("checkins_vermelhos")).toBe(1);
+    const entrega = (projetoId: string, ordem: number, previsto: string) =>
+      db.projetoEntrega.create({ data: { projetoId, ordem, titulo: "E", origem: "MANUAL", previstoOriginal: new Date(`${previsto}T00:00:00Z`), previstoAtual: new Date(`${previsto}T00:00:00Z`), realizadoEm: new Date(`${HOJE}T00:00:00Z`) } });
+    await entrega(a.id, 1, HOJE); // no prazo
+    await entrega(c.id, 1, `${HOJE.slice(0, 4)}-01-01`); // atrasada, mas na lixeira
+    expect(await medirFonte("projetos_no_prazo")).toBe(100);
   });
 
   it("um A por processo: o A anterior vira R", async () => {
