@@ -174,17 +174,17 @@ export async function listarAusencias(ator: AtorGG): Promise<AusenciaLinha[]> {
   return as.map((a) => ({ id: a.id, evento: a.evento.titulo, data: diaDoPrazo(a.evento.data), membroId: a.membroId, membro: a.membro.nome, justificada: a.justificada, observacao: a.observacao }));
 }
 
-/** O evento atinge o membro? IJ inteira, ou o membro ocupa posição na área do evento ou numa frente dela. */
-function atinge(base: BaseOrg, areaEvento: string | null, membroId: string): boolean {
-  if (!areaEvento) return true;
-  const alcance = descendentes(base.areas, areaEvento);
+/** O evento atinge o membro? RG e evento sem área: IJ inteira (decisão §3.12); senão, quem ocupa posição na área do evento ou numa frente dela. */
+function atinge(base: BaseOrg, e: { areaId: string | null; categoria: CategoriaEvento }, membroId: string): boolean {
+  if (!e.areaId || e.categoria === "RG") return true;
+  const alcance = descendentes(base.areas, e.areaId);
   return postosDe(base, membroId).some((p) => alcance.has(p.areaId));
 }
 
 /** Eventos que dizem respeito a um usuário (Minha Semana): os da IJ inteira e os das áreas dele. */
 export async function eventosDoUsuario(usuarioId: string, de: string, ate: string): Promise<EventoLinha[]> {
   const [eventos, membro, base] = await Promise.all([listarEventos(de, ate), db.membro.findUnique({ where: { usuarioId }, select: { id: true } }), carregarBase()]);
-  return eventos.filter((e) => !e.areaId || (membro !== null && atinge(base, e.areaId, membro.id)));
+  return eventos.filter((e) => !e.areaId || e.categoria === "RG" || (membro !== null && atinge(base, e, membro.id)));
 }
 
 /**
@@ -202,7 +202,7 @@ export async function lembrarEventosGG(agora = new Date()): Promise<{ lembretes:
   const refs: string[] = [];
   for (const e of eventos) {
     const ja = new Set(e.lembretes.map((l) => l.usuarioId));
-    const para = contas.filter((c) => !ja.has(c.usuarioId!) && atinge(base, e.areaId, c.id));
+    const para = contas.filter((c) => !ja.has(c.usuarioId!) && atinge(base, e, c.id));
     if (!para.length) continue;
     await db.lembreteEvento.createMany({ data: para.map((c) => ({ eventoId: e.id, usuarioId: c.usuarioId! })), skipDuplicates: true });
     const quando = `${diaDoPrazo(e.data).split("-").reverse().join("/")}${e.horario ? ` às ${e.horario}` : ""}`;

@@ -79,11 +79,12 @@ describe("agenda e ausências", () => {
     await criarEvento({ titulo: "Reunião de Projetos", data: somarDias(HOJE, 2), horario: "18:30", categoria: "REUNIAO", areaId: "proj" }, helena.ator);
     await criarEvento({ titulo: "Reunião de G&G", data: somarDias(HOJE, 1), horario: null, categoria: "REUNIAO", areaId: "gg" }, helena.ator);
     await criarEvento({ titulo: "RG", data: HOJE, horario: null, categoria: "RG", areaId: null }, helena.ator);
-    expect((await eventosDoUsuario(lucas.ator.id, HOJE, somarDias(HOJE, 6))).map((e) => e.titulo).sort()).toEqual(["RG", "Reunião de Projetos"]);
-    expect((await eventosDoUsuario(helena.ator.id, HOJE, somarDias(HOJE, 6))).map((e) => e.titulo).sort()).toEqual(["RG", "Reunião de G&G"]); // RH é frente de G&G
-    expect((await lembrarEventosGG()).lembretes).toBe(6); // RG x3 + Projetos x2 (Lucas, Pedro) + G&G x1 (Helena)
+    await criarEvento({ titulo: "RG de G&G", data: HOJE, horario: null, categoria: "RG", areaId: "gg" }, helena.ator); // RG vai para todos, mesmo com área
+    expect((await eventosDoUsuario(lucas.ator.id, HOJE, somarDias(HOJE, 6))).map((e) => e.titulo).sort()).toEqual(["RG", "RG de G&G", "Reunião de Projetos"]);
+    expect((await eventosDoUsuario(helena.ator.id, HOJE, somarDias(HOJE, 6))).map((e) => e.titulo).sort()).toEqual(["RG", "RG de G&G", "Reunião de G&G"]); // RH é frente de G&G
+    expect((await lembrarEventosGG()).lembretes).toBe(9); // RG x3 + RG de G&G x3 + Projetos x2 (Lucas, Pedro) + G&G x1 (Helena)
     expect((await lembrarEventosGG()).lembretes).toBe(0);
-    expect(await db.aviso.count({ where: { tipo: "LEMBRETE_GG", usuarioId: lucas.ator.id } })).toBe(2);
+    expect(await db.aviso.count({ where: { tipo: "LEMBRETE_GG", usuarioId: lucas.ator.id } })).toBe(3);
   });
 });
 
