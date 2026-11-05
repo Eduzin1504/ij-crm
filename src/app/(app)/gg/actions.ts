@@ -8,7 +8,7 @@ import { criarConvite, atualizarUsuario } from "@/lib/auth/usuarios";
 import { resolverAreaCargos } from "@/lib/auth/areas";
 import { db } from "@/lib/db";
 import { comTratamento, type Inesperado } from "@/lib/erros/registrar";
-import { STATUS_MEMBRO, validarImportacao } from "@/lib/gg/modelo";
+import { contaDifere, STATUS_MEMBRO, validarImportacao } from "@/lib/gg/modelo";
 import * as org from "@/lib/gg/organizacao";
 import * as rot from "@/lib/gg/rotina";
 import { diaEmFuso } from "@/lib/projetos/aging";
@@ -106,7 +106,9 @@ export async function aplicarNoCrmAction(membroId: string): Promise<EstadoGG> {
     const base = await org.carregarBase();
     const m = base.membros.find((x) => x.id === membroId);
     const d = org.derivadoDe(base, membroId);
-    if (!m?.usuarioId || !d.papel || d.conflito) return { erro: "Nada a aplicar para este membro." };
+    // Mesma regra da ficha (`contaDifere`), no servidor: sem sugestão, conflito ou conta ADMIN, nada a aplicar.
+    const conta = m?.usuarioId ? await db.usuario.findUnique({ where: { id: m.usuarioId }, select: { papel: true, area: true, cargos: true } }) : null;
+    if (!m?.usuarioId || !d.papel || !conta || !contaDifere({ papel: conta.papel, area: conta.area, gp: conta.cargos.includes("GP") }, d)) return { erro: "Nada a aplicar para este membro." };
     const r = await atualizarUsuario(m.usuarioId, { papel: d.papel, area: d.area, cargos: d.gp ? ["GP"] : [] }, a);
     if (!r.ok) return { erro: r.erro === "PAPEL_NAO_PERMITIDO" ? "Só a gestão muda o papel de uma conta." : r.erro === "NAO_PODE_ALTERAR_A_SI" ? "Você não pode mudar o próprio papel." : "Não foi possível atualizar a conta." };
     await db.historicoOrg.create({ data: { membroId, evento: `Conta do CRM ajustada pelo organograma: ${d.papel}${d.area ? ` · ${d.area}` : ""}${d.gp ? " · GP" : ""}`, autorId: a.id } });
