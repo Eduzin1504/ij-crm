@@ -291,8 +291,14 @@ async function travarMembro(tx: Tx, membroId: string) {
   await tx.$queryRaw`SELECT id FROM membro WHERE id = ${membroId} FOR UPDATE`;
 }
 
-/** Abre ocupação; vira principal se a pessoa não tiver outra principal aberta. */
+/**
+ * Abre ocupação; vira principal se a pessoa não tiver outra principal aberta. Recusa sobrepor
+ * outro vínculo (não invalidado) da pessoa na mesma posição, como o trigger validar_periodo do G&G:
+ * [inicio, ∞) cruza [a, b) se b é aberto, o início é vazio ou b > inicio.
+ */
 async function abrirOcupacao(tx: Tx, membroId: string, posicaoId: string, inicio: Date | null, principal?: boolean) {
+  const sobrepoe = await tx.ocupacao.count({ where: { membroId, posicaoId, invalidadoEm: null, ...(inicio ? { OR: [{ fim: null }, { fim: { gt: inicio } }] } : {}) } });
+  if (sobrepoe) throw new Recusa("JA_OCUPA", "O período se sobrepõe a um vínculo existente nessa posição.");
   const temPrincipal = await tx.ocupacao.count({ where: { membroId, fim: null, invalidadoEm: null, principal: true } });
   await tx.ocupacao.create({ data: { membroId, posicaoId, inicio, principal: principal ?? temPrincipal === 0 } });
 }

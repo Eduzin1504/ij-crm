@@ -130,6 +130,18 @@ describe("organograma (regras do ajustar_ocupacao)", () => {
     expect((await db.historicoOrg.findMany({ where: { membroId: m } })).map((h) => h.evento)).toContain("Retirada por erro: Scrum Master");
   });
 
+  it("reatribuir a mesma posição não sobrepõe vínculo encerrado (validar_periodo do G&G)", async () => {
+    const { admin } = await semear();
+    const m = await novo("Nina", admin);
+    await adicionarOcupante("p_sm", m, "2026-01-01", admin);
+    const [o] = await ocupacoes(m);
+    expect(await encerrarOcupacao(o.id, "2026-06-01", admin)).toEqual({ ok: true });
+    expect(await adicionarOcupante("p_sm", m, "2026-03-01", admin)).toMatchObject({ ok: false, erro: "JA_OCUPA" });
+    expect(await adicionarOcupante("p_sm", m, null, admin)).toMatchObject({ ok: false, erro: "JA_OCUPA" });
+    expect(await adicionarOcupante("p_sm", m, "2026-06-01", admin)).toEqual({ ok: true }); // [jan, jun) e [jun, …) só encostam
+    expect(await db.ocupacao.count({ where: { membroId: m } })).toBe(2);
+  });
+
   it("saída e reingresso: períodos sem sobreposição; status acompanha", async () => {
     const { admin } = await semear();
     const m = await novo("Rafa", admin);
