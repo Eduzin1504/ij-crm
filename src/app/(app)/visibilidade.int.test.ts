@@ -13,6 +13,8 @@ const { sessao } = vi.hoisted(() => ({ sessao: { valor: "" } }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => ({ value: sessao.valor }) }) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// A página da proposta usa next/font, que só existe no build do Next.
+vi.mock("next/font/google", () => ({ Arimo: () => ({ variable: "" }), Poppins: () => ({ variable: "" }) }));
 
 import { criarSessao } from "@/lib/auth/sessao";
 import { listarAvisos } from "@/lib/avisos/avisos";

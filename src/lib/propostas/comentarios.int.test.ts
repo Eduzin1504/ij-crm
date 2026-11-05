@@ -7,6 +7,8 @@ import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { EXTENSOES } from "@/components/propostas/editor-texto";
 import { ancoraDaSelecao, DestaquesComentarios } from "@/components/propostas/destaques-editor";
 import type { Documento } from "./documento";
+import { TOKEN_BLOCO, trechoLegivel } from "./ancora";
+import { markdownParaDocumento } from "./markdown";
 import { COMENTARIO_MAX, comentar, listarComentarios, reabrirComentario, resolverComentario, responderComentario, versaoDosComentarios } from "./comentarios";
 import { criarProposta, passarCaneta, salvarRascunho, salvarVersao } from "./propostas";
 
@@ -62,7 +64,7 @@ describe("comentar (§4.6): qualquer usuário ativo, sem a caneta", () => {
     const r = await comentar(projeto.id, { texto: "30 é pouco", trecho: "30 dias" }, paula);
     expect(r).toMatchObject({ ok: true });
     const c = await db.propostaComentario.findFirstOrThrow();
-    expect(c).toMatchObject({ trecho: "30 dias", trechoAntes: "Escopo\nSite com loja e blog.\nPrazo\n", trechoDepois: "." });
+    expect(c).toMatchObject({ trecho: "30 dias", trechoAntes: "Escopo\nSite com loja e blog.\nPrazo\n", trechoDepois: ".\n\uE001\n\uE002" });
     expect(await comentar(projeto.id, { texto: "x", trecho: "60 dias" }, paula)).toEqual({ ok: false, erro: "TRECHO_NAO_ENCONTRADO" });
   });
 
@@ -241,5 +243,51 @@ describe("GAB-98: só comenta quem vê a proposta", () => {
       expect(await reabrirComentario(c.comentario.id, quem)).toEqual({ ok: false, erro: "SEM_PERMISSAO" });
     }
     expect(await db.propostaComentario.count()).toBe(1);
+  });
+});
+
+describe("âncora nos blocos móveis (GAB-100)", () => {
+  it("citar uma palavra: o texto real vem primeiro; sem ele, o título comenta o bloco; o comentário do bloco não migra para o texto", async () => {
+    const { projeto, paula, ana, revisao } = await semear();
+    const r = await salvarRascunho(projeto.id, { revisao, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:cronograma -->\n\nFim." } }, ana);
+    const lista = async () => (await listarComentarios(projeto.id))!.threads;
+    await comentar(projeto.id, { texto: "no título do texto", trecho: "Cronograma" }, paula);
+    expect((await lista())[0].ancora?.trecho).toBe("Cronograma");
+    // Investimento não está na folha nem no texto.
+    expect(await comentar(projeto.id, { texto: "fora", trecho: "Investimento" }, paula)).toEqual({ ok: false, erro: "TRECHO_NAO_ENCONTRADO" });
+    const s2 = await salvarRascunho(projeto.id, { revisao: r.ok ? r.revisao : -1, conteudo: { markdown: "Texto.\n\n<!-- bloco:cronograma -->\n\nFim." } }, ana);
+    await comentar(projeto.id, { texto: "agora no bloco", trecho: "Cronograma" }, paula);
+    const doBloco = (await lista()).find((t) => t.texto === "agora no bloco")!;
+    expect(doBloco.ancora?.trecho).toBe(TOKEN_BLOCO.cronograma);
+    await salvarRascunho(projeto.id, { revisao: s2.ok ? s2.revisao : -1, conteudo: { markdown: "## Cronograma\n\nTexto.\n\n<!-- bloco:nenhum -->" } }, ana);
+    expect((await lista()).find((t) => t.texto === "agora no bloco")!.trechoAlterado).toBe(true);
+  });
+
+  it("comentar o bloco citando o título (como o MCP): não fica alterado ao mudar dados nem ao movê-lo; tirá-lo da folha marca", async () => {
+    const { projeto, paula, ana, revisao } = await semear();
+    expect(await comentar(projeto.id, { texto: "Revise as semanas", trecho: "Cronograma" }, paula)).toMatchObject({ ok: true });
+    const alterado = async () => (await listarComentarios(projeto.id))!.threads[0].trechoAlterado;
+    expect(await alterado()).toBe(false);
+
+    const dados = await salvarRascunho(projeto.id, { revisao, estruturado: { valor: "1.000,00", entregas: [{ titulo: "A", duracao: "2 semanas" }] } }, ana);
+    expect(await alterado()).toBe(false);
+    const movido = await salvarRascunho(projeto.id, { revisao: dados.ok ? dados.revisao : -1, conteudo: { markdown: "<!-- bloco:cronograma -->\n\n## Escopo\n\nSite com loja e blog." } }, ana);
+    expect(movido).toMatchObject({ ok: true });
+    expect(await alterado()).toBe(false);
+    await salvarRascunho(projeto.id, { revisao: movido.ok ? movido.revisao : -1, conteudo: { markdown: "<!-- bloco:investimento -->\n\n## Escopo\n\nSite com loja e blog." } }, ana);
+    expect(await alterado()).toBe(true);
+  });
+
+  it("comentário no texto continua achado com bloco no meio do trecho vizinho; a âncora do editor (com os blocos explícitos) vale no servidor", async () => {
+    const { projeto, paula, ana, revisao } = await semear();
+    const md = "## Escopo\n\nSite com loja e blog.\n\n<!-- bloco:investimento -->\n\n## Prazo\n\n30 dias.";
+    await salvarRascunho(projeto.id, { revisao, conteudo: { markdown: md } }, ana);
+    const e = new Editor({ extensions: [...EXTENSOES, DestaquesComentarios], content: markdownParaDocumento(md) });
+    e.commands.setTextSelection({ from: 8, to: 40 });
+    const a = ancoraDaSelecao(e.state)!;
+    expect(trechoLegivel(a.trecho)).toContain("Investimento");
+    e.destroy();
+    expect(await comentar(projeto.id, { texto: "atravessa o bloco", trecho: a }, paula)).toMatchObject({ ok: true });
+    expect((await listarComentarios(projeto.id))!.threads[0].trechoAlterado).toBe(false);
   });
 });

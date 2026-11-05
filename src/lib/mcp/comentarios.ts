@@ -17,7 +17,7 @@ import {
   type ComentarioLido,
   type ErroComentario,
 } from "@/lib/propostas/comentarios";
-import { TRECHO_MAX } from "@/lib/propostas/ancora";
+import { trechoLegivel, TRECHO_MAX } from "@/lib/propostas/ancora";
 import type { Ferramenta, Resposta } from "./ferramentas";
 import { propostaVisivel } from "./guardas";
 import { urlBase } from "./url";
@@ -49,7 +49,7 @@ const listar = ferramenta({
       abertos: l.threads.filter((t) => !t.resolvido).length,
       comentarios: threads.map((t) => ({
         ...item(t),
-        trecho: t.ancora?.trecho ?? null,
+        trecho: t.ancora ? trechoLegivel(t.ancora.trecho) : null,
         ...(t.ancora ? { trecho_alterado: t.trechoAlterado } : {}),
         resolvido: t.resolvido ? { por: t.resolvido.por, em: t.resolvido.em.toISOString() } : null,
         respostas: t.respostas.map(item),
@@ -62,7 +62,7 @@ const listar = ferramenta({
 const comentarMcp = ferramenta({
   nome: "comentar_proposta",
   titulo: "Comentar na proposta",
-  descricao: `Comenta na proposta do projeto (qualquer etapa; não precisa da caneta e não edita o texto). Sem \`trecho\`: comentário geral. Com \`trecho\`: preso a esse trecho do texto ATUAL — cite o texto exato como aparece (até ${TRECHO_MAX} caracteres, sem a marcação Markdown como ** ou #); se aparecer mais de uma vez, vale a primeira. O dono da caneta é avisado no app. Texto puro, até ${COMENTARIO_MAX} caracteres.`,
+  descricao: `Comenta na proposta do projeto (qualquer etapa; não precisa da caneta e não edita o texto). Sem \`trecho\`: comentário geral. Com \`trecho\`: preso a esse trecho do texto ATUAL — cite o texto exato como aparece (até ${TRECHO_MAX} caracteres, sem a marcação Markdown como ** ou #); se aparecer mais de uma vez, vale a primeira. Para comentar o bloco Cronograma ou Investimento, cite o título dele; se a mesma palavra existir no texto, vale o texto. O dono da caneta é avisado no app. Texto puro, até ${COMENTARIO_MAX} caracteres.`,
   escrita: false,
   muda: true,
   entrada: { projeto_id: id, texto, trecho: z.string().min(1).max(TRECHO_MAX).optional() },

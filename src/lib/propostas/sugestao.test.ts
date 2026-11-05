@@ -29,8 +29,8 @@ describe("interpretarLeitura (GAB-90): só aplica o que o arquivo sustenta", () 
       prazoDias: "60",
       escopoResumo: "Site institucional",
       entregas: [
-        { titulo: "MVP", dia: "2026-12-15", valor: "4.000,00" },
-        { titulo: "Final", dia: "2027-01-30", valor: "" },
+        { titulo: "MVP", dia: "2026-12-15", duracao: "", valor: "4.000,00" },
+        { titulo: "Final", dia: "2027-01-30", duracao: "", valor: "" },
       ],
     });
     expect(r.revisar).toEqual([]);
@@ -80,7 +80,7 @@ describe("interpretarLeitura (GAB-90): só aplica o que o arquivo sustenta", () 
         },
       }),
     );
-    expect(r.campos.entregas).toEqual([{ titulo: "Entrega final", dia: "2026-12-01", valor: "" }]);
+    expect(r.campos.entregas).toEqual([{ titulo: "Entrega final", dia: "2026-12-01", duracao: "", valor: "" }]);
     expect(r.revisar.filter((i) => i.campo === "entregas").map((i) => i.motivo)).toEqual([
       expect.stringContaining('"Diagnóstico" sem data completa'),
       expect.stringContaining('"Relatório" sem data completa'),
@@ -119,14 +119,14 @@ describe("fronteira do limiar e trecho por entrega (revisão do PR #59)", () => 
         },
       }),
     );
-    expect(r.campos.entregas).toEqual([{ titulo: "Final", dia: "2027-01-30", valor: "6.000,00" }]);
+    expect(r.campos.entregas).toEqual([{ titulo: "Final", dia: "2027-01-30", duracao: "", valor: "6.000,00" }]);
     expect(r.revisar).toContainEqual({ campo: "entregas", motivo: 'entrega "MVP" sem trecho do arquivo que comprove: não incluída', lido: "MVP · 2026-12-15 · 4000.00", trecho: null });
   });
 });
 
 describe("mesclarSugestao", () => {
   it("o que a sugestão não preenche fica como está no rascunho", () => {
-    const atual = { valor: "1.000,00", prazoDias: "30", escopoResumo: "antigo", entregas: [{ titulo: "A", dia: "2026-12-01", valor: "" }] };
+    const atual = { valor: "1.000,00", prazoDias: "30", escopoResumo: "antigo", entregas: [{ titulo: "A", dia: "2026-12-01", duracao: "", valor: "" }] };
     expect(mesclarSugestao(atual, { valor: "2.000,00", prazoDias: null, escopoResumo: null, entregas: null })).toEqual({ ...atual, valor: "2.000,00" });
     expect(mesclarSugestao(atual, { valor: null, prazoDias: "45", escopoResumo: "novo", entregas: [] })).toEqual({ valor: "1.000,00", prazoDias: "45", escopoResumo: "novo", entregas: [] });
   });

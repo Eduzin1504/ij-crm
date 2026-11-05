@@ -70,4 +70,10 @@ describe("AcoesCaneta: envio e resposta do cliente (GAB-89)", () => {
     expect(preparar).toHaveBeenCalledWith("concluirRevisao");
     expect(acoes.concluirRevisaoAction).toHaveBeenCalledWith("p1", 8, { documento: { type: "doc", content: [] }, estruturado: undefined, nota: "" });
   });
+
+  it("sem ações, só as secundárias: não há frase pedindo para fazer algo", () => {
+    render(<AcoesCaneta {...base} secundarias={<a href="/x">Ver PDF</a>} />);
+    expect(screen.getByRole("link", { name: "Ver PDF" })).toBeInTheDocument();
+    expect(screen.queryByText(/O que você pode fazer/)).toBeNull();
+  });
 });

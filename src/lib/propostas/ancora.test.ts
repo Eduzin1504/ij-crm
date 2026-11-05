@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Documento } from "./documento";
-import { CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarBloco, normalizarContexto, normalizarTrecho, OCORRENCIAS_MAX, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
+import { normalizarDocumento, type Documento } from "./documento";
+import { TOKEN_BLOCO, trechoLegivel, ancoraDoBloco, CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarBloco, normalizarContexto, normalizarTrecho, OCORRENCIAS_MAX, segmentosDeDestaque, textoPlano, TRECHO_MAX } from "./ancora";
 
 const doc: Documento = {
   type: "doc",
@@ -16,7 +16,8 @@ const doc: Documento = {
 describe("textoPlano: o texto corrido em que a âncora vive", () => {
   it("blocos de texto não vazios, na ordem do documento, separados por \\n", () => {
     const p = textoPlano(doc);
-    expect(p.texto).toBe("Escopo\nSite com loja\nitem");
+    // Os blocos móveis entram por um caractere reservado; sem bloco posicionado, os dois ficam no fim (GAB-100).
+    expect(p.texto).toBe("Escopo\nSite com loja\nitem\n\uE001\n\uE002");
     expect(p.inicios.get(doc.content[0])).toBe(0);
     expect(p.inicios.get(doc.content[1])).toBe(7);
     expect(p.inicios.has(doc.content[2])).toBe(false); // parágrafo vazio não conta
@@ -105,5 +106,62 @@ describe("normalização igual à do Markdown canônico", () => {
     const t = "ab ".repeat(OCORRENCIAS_MAX + 50) + "ab FIM";
     // A ocorrência certa (antes de FIM) passa do teto: fica a melhor entre as examinadas, sem travar.
     expect(localizarAncora(t, { trecho: "ab", antes: "", depois: " FIM" })).not.toBeNull();
+  });
+});
+
+describe("âncora e blocos móveis (GAB-100)", () => {
+  const p = (text: string) => ({ type: "paragraph" as const, content: [{ type: "text" as const, text }] });
+  const b = (tipo: "cronograma" | "investimento") => ({ type: "blocoDados" as const, attrs: { tipo } });
+
+  it("o bloco entra pelo caractere reservado, na posição dele; proposta antiga tem os dois no fim", () => {
+    expect(textoPlano({ type: "doc", content: [p("A"), b("cronograma"), p("B")] }).texto).toBe("A\n\uE001\nB");
+    expect(textoPlano({ type: "doc", content: [p("A")] }).texto).toBe("A\n\uE001\n\uE002");
+    expect(textoPlano({ type: "doc", content: [p("A"), { type: "semBlocos" }] }).texto).toBe("A");
+  });
+
+  it("mesmo texto plano para o servidor (normalizado, sem os blocos do fim) e o editor (com os blocos explícitos)", () => {
+    const editor: Documento = { type: "doc", content: [p("A"), b("cronograma"), b("investimento"), { type: "paragraph" }] };
+    const servidor = normalizarDocumento(editor);
+    expect(servidor.content).toEqual([p("A")]);
+    expect(textoPlano(servidor).texto).toBe(textoPlano(normalizarDocumento(editor)).texto);
+    expect(textoPlano(servidor).texto).toBe("A\n\uE001\n\uE002");
+  });
+
+  it("ancoraDoBloco: acha o bloco, nunca um título igual no texto; bloco fora da folha fica alterado; o texto nunca cai no bloco", () => {
+    const d: Documento = { type: "doc", content: [p("Cronograma"), p("meio"), b("cronograma"), p("fim")] };
+    const a = ancoraDoBloco(d, "cronograma")!;
+    expect(trechoLegivel(a.trecho)).toBe("Cronograma");
+    const plano = textoPlano(d).texto;
+    expect(localizarAncora(plano, a)?.inicio).toBe(plano.indexOf(a.trecho));
+    expect(ancoraDoBloco(d, "investimento")).toBeNull();
+    const semBloco = textoPlano({ type: "doc", content: [p("Cronograma"), p("meio"), { type: "semBlocos" }] }).texto;
+    expect(localizarAncora(semBloco, a)).toBeNull();
+    // Citar a palavra no texto, com o título apagado e o bloco na folha: alterado, não migra para o bloco.
+    const citado = { trecho: "Cronograma", antes: "", depois: "" };
+    expect(localizarAncora(textoPlano({ type: "doc", content: [p("meio"), b("cronograma")] }).texto, citado)).toBeNull();
+  });
+
+  it("trecho que atravessa um bloco continua achado se o bloco sair ou mudar de lugar; o do próprio bloco, não", () => {
+    const com = textoPlano({ type: "doc", content: [p("Um."), b("cronograma"), p("Dois."), { type: "semBlocos" }] }).texto;
+    const a = criarAncora(com, 0, com.length)!;
+    expect(a.trecho).toContain(TOKEN_BLOCO.cronograma);
+    const sem = textoPlano({ type: "doc", content: [p("Um."), p("Dois."), { type: "semBlocos" }] }).texto;
+    expect(localizarAncora(sem, a)).toEqual({ inicio: 0, fim: sem.length });
+    const trecho = { trecho: "Um.\nDois.", antes: "", depois: "" };
+    const f = localizarAncora(com, trecho)!;
+    expect(com.slice(f.inicio, f.fim)).toBe(com);
+    expect(localizarAncora(sem, { trecho: TOKEN_BLOCO.cronograma, antes: "", depois: "" })).toBeNull();
+  });
+
+  it("caractere reservado colado no texto é retirado na normalização", () => {
+    expect(normalizarDocumento({ type: "doc", content: [p("a\uE001b\uE002c")] }).content).toEqual([p("abc")]);
+  });
+
+  it("mover o bloco não deixa alterado o comentário de quem cita o texto em volta", () => {
+    const antes: Documento = { type: "doc", content: [p("Trecho comentado."), p("Outro.")] };
+    const texto = textoPlano(antes).texto;
+    const a = criarAncora(texto, 0, 17)!;
+    const depois = textoPlano({ type: "doc", content: [p("Trecho comentado."), b("cronograma"), p("Outro.")] }).texto;
+    expect(localizarAncora(depois, a)).not.toBeNull();
   });
 });

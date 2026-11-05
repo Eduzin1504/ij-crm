@@ -51,7 +51,7 @@ function Campos({ c }: { c: CamposSugeridos }) {
     [ROTULO_CAMPO_SUGESTAO.valor, c.valor ? `R$ ${c.valor}` : null],
     [ROTULO_CAMPO_SUGESTAO.prazoDias, c.prazoDias],
     [ROTULO_CAMPO_SUGESTAO.escopoResumo, c.escopoResumo],
-    [ROTULO_CAMPO_SUGESTAO.entregas, c.entregas ? c.entregas.map((e) => `${e.titulo} (${e.dia}${e.valor ? `, R$ ${e.valor}` : ""})`).join("; ") : null],
+    [ROTULO_CAMPO_SUGESTAO.entregas, c.entregas ? c.entregas.map((e) => `${e.titulo} (${e.dia || e.duracao}${e.valor ? `, R$ ${e.valor}` : ""})`).join("; ") : null],
   ];
   return (
     <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[10rem_1fr]">
@@ -216,7 +216,7 @@ export function PreencherDeArquivo({
               <DocumentoView documento={sugestao.documento} />
             </div>
           </div>
-          <p className="text-xs text-warn">Aplicar substitui o texto atual do rascunho (salve uma versão antes se quiser guardar o atual). Dados em branco acima ficam como estão.</p>
+          <p className="text-xs text-warn">Aplicar substitui o texto atual do rascunho (salve uma versão antes se quiser guardar o atual). Dados em branco acima ficam como estão. Os blocos Cronograma e Investimento que estão na folha continuam nela, no fim do texto novo.</p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setSugestao(null)}>
               Descartar

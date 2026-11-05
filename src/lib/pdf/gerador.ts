@@ -14,7 +14,7 @@
  * glifo vazio: o PDF nunca sai com buraco silencioso.
  */
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { beginText, endText, moveText, PDFDocument, popGraphicsState, pushGraphicsState, rgb, setFillingColor, setFontAndSize, showText, type PDFFont, type PDFHexString, type PDFImage, type PDFName, type PDFOperator, type PDFPage } from "pdf-lib";
 import type { BlocoPdf, ContextoPagina, Cor, DocumentoPdf, EstiloTexto, Pincel, TemplatePdf, Trecho } from "./tipos";
 
 /**
@@ -26,7 +26,10 @@ import type { BlocoPdf, ContextoPagina, Cor, DocumentoPdf, EstiloTexto, Pincel, 
  */
 const SEM_LAYOUT = { calt: false, liga: false, clig: false, kern: false, ccmp: false, locl: false, mark: false, mkmk: false, rlig: false, dlig: false } as const;
 
-type Fontes = { regular: PDFFont; negrito: PDFFont; italico: PDFFont; negritoItalico: PDFFont };
+const PAD_TABELA_V = 4;
+const PAD_TABELA_H = 5;
+
+type Fontes = { regular: PDFFont; negrito: PDFFont; italico: PDFFont; negritoItalico: PDFFont; capa?: { regular: PDFFont; negrito: PDFFont } };
 
 const cor = (c: Cor) => rgb(c.r, c.g, c.b);
 
@@ -69,8 +72,11 @@ function medir(fonte: PDFFont, texto: string, tamanho: number): number {
 
 type Palavra = { texto: string; fonte: PDFFont; largura: number; espaco: number };
 
-/** Quebra os trechos em linhas de até `max` pontos (palavra maior que a linha é partida). */
-function quebrarLinhas(trechos: Trecho[], estilo: EstiloTexto, f: Fontes, limpar: (t: string) => string, max: number): Palavra[][] {
+/**
+ * Quebra os trechos em linhas de até `max` pontos (palavra maior que a linha é
+ * partida). `recuoPrimeira`: a primeira linha tem esse tanto a menos.
+ */
+function quebrarLinhas(trechos: Trecho[], estilo: EstiloTexto, f: Fontes, limpar: (t: string) => string, max: number, recuoPrimeira = 0): Palavra[][] {
   const palavras: Palavra[] = [];
   for (const t of trechos) {
     const fonte = fonteDe(f, t.negrito ?? estilo.negrito, t.italico);
@@ -92,7 +98,9 @@ function quebrarLinhas(trechos: Trecho[], estilo: EstiloTexto, f: Fontes, limpar
     const pedacos = p.largura > max ? partirPalavra(p, estilo.tamanho, max) : [p];
     for (const q of pedacos) {
       const antes = atual.length ? atual[atual.length - 1].espaco : 0;
-      if (atual.length && larg + antes + q.largura > max) {
+      const limite = linhas.length === 0 ? max - recuoPrimeira : max;
+      // Palavra que só cabe sem o recuo: a primeira linha fica vazia e ela desce (linhas.length passa a 1).
+      if (larg + antes + q.largura > limite && (atual.length || linhas.length === 0)) {
         linhas.push(atual);
         atual = [];
         larg = 0;
@@ -121,6 +129,58 @@ function agrupar(linha: Palavra[]): { texto: string; fonte: PDFFont; largura: nu
     } else grupos.push({ texto: p.texto + espaco, fonte: p.fonte, largura: p.largura + p.espaco });
   }
   return grupos;
+}
+
+/** Texto já codificado para a fonte, por palavra: é o que evita o layout do fontkit a cada palavra justificada. */
+const codificados = new WeakMap<PDFFont, Map<string, PDFHexString>>();
+function codificar(fonte: PDFFont, texto: string): PDFHexString {
+  let cache = codificados.get(fonte);
+  if (!cache) codificados.set(fonte, (cache = new Map()));
+  let hex = cache.get(texto);
+  if (!hex) cache.set(texto, (hex = fonte.encodeText(texto)));
+  return hex;
+}
+
+/** Chave da fonte nos recursos da página: uma entrada por fonte e página basta. */
+const chavesDeFonte = new WeakMap<PDFPage, Map<PDFFont, PDFName>>();
+function chaveDaFonte(pagina: PDFPage, fonte: PDFFont): PDFName {
+  let cache = chavesDeFonte.get(pagina);
+  if (!cache) chavesDeFonte.set(pagina, (cache = new Map()));
+  let chave = cache.get(fonte);
+  if (!chave) {
+    chave = pagina.node.newFontDictionary(fonte.name, fonte.ref);
+    cache.set(fonte, chave);
+  }
+  return chave;
+}
+
+/**
+ * Linha justificada: o espaço que sobra entra só nos vãos entre palavras. O operador
+ * de espaçamento do PDF não vale para fonte embutida em 2 bytes, então cada palavra
+ * é posicionada, num bloco de texto só e com a codificação guardada.
+ * false = não há vão (uma palavra só, ou vãos largos demais): quem chamou desenha normal.
+ */
+function desenharJustificada(pagina: PDFPage, linha: Palavra[], x: number, y: number, largura: number, tamanho: number, tinta: Cor): boolean {
+  const vaos = linha.slice(0, -1).filter((p) => p.espaco > 0).length;
+  if (vaos === 0) return false;
+  const natural = linha.reduce((s, p, i) => s + p.largura + (i < linha.length - 1 ? p.espaco : 0), 0);
+  const extra = (largura - natural) / vaos;
+  if (extra < 0 || extra > tamanho * 2.5) return false;
+  const ops: PDFOperator[] = [pushGraphicsState(), beginText(), setFillingColor(cor(tinta)), moveText(x, y)];
+  let fonteAtual: PDFFont | null = null;
+  linha.forEach((p, i) => {
+    if (p.fonte !== fonteAtual) {
+      ops.push(setFontAndSize(chaveDaFonte(pagina, p.fonte), tamanho));
+      fonteAtual = p.fonte;
+    }
+    const ultima = i === linha.length - 1;
+    // O espaço vai junto da palavra (não aparece, mas o texto copiado do PDF fica com ele).
+    ops.push(showText(codificar(p.fonte, p.espaco > 0 && !ultima ? `${p.texto} ` : p.texto)));
+    if (!ultima) ops.push(moveText(p.largura + p.espaco + (p.espaco > 0 ? extra : 0), 0));
+  });
+  ops.push(endText(), popGraphicsState());
+  pagina.pushOperators(...ops);
+  return true;
 }
 
 function partirPalavra(p: Palavra, tamanho: number, max: number): Palavra[] {
@@ -152,6 +212,12 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
     italico: await pdf.embedFont(bytes.italico, { subset: true, features: SEM_LAYOUT }),
     negritoItalico: await pdf.embedFont(bytes.negritoItalico, { subset: true, features: SEM_LAYOUT }),
   };
+  const comCapa = Boolean(doc.capa && template.capa);
+  if (comCapa && bytes.capa) f.capa = { regular: await pdf.embedFont(bytes.capa.regular, { subset: true, features: SEM_LAYOUT }), negrito: await pdf.embedFont(bytes.capa.negrito, { subset: true, features: SEM_LAYOUT }) };
+  const imagens = new Map<string, PDFImage>();
+  for (const [nome, png] of Object.entries((await template.imagens?.()) ?? {})) {
+    if (nome !== "capa" || comCapa) imagens.set(nome, await pdf.embedPng(png));
+  }
   const suportados = new Set(f.regular.getCharacterSet());
   const limpar = (t: string) => limparTexto(t, suportados);
 
@@ -168,6 +234,7 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   const { largura: W, altura: H, margem } = template.pagina;
   const larguraUtil = W - margem.esquerda - margem.direita;
   const est = template.estilos;
+  if (comCapa) pdf.addPage([W, H]);
   let pagina: PDFPage = pdf.addPage([W, H]);
   let y = H - margem.topo;
 
@@ -180,25 +247,33 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
     if (y - altura < margem.base) novaPagina();
   };
 
-  const desenharLinhas = (linhas: Palavra[][], estilo: EstiloTexto, x: number) => {
+  const larguraDaLinha = (l: Palavra[]) => l.reduce((s, p, i) => s + p.largura + (i < l.length - 1 ? p.espaco : 0), 0);
+
+  const desenharLinhas = (linhas: Palavra[][], estilo: EstiloTexto, x: number, largura = larguraUtil - (x - margem.esquerda), recuoPrimeira = 0) => {
     const alturaLinha = estilo.tamanho * estilo.entrelinha;
-    for (const linha of linhas) {
+    const base = (alturaLinha - estilo.tamanho) / 2;
+    linhas.forEach((linha, i) => {
       caber(alturaLinha);
       y -= alturaLinha;
-      let cx = x;
+      const recuo = i === 0 ? recuoPrimeira : 0;
+      if (estilo.alinhar === "justificado" && i < linhas.length - 1 && desenharJustificada(pagina, linha, x + recuo, y + base, largura - recuo, estilo.tamanho, estilo.cor)) return;
+      let cx = estilo.alinhar === "centro" ? x + (largura - larguraDaLinha(linha)) / 2 : x + recuo;
       for (const g of agrupar(linha)) {
-        pagina.drawText(g.texto, { x: cx, y: y + (alturaLinha - estilo.tamanho) / 2, size: estilo.tamanho, font: g.fonte, color: cor(estilo.cor) });
+        pagina.drawText(g.texto, { x: cx, y: y + base, size: estilo.tamanho, font: g.fonte, color: cor(estilo.cor) });
         cx += g.largura;
       }
-    }
+    });
   };
 
-  const textoCorrido = (trechos: Trecho[], estilo: EstiloTexto, x: number, largura: number, primeiro: boolean) => {
-    const linhas = quebrarLinhas(trechos, estilo, f, limpar, largura);
+  const textoCorrido = (trechos: Trecho[], estilo: EstiloTexto, xBase: number, larguraBase: number, primeiro: boolean, semRecuo = false, reservaDepois = 0) => {
+    const x = xBase + (estilo.recuo ?? 0);
+    const largura = larguraBase - (estilo.recuo ?? 0);
+    const recuoPrimeira = semRecuo ? 0 : (estilo.recuoPrimeira ?? 0);
+    const linhas = quebrarLinhas(trechos, estilo, f, limpar, largura, recuoPrimeira);
     if (!primeiro) y -= estilo.antes;
     // Título nunca fica sozinho no pé da página: leva junto o começo do que vem depois.
-    if (estilo !== est.texto && estilo !== est.rotulo) caber(estilo.tamanho * estilo.entrelinha * linhas.length + est.texto.tamanho * est.texto.entrelinha * 2);
-    desenharLinhas(linhas, estilo, x);
+    if (estilo !== est.texto && estilo !== est.rotulo) caber(estilo.tamanho * estilo.entrelinha * linhas.length + estilo.depois + reservaDepois);
+    desenharLinhas(linhas, estilo, x, largura, recuoPrimeira);
     y -= estilo.depois;
   };
 
@@ -209,14 +284,40 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   const nAbertura = blocos.length;
   blocos.push(...doc.blocos);
 
+  const estiloDoTitulo = (nivel: 1 | 2 | 3) => (nivel === 1 ? est.titulo1 : nivel === 2 ? est.titulo2 : est.titulo3);
+  const alturaDaLinhaDeTabela = (b: Extract<BlocoPdf, { tipo: "tabela" }>, textos: string[], negrito: boolean) =>
+    Math.max(1, ...textos.map((t, i) => quebrarLinhas([{ texto: t, negrito }], est.tabela, f, limpar, b.colunas[i].largura * larguraUtil - PAD_TABELA_H * 2).length)) * est.tabela.tamanho * est.tabela.entrelinha + PAD_TABELA_V * 2;
+
+  /** Altura real do começo do bloco `i`, para o título que vem antes não ficar órfão. Título seguido de título soma os dois. */
+  const alturaDoComeco = (i: number): number => {
+    const b = blocos[i];
+    const linhaDeTexto = est.texto.tamanho * est.texto.entrelinha;
+    switch (b?.tipo) {
+      case undefined:
+        return 0;
+      case "titulo": {
+        const e = estiloDoTitulo(b.nivel);
+        const largura = larguraUtil - (e.recuo ?? 0);
+        return e.antes + quebrarLinhas(b.trechos, e, f, limpar, largura).length * e.tamanho * e.entrelinha + e.depois + alturaDoComeco(i + 1);
+      }
+      case "tabela":
+        return est.tabela.antes + alturaDaLinhaDeTabela(b, b.colunas.map((c) => c.titulo), true) + alturaDaLinhaDeTabela(b, b.linhas[0] ?? b.total ?? [], !b.linhas[0]);
+      case "paragrafo":
+      case "campos":
+        return est.texto.antes + linhaDeTexto * 2;
+      default:
+        return linhaDeTexto * 2;
+    }
+  };
+
   blocos.forEach((b, i) => {
     const primeiro = i === 0;
     switch (b.tipo) {
       case "titulo":
-        textoCorrido(b.trechos, b.nivel === 1 ? est.titulo1 : b.nivel === 2 ? est.titulo2 : est.titulo3, margem.esquerda, larguraUtil, primeiro);
+        textoCorrido(b.trechos, estiloDoTitulo(b.nivel), margem.esquerda, larguraUtil, primeiro, false, alturaDoComeco(i + 1));
         break;
       case "paragrafo":
-        textoCorrido(b.trechos, i < nAbertura ? est.rotulo : est.texto, margem.esquerda, larguraUtil, primeiro);
+        textoCorrido(b.trechos, i < nAbertura ? est.rotulo : est.texto, margem.esquerda, larguraUtil, primeiro, b.semRecuo);
         break;
       case "item": {
         const recuo = est.recuoLista * (b.nivel + 1);
@@ -262,56 +363,64 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
 
   function desenharTabela(b: Extract<BlocoPdf, { tipo: "tabela" }>) {
     const e = est.tabela;
+    const c = est.tabelaCores;
     const alturaLinha = e.tamanho * e.entrelinha;
-    const pad = 4;
+    const padV = PAD_TABELA_V;
+    const padH = PAD_TABELA_H;
     const xs: number[] = [];
     let acc = margem.esquerda;
-    for (const c of b.colunas) {
+    for (const col of b.colunas) {
       xs.push(acc);
-      acc += c.largura * larguraUtil;
+      acc += col.largura * larguraUtil;
     }
-    const celulas = (textos: string[], negrito: boolean) =>
-      textos.map((t, i) => quebrarLinhas([{ texto: t, negrito }], e, f, limpar, b.colunas[i].largura * larguraUtil - pad * 2));
-    const linhaDaTabela = (cs: Palavra[][][], fundo: Cor | null) => {
-      const altura = Math.max(1, ...cs.map((c) => c.length)) * alturaLinha + pad;
+    const celulas = (textos: string[], negrito: boolean) => textos.map((t, i) => quebrarLinhas([{ texto: t, negrito }], e, f, limpar, b.colunas[i].largura * larguraUtil - padH * 2));
+    const alturaDe = (cs: Palavra[][][]) => Math.max(1, ...cs.map((l) => l.length)) * alturaLinha + padV * 2;
+    const linhaDaTabela = (cs: Palavra[][][], fundo: Cor | null, tinta: Cor) => {
+      const altura = alturaDe(cs);
       caber(altura);
-      if (fundo) pagina.drawRectangle({ x: margem.esquerda, y: y - altura, width: larguraUtil, height: altura, color: cor(fundo) });
+      pagina.drawRectangle({ x: margem.esquerda, y: y - altura, width: larguraUtil, height: altura, color: fundo ? cor(fundo) : undefined, borderColor: cor(c.borda), borderWidth: 0.6 });
+      for (const x of xs.slice(1)) pagina.drawLine({ start: { x, y }, end: { x, y: y - altura }, thickness: 0.6, color: cor(c.borda) });
       cs.forEach((linhas, i) => {
-        let cy = y - pad / 2;
+        const col = b.colunas[i];
+        const largCol = col.largura * larguraUtil;
+        let cy = y - padV;
         for (const l of linhas) {
           cy -= alturaLinha;
-          const largTexto = l.reduce((s, p, j) => s + p.largura + (j < l.length - 1 ? p.espaco : 0), 0);
-          let cx = b.colunas[i].alinhar === "direita" ? xs[i] + b.colunas[i].largura * larguraUtil - pad - largTexto : xs[i] + pad;
+          const largTexto = larguraDaLinha(l);
+          let cx = col.alinhar === "direita" ? xs[i] + largCol - padH - largTexto : col.alinhar === "centro" ? xs[i] + (largCol - largTexto) / 2 : xs[i] + padH;
           for (const g of agrupar(l)) {
-            pagina.drawText(g.texto, { x: cx, y: cy + (alturaLinha - e.tamanho) / 2, size: e.tamanho, font: g.fonte, color: cor(e.cor) });
+            pagina.drawText(g.texto, { x: cx, y: cy + (alturaLinha - e.tamanho) / 2, size: e.tamanho, font: g.fonte, color: cor(tinta) });
             cx += g.largura;
           }
         }
       });
       y -= altura;
-      pagina.drawLine({ start: { x: margem.esquerda, y }, end: { x: W - margem.direita, y }, thickness: 0.4, color: cor(est.corLinha) });
     };
     y -= e.antes;
-    const cabecalho = celulas(b.colunas.map((c) => c.titulo), true);
-    caber(alturaLinha * 2 + pad * 2);
-    linhaDaTabela(cabecalho, { r: 0.95, g: 0.95, b: 0.95 });
-    for (const l of b.linhas) {
-      const cs = celulas(l, false);
-      const altura = Math.max(1, ...cs.map((c) => c.length)) * alturaLinha + pad;
-      if (y - altura < margem.base) {
+    const cabecalho = celulas(b.colunas.map((col) => col.titulo), true);
+    const desenharCabecalho = () => linhaDaTabela(cabecalho, c.cabecalho, c.textoCabecalho);
+    const primeira = b.linhas[0] ? celulas(b.linhas[0], false) : null;
+    // Cabeçalho nunca fica sozinho no pé da página.
+    caber(alturaDe(cabecalho) + (primeira ? alturaDe(primeira) : 0));
+    desenharCabecalho();
+    const corpo = (cs: Palavra[][][], fundo: Cor | null) => {
+      if (y - alturaDe(cs) < margem.base) {
         novaPagina();
-        linhaDaTabela(cabecalho, { r: 0.95, g: 0.95, b: 0.95 });
+        desenharCabecalho();
       }
-      linhaDaTabela(cs, null);
-    }
+      linhaDaTabela(cs, fundo, e.cor);
+    };
+    for (const l of b.linhas) corpo(celulas(l, false), null);
+    if (b.total) corpo(celulas(b.total, true), c.total);
     y -= e.depois;
   }
 
   // Cabeçalho e rodapé por último: o total de páginas já é conhecido.
   const paginas = pdf.getPages();
   paginas.forEach((pg, i) => {
-    const ctx: ContextoPagina = { pagina: i + 1, total: paginas.length, largura: W, altura: H, titulo: doc.titulo };
-    const pincel = pincelDe(pg, f, limpar, est.texto.cor);
+    const ctx: ContextoPagina = { pagina: i + 1, total: paginas.length, largura: W, altura: H, titulo: doc.titulo, marca: doc.marca };
+    const pincel = pincelDe(pg, f, limpar, est.texto.cor, imagens);
+    if (comCapa && i === 0) return template.capa!(pincel, ctx, doc.capa!);
     template.cabecalho?.(pincel, ctx);
     template.rodape?.(pincel, ctx);
   });
@@ -319,12 +428,14 @@ export async function gerarPdf(doc: DocumentoPdf, template: TemplatePdf, opts: {
   return pdf.save();
 }
 
-function pincelDe(pg: PDFPage, f: Fontes, limpar: (t: string) => string, padrao: Cor): Pincel {
+function pincelDe(pg: PDFPage, f: Fontes, limpar: (t: string) => string, padrao: Cor, imagens: ReadonlyMap<string, PDFImage>): Pincel {
+  const fonteDoTexto = (o: { negrito?: boolean; italico?: boolean; familia?: "capa" }) => (o.familia === "capa" && f.capa ? (o.negrito ? f.capa.negrito : f.capa.regular) : fonteDe(f, o.negrito, o.italico));
+  const limparPara = (t: string, fonte: PDFFont) => (fonte === f.capa?.regular || fonte === f.capa?.negrito ? limparTexto(t, new Set(fonte.getCharacterSet())) : limpar(t));
   return {
     texto(t, x, y, o = {}) {
       const tamanho = o.tamanho ?? 9;
-      const fonte = fonteDe(f, o.negrito, o.italico);
-      const s = limpar(t);
+      const fonte = fonteDoTexto(o);
+      const s = limparPara(t, fonte);
       const l = medir(fonte, s, tamanho);
       const x0 = o.alinhar === "direita" ? x - l : o.alinhar === "centro" ? x - l / 2 : x;
       pg.drawText(s, { x: x0, y, size: tamanho, font: fonte, color: cor(o.cor ?? padrao) });
@@ -335,8 +446,13 @@ function pincelDe(pg: PDFPage, f: Fontes, limpar: (t: string) => string, padrao:
     retangulo(x, y, largura, altura, c) {
       pg.drawRectangle({ x, y, width: largura, height: altura, color: cor(c) });
     },
-    larguraDe(t, tamanho, negrito) {
-      return medir(fonteDe(f, negrito), limpar(t), tamanho);
+    larguraDe(t, tamanho, negrito, familia) {
+      const fonte = fonteDoTexto({ negrito, familia });
+      return medir(fonte, limparPara(t, fonte), tamanho);
+    },
+    imagem(nome, x, y, largura, altura) {
+      const img = imagens.get(nome);
+      if (img) pg.drawImage(img, { x, y, width: largura, height: altura });
     },
   };
 }

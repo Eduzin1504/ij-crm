@@ -216,7 +216,7 @@ export async function obterCronograma(projetoId: string, agora = new Date()): Pr
     }),
     checkins: card.checkins.map((c) => ({ id: c.id, status: c.status, motivo: c.motivo, semana: colunaParaDia(c.semana), por: c.por.nome, em: c.em })),
     checkinNaSemana: card.checkins.some((c) => colunaParaDia(c.semana) === semana),
-    copiaveis: final ? separarCopiaveis(final.entregas).validas.length : 0,
+    copiaveis: final ? separarCopiaveis(final.entregas, hoje).validas.length : 0,
   };
 }
 

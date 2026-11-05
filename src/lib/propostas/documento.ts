@@ -3,7 +3,8 @@
  * de formatação que o editor permite e que o Markdown representa sem perda:
  *
  *   parágrafo · título (níveis 1–3) · negrito · itálico ·
- *   lista com marcadores · lista numerada (aninháveis) · linha horizontal
+ *   lista com marcadores · lista numerada (aninháveis) · linha horizontal ·
+ *   blocos móveis "Cronograma" e "Investimento" (GAB-100, ver abaixo)
  *
  * Nada de link, imagem, HTML, tabela, código ou quebra de linha simples: o
  * editor (Tiptap) só carrega essas extensões e o Markdown que chega pelo MCP
@@ -15,6 +16,19 @@
  * conversão: `md → doc → md` e `doc → md → doc` dão o mesmo resultado.
  *
  * Puro e sem dependências de servidor: roda no editor (cliente) e no serviço.
+ *
+ * Blocos móveis (GAB-100, spec proposta-folha §5): `blocoDados` é só o LUGAR onde
+ * a parte estruturada aparece na folha e no PDF; os dados continuam no `estruturado`.
+ * Um de cada, só no nível de cima do documento. Há duas formas do mesmo documento:
+ *
+ * - NORMALIZADA (a gravada, ponto fixo do Markdown): os dois blocos no fim, nessa
+ *   ordem, são a posição padrão e não se escrevem. Assim proposta antiga, que não
+ *   tem bloco, continua com o mesmo Markdown e mostra os dois no fim; abrir ou salvar
+ *   sem mover nada não vira mudança de versão. Sem nenhum bloco por decisão de
+ *   alguém, sobra o marcador `semBlocos`, que é o que distingue "tirei os dois" de
+ *   "proposta antiga".
+ * - DE EXIBIÇÃO (`documentoComBlocos`): blocos explícitos e sem marcador. É o que a
+ *   folha, o PDF, o editor e o texto plano da âncora usam.
  */
 import { z } from "zod";
 
@@ -29,7 +43,12 @@ export type LinhaHorizontal = { type: "horizontalRule" };
 export type ItemLista = { type: "listItem"; content: Bloco[] };
 export type ListaMarcadores = { type: "bulletList"; content: ItemLista[] };
 export type ListaNumerada = { type: "orderedList"; attrs: { start: number }; content: ItemLista[] };
-export type Bloco = Paragrafo | Titulo | LinhaHorizontal | ListaMarcadores | ListaNumerada;
+export const TIPOS_BLOCO_DADOS = ["cronograma", "investimento"] as const;
+export type TipoBlocoDados = (typeof TIPOS_BLOCO_DADOS)[number];
+export type BlocoDados = { type: "blocoDados"; attrs: { tipo: TipoBlocoDados } };
+/** Os dois blocos foram tirados da folha de propósito (só existe na forma normalizada). */
+export type SemBlocos = { type: "semBlocos" };
+export type Bloco = Paragrafo | Titulo | LinhaHorizontal | ListaMarcadores | ListaNumerada | BlocoDados | SemBlocos;
 export type Documento = { type: "doc"; content: Bloco[] };
 
 export const DOCUMENTO_VAZIO: Documento = { type: "doc", content: [] };
@@ -57,6 +76,8 @@ const blocoEntrada: z.ZodType<BlocoEntrada> = z.lazy(() =>
       .object({ type: z.literal("heading"), attrs: z.object({ level: z.number().int().min(1).max(6) }).passthrough(), content: z.array(textoEntrada).optional() })
       .passthrough(),
     z.object({ type: z.literal("horizontalRule") }).passthrough(),
+    z.object({ type: z.literal("blocoDados"), attrs: z.object({ tipo: z.enum(TIPOS_BLOCO_DADOS) }).passthrough() }).passthrough(),
+    z.object({ type: z.literal("semBlocos") }).passthrough(),
     z.object({ type: z.literal("bulletList"), content: z.array(itemEntrada).optional() }).passthrough(),
     z
       .object({
@@ -213,7 +234,7 @@ function paraLetras(content: NoTexto[] | undefined): Letra[] {
     if (n.type !== "text" || typeof n.text !== "string") continue;
     const marcas = new Set((n.marks ?? []).map((m) => m.type));
     // Sem quebra de linha nem caracteres de controle dentro do texto (o editor não tem "hard break").
-    const texto = n.text.replace(/\r\n?|\n/g, " ").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+    const texto = n.text.replace(/\r\n?|\n/g, " ").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""); // U+E001 e U+E002: reservados à âncora dos blocos
     for (const c of texto) letras.push({ c: c === "\t" ? " " : c, bold: marcas.has("bold"), italic: marcas.has("italic") });
   }
   return letras;
@@ -252,7 +273,8 @@ export function normalizarInline(content: NoTexto[] | undefined): NoTexto[] {
 function normalizarItens(itens: unknown[] | undefined): ItemLista[] {
   const saida: ItemLista[] = [];
   for (const it of itens ?? []) {
-    const blocos = normalizarBlocos((it as BlocoEntrada).content as Bloco[] | undefined);
+    // Bloco de dados só existe no nível de cima: dentro de item de lista não é do subconjunto.
+    const blocos = normalizarBlocos(((it as BlocoEntrada).content as Bloco[] | undefined)?.filter((b) => b.type !== "blocoDados" && b.type !== "semBlocos"));
     if (blocos.length === 0) continue;
     // Tiptap: item começa SEMPRE por parágrafo (mesmo vazio, quando só tem sublista).
     if (blocos[0].type !== "paragraph") blocos.unshift({ type: "paragraph" });
@@ -285,6 +307,12 @@ function normalizarBlocos(blocos: Bloco[] | undefined): Bloco[] {
       case "horizontalRule":
         novo = { type: "horizontalRule" };
         break;
+      case "blocoDados":
+        novo = { type: "blocoDados", attrs: { tipo: (b as BlocoDados).attrs.tipo } };
+        break;
+      case "semBlocos":
+        novo = { type: "semBlocos" };
+        break;
       case "bulletList": {
         const content = normalizarItens(b.content);
         novo = content.length ? { type: "bulletList", content } : null;
@@ -310,7 +338,64 @@ function normalizarBlocos(blocos: Bloco[] | undefined): Bloco[] {
 }
 
 export function normalizarDocumento(doc: Documento): Documento {
-  return { type: "doc", content: normalizarBlocos(doc.content) };
+  // Um de cada (vale o primeiro). Tirar duplicado e marcador ANTES: duas listas que ficam vizinhas se unem.
+  const vistos = new Set<TipoBlocoDados>();
+  const entrada = (doc.content ?? []).filter((b) => {
+    if (b.type !== "blocoDados") return b.type !== "semBlocos";
+    if (vistos.has(b.attrs.tipo)) return false;
+    vistos.add(b.attrs.tipo);
+    return true;
+  });
+  const content = normalizarBlocos(entrada);
+  if (vistos.size === 0) {
+    if ((doc.content ?? []).some((b) => b.type === "semBlocos")) content.push({ type: "semBlocos" });
+  } else if (blocosNaPosicaoPadrao(content)) {
+    content.length -= TIPOS_BLOCO_DADOS.length;
+  }
+  return { type: "doc", content };
+}
+
+/** Os dois blocos, um só de cada, são os últimos do documento e estão na ordem padrão. */
+function blocosNaPosicaoPadrao(content: readonly Bloco[]): boolean {
+  const fim = content.slice(-TIPOS_BLOCO_DADOS.length);
+  return fim.length === TIPOS_BLOCO_DADOS.length && fim.every((b, i) => b.type === "blocoDados" && b.attrs.tipo === TIPOS_BLOCO_DADOS[i]);
+}
+
+/** Objetos fixos: a identidade serve de chave nos mapas do texto plano (`ancora.ts`). */
+const BLOCOS_PADRAO: readonly BlocoDados[] = TIPOS_BLOCO_DADOS.map((tipo) => ({ type: "blocoDados", attrs: { tipo } }));
+
+/**
+ * Documento como aparece na folha e no PDF: os blocos em lugares explícitos e sem
+ * marcador. Sem bloco nenhum e sem marcador (proposta antiga, posição padrão), os
+ * dois vão para o fim. Os blocos que já existem mantêm a identidade dos objetos.
+ */
+export function documentoComBlocos(doc: Documento): Documento {
+  const content = doc.content.filter((b) => b.type !== "semBlocos");
+  const semMarcador = content.length === doc.content.length;
+  if (!semMarcador || content.some((b) => b.type === "blocoDados")) return { type: "doc", content };
+  return { type: "doc", content: [...content, ...BLOCOS_PADRAO] };
+}
+
+/** Documento para o editor: forma de exibição, sempre com onde pôr o cursor no começo. */
+export function documentoParaEditor(doc: Documento): Documento {
+  const d = documentoComBlocos(doc);
+  return d.content[0]?.type === "blocoDados" ? { type: "doc", content: [{ type: "paragraph" }, ...d.content] } : d;
+}
+
+/** O editor só tem os blocos que estão na folha: nenhum bloco nele quer dizer que foram tirados. */
+export function documentoDoEditor(doc: Documento): Documento {
+  return doc.content.some((b) => b.type === "blocoDados") ? doc : { type: "doc", content: [...doc.content, { type: "semBlocos" }] };
+}
+
+/**
+ * Texto novo inteiro (arquivo como base) sem mexer em quais blocos estão na folha: quem foi
+ * tirado continua fora, e os que estão ficam no fim, na ordem atual. A posição no meio do
+ * texto não sobrevive: o texto é outro.
+ */
+export function herdarBlocos(novo: Documento, atual: Documento): Documento {
+  const presentes = documentoComBlocos(normalizarDocumento(atual)).content.filter((b) => b.type === "blocoDados");
+  const texto = novo.content.filter((b) => b.type !== "blocoDados" && b.type !== "semBlocos");
+  return normalizarDocumento({ type: "doc", content: presentes.length ? [...texto, ...presentes] : [...texto, { type: "semBlocos" }] });
 }
 
 /** Texto corrido do documento (prévia, busca). */

@@ -106,7 +106,7 @@ export function interpretarLeitura(l: LeituraProposta): { campos: CamposSugerido
       }
       const v = dinheiro(i.valor);
       if (i.valor !== null && v === null) marcar("entregas", `entrega "${titulo}": valor em formato que não deu para usar`, i.valor, i.trecho);
-      boas.push({ titulo, dia, valor: v ?? "" });
+      boas.push({ titulo, dia, duracao: "", valor: v ?? "" });
     }
     entregas = boas.length > 0 ? boas.slice(0, ENTREGAS_MAX) : null;
   }

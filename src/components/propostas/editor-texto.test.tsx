@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { Editor } from "@tiptap/core";
+import { Fragment, Slice } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
-import { lerDocumento, type Documento } from "@/lib/propostas/documento";
+import { ancoraDoBloco, textoPlano } from "@/lib/propostas/ancora";
+import { documentoParaEditor, lerDocumento, type Documento } from "@/lib/propostas/documento";
+import { alternarBloco, blocosNoEditor } from "./bloco-dados-node";
+import { ancoraDaSelecao, planoDoEditor } from "./destaques-editor";
 import { DocumentoView } from "./documento-view";
 import { EXTENSOES, jsonDoEditor } from "./editor-texto";
 
@@ -46,7 +50,8 @@ describe("Tiptap com só as extensões do subconjunto", () => {
     };
     visitar(json);
     expect(protos.every((p) => p === Object.prototype)).toBe(true);
-    expect(lerDocumento(json)).toEqual(doc);
+    // Documento sem bloco no editor = os dois fora da folha, marcado (`documentoParaEditor` é quem os põe ao abrir).
+    expect(lerDocumento(json)).toEqual({ ...doc, content: [...doc.content, { type: "semBlocos" }] });
     e.destroy();
   });
 
@@ -76,5 +81,94 @@ describe("DocumentoView (leitura)", () => {
   it("vazio diz que não há texto", () => {
     render(<DocumentoView documento={{ type: "doc", content: [] }} />);
     expect(screen.getByText("Sem texto.")).toBeInTheDocument();
+  });
+});
+
+describe("blocos móveis no editor (GAB-100)", () => {
+  const texto = (t: string) => ({ type: "paragraph" as const, content: [{ type: "text" as const, text: t }] });
+  const bloco = (tipo: "cronograma" | "investimento") => ({ type: "blocoDados" as const, attrs: { tipo } });
+
+  it("bloco entra e sai do editor; o atributo vira objeto simples (server action descarta protótipo nulo)", () => {
+    const e = editorCom({ type: "doc", content: [texto("a"), bloco("cronograma"), texto("b")] });
+    const json = jsonDoEditor(e);
+    const no = json.content[1] as { attrs: object };
+    expect(Object.getPrototypeOf(no.attrs)).toBe(Object.prototype);
+    expect(lerDocumento(json)?.content.map((b) => b.type)).toEqual(["paragraph", "blocoDados", "paragraph"]);
+    e.destroy();
+  });
+
+  it("proposta antiga abre com os dois no fim e, sem mexer, continua com o mesmo Markdown", () => {
+    const antiga: Documento = { type: "doc", content: [texto("a")] };
+    const e = editorCom(documentoParaEditor(antiga));
+    expect(blocosNoEditor(e)).toEqual({ cronograma: true, investimento: true });
+    expect(lerDocumento(jsonDoEditor(e))).toEqual(antiga);
+    e.destroy();
+  });
+
+  it("sem nenhum bloco no editor os dois saíram da folha: fica marcado, e reabre sem eles", () => {
+    const e = editorCom(documentoParaEditor({ type: "doc", content: [texto("a")] }));
+    alternarBloco(e, "cronograma");
+    alternarBloco(e, "investimento");
+    const lido = lerDocumento(jsonDoEditor(e))!;
+    expect(lido.content.at(-1)).toEqual({ type: "semBlocos" });
+    const reaberto = editorCom(documentoParaEditor(lido));
+    expect(blocosNoEditor(reaberto)).toEqual({ cronograma: false, investimento: false });
+    e.destroy();
+    reaberto.destroy();
+  });
+
+  it("um de cada, mesmo colando outro igual", () => {
+    const e = editorCom({ type: "doc", content: [bloco("cronograma"), texto("a")] });
+    e.commands.insertContentAt(e.state.doc.content.size, bloco("cronograma"));
+    expect(lerDocumento(jsonDoEditor(e))?.content.filter((b) => b.type === "blocoDados")).toHaveLength(1);
+    e.destroy();
+  });
+
+  it("digitar com o bloco selecionado escreve depois dele, sem apagá-lo", () => {
+    const e = editorCom({ type: "doc", content: [texto("a"), bloco("cronograma")] });
+    e.commands.setNodeSelection(3);
+    const { view } = e;
+    const digitar = (t: string) => view.someProp("handleTextInput", (f) => f(view, view.state.selection.from, view.state.selection.to, t, () => view.state.tr));
+    expect(digitar("x")).toBe(true);
+    const lido = lerDocumento(jsonDoEditor(e))!;
+    expect(lido.content.map((b) => b.type)).toEqual(["paragraph", "blocoDados", "paragraph"]);
+    expect(lido.content[2]).toEqual(texto("x"));
+    e.destroy();
+  });
+
+  it("com parágrafo depois, digitar cria parágrafo próprio; colar também não substitui o bloco", () => {
+    const e = editorCom({ type: "doc", content: [texto("a"), bloco("cronograma"), texto("b")] });
+    const { view } = e;
+    e.commands.setNodeSelection(3);
+    view.someProp("handleTextInput", (f) => f(view, 3, 4, "x", () => view.state.tr));
+    expect(lerDocumento(jsonDoEditor(e))!.content).toEqual([texto("a"), bloco("cronograma"), texto("x"), texto("b")]);
+    e.commands.setNodeSelection(3);
+    const trecho = new Slice(Fragment.from(e.schema.nodes.paragraph.create(null, e.schema.text("colado"))), 1, 1);
+    view.someProp("handlePaste", (f) => f(view, new Event("paste") as ClipboardEvent, trecho));
+    expect(lerDocumento(jsonDoEditor(e))!.content).toEqual([texto("a"), bloco("cronograma"), texto("colado"), texto("x"), texto("b")]);
+    e.destroy();
+  });
+
+  it("colar bloco de tipo desconhecido não vira nó (o servidor recusaria o documento)", () => {
+    const e = editorCom('<div data-bloco-dados="lixo"></div><p>a</p>');
+    expect(blocosNoEditor(e)).toEqual({ cronograma: false, investimento: false });
+    expect(lerDocumento(jsonDoEditor(e))).not.toBeNull();
+    e.destroy();
+  });
+
+  it("bloco só no nível de cima: a lista não aceita (nem o esquema)", () => {
+    const e = editorCom({ type: "doc", content: [texto("a")] });
+    expect(e.schema.nodes.listItem.contentMatch.matchType(e.schema.nodes.blocoDados)).toBeFalsy();
+    expect(e.schema.nodes.doc.contentMatch.matchType(e.schema.nodes.blocoDados)).toBeTruthy();
+    e.destroy();
+  });
+
+  it("texto plano do editor bate com o do servidor, e a âncora do bloco é a mesma", () => {
+    const doc: Documento = { type: "doc", content: [texto("a"), bloco("investimento"), texto("b")] };
+    const e = editorCom(doc);
+    expect(planoDoEditor(e.state.doc).texto).toBe(textoPlano(doc).texto);
+    e.commands.setNodeSelection(3);
+    expect(ancoraDaSelecao(e.state)).toEqual(ancoraDoBloco(doc, "investimento"));
+    e.destroy();
   });
 });

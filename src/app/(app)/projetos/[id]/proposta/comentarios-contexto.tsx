@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { DocumentoView } from "@/components/propostas/documento-view";
 import type { EntradaDestaques } from "@/components/propostas/destaques-editor";
 import { ancoraDaSelecaoDom } from "@/components/propostas/selecao-dom";
-import { localizarAncora, textoPlano, type Ancora, type Destaque } from "@/lib/propostas/ancora";
-import { normalizarDocumento, type Documento } from "@/lib/propostas/documento";
+import { ancoraDoBloco, localizarAncora, textoPlano, type Ancora, type Destaque } from "@/lib/propostas/ancora";
+import { normalizarDocumento, type Documento, type TipoBlocoDados } from "@/lib/propostas/documento";
+import type { Estruturado } from "@/lib/propostas/estruturado";
 
 /** Polling dos comentários: ≤ ~10 s para aparecer em outra tela. Pausa com a aba oculta. */
 export const INTERVALO_COMENTARIOS_MS = 5_000;
@@ -51,6 +52,13 @@ type Contexto = {
   informarTexto: (d: Documento) => void;
   /** Threads abertas com trecho: o que se destaca no texto. */
   ancoras: { id: string; ancora: Ancora }[];
+  /** Rascunhos ("novo" ou id da thread): aqui, para não sumirem ao fechar o painel no celular. */
+  rascunhos: Record<string, string>;
+  escreverRascunho: (chave: string, texto: string) => void;
+  /** Citação nova ainda sem foco no campo: reabrir o painel depois não abre o teclado. */
+  consumirFoco: () => boolean;
+  /** Incrementa quando tocam num trecho destacado na leitura: no celular, abre o painel de comentários. */
+  pedidoPainel: number;
 };
 
 const Ctx = createContext<Contexto | null>(null);
@@ -72,6 +80,10 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   const [citado, setCitado] = useState<Ancora | null>(null);
   const [pedidoFoco, setPedidoFoco] = useState(0);
   const [texto, setTexto] = useState<string | null>(null);
+  const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
+  const [pedidoPainel, setPedidoPainel] = useState(0);
+  const escreverRascunho = useCallback((chave: string, valor: string) => setRascunhos((r) => ({ ...r, [chave]: valor })), []);
+  const focoPendente = useRef(false);
   const versao = useRef(inicial.versao);
   const fonte = useRef<(() => Ancora | null) | null>(null);
   // Respostas fora de ordem (polling + recarga depois de comentar): só a da última requisição vale.
@@ -144,7 +156,7 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
     // Rola até o outro lado: clicou no texto → o comentário; no comentário → o trecho.
     requestAnimationFrame(() => {
       const alvo = origem === "texto" ? document.getElementById(`comentario-${id}`) : document.querySelector(`[data-comentario="${CSS.escape(id)}"]`);
-      alvo?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      alvo?.scrollIntoView?.({ block: origem === "texto" ? "nearest" : "center", behavior: "smooth" });
     });
   }, []);
 
@@ -152,7 +164,10 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
   useEffect(() => {
     const clique = (e: MouseEvent) => {
       const el = (e.target as Element | null)?.closest?.("[data-comentario]");
-      if (el) ativar(el.getAttribute("data-comentario"), "texto");
+      if (!el) return;
+      ativar(el.getAttribute("data-comentario"), "texto");
+      // No editor o toque é para pôr o cursor: não cobre o texto (o painel abre pelo botão).
+      if (!el.closest(".ProseMirror")) setPedidoPainel((n) => n + 1);
     };
     document.addEventListener("click", clique);
     return () => document.removeEventListener("click", clique);
@@ -160,7 +175,15 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
 
   const citar = useCallback((a: Ancora | null) => {
     setCitado(a);
-    if (a) setPedidoFoco((n) => n + 1);
+    if (a) {
+      focoPendente.current = true;
+      setPedidoFoco((n) => n + 1);
+    }
+  }, []);
+  const consumirFoco = useCallback(() => {
+    const pendente = focoPendente.current;
+    focoPendente.current = false;
+    return pendente;
   }, []);
   const registrarSelecao = useCallback((fn: () => Ancora | null) => {
     fonte.current = fn;
@@ -203,8 +226,12 @@ export function ComentariosProvider({ projetoId, euId, inicial, children }: { pr
       lerSelecao,
       informarTexto,
       ancoras,
+      rascunhos,
+      escreverRascunho,
+      consumirFoco,
+      pedidoPainel,
     }),
-    [projetoId, euId, threads, erroCarga, recarregar, alterado, ativo, ativar, citado, citar, pedidoFoco, registrarSelecao, lerSelecao, informarTexto, ancoras],
+    [projetoId, euId, threads, erroCarga, recarregar, alterado, ativo, ativar, citado, citar, pedidoFoco, registrarSelecao, lerSelecao, informarTexto, ancoras, rascunhos, escreverRascunho, consumirFoco, pedidoPainel],
   );
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
@@ -221,7 +248,7 @@ export function useDestaquesDoEditor(): EntradaDestaques | undefined {
  * "Comentar trecho": lê a seleção da fonte ativa (editor ou leitura). O
  * `mousedown` não tira o foco/seleção do texto (como a barra do editor).
  */
-export function BotaoComentarTrecho() {
+export function BotaoComentarTrecho({ compacto = false }: { compacto?: boolean }) {
   const c = useComentarios();
   const [dica, setDica] = useState<string | null>(null);
   if (!c) return null;
@@ -234,8 +261,10 @@ export function BotaoComentarTrecho() {
       ) : null}
       <Button
         type="button"
-        size="xs"
+        size={compacto ? "icon-xs" : "xs"}
         variant="outline"
+        aria-label="Comentar trecho"
+        title="Comentar trecho"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
           const a = c.lerSelecao();
@@ -243,14 +272,15 @@ export function BotaoComentarTrecho() {
           if (a) c.citar(a);
         }}
       >
-        <MessageSquarePlus className="size-3.5" /> Comentar trecho
+        <MessageSquarePlus className="size-3.5" />
+        {compacto ? null : " Comentar trecho"}
       </Button>
     </span>
   );
 }
 
 /** Leitura do rascunho (quem não está com a caneta) com os trechos comentados realçados e seleção comentável. */
-export function TextoComentavel({ documento }: { documento: Documento }) {
+export function TextoComentavel({ documento, dados }: { documento: Documento; dados?: Estruturado }) {
   const c = useComentarios();
   const raiz = useRef<HTMLDivElement>(null);
   const plano = useMemo(() => textoPlano(documento).texto, [documento]);
@@ -268,7 +298,29 @@ export function TextoComentavel({ documento }: { documento: Documento }) {
   );
   return (
     <div ref={raiz}>
-      <DocumentoView documento={documento} destaques={destaques} ativo={c?.ativo ?? null} />
+      <DocumentoView documento={documento} destaques={destaques} ativo={c?.ativo ?? null} dados={dados} controlesBloco={c ? (tipo) => <ComentarBloco documento={documento} tipo={tipo} /> : undefined} />
     </div>
+  );
+}
+
+/** Comentar o bloco inteiro: a âncora é o título dele, no lugar em que está (GAB-100). */
+function ComentarBloco({ documento, tipo }: { documento: Documento; tipo: TipoBlocoDados }) {
+  const c = useComentarios();
+  if (!c) return null;
+  return (
+    <span className="bloco-dados-controles">
+      <button
+        type="button"
+        aria-label="Comentar o bloco"
+        title="Comentar o bloco"
+        className="inline-flex size-6 items-center justify-center rounded-md text-fg-soft hover:bg-surface-hover hover:text-foreground"
+        onClick={() => {
+          const a = ancoraDoBloco(documento, tipo);
+          if (a) c.citar(a);
+        }}
+      >
+        <MessageSquarePlus className="size-3.5" />
+      </button>
+    </span>
   );
 }

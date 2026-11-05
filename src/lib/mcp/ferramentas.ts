@@ -59,7 +59,7 @@ import { carregarPainelPara, INDICADORES } from "@/lib/painel/servico";
 import { DEFINICOES_PAINEL, VISIBILIDADE_PAINEL } from "@/lib/painel/definicoes";
 import { resolverPeriodo } from "@/lib/ranking/periodo";
 import { MARKDOWN_MAX } from "@/lib/propostas/documento";
-import { estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
+import { DURACAO_MAX_CAMPO, estruturadoParaEntrada, type Estruturado, type EstruturadoEntrada } from "@/lib/propostas/estruturado";
 import { acoesPossiveis, ladoDaCaneta, MOTIVO_INVIAVEL_MAX, podeEditarProposta, type AcaoCaneta } from "@/lib/propostas/caneta";
 import { diffParaTexto } from "@/lib/propostas/diff";
 import { acoesDeEnvio, PEDIDO_REVISAO_MAX, type AcaoEnvio } from "@/lib/propostas/envio";
@@ -574,7 +574,7 @@ const urlProposta = (pid: string) => `${urlBase()}/projetos/${pid}/proposta`;
 /** Parte estruturada no MESMO formato que `editar_proposta` aceita (dinheiro BR, dia AAAA-MM-DD). */
 function estruturadoMcp(e: Estruturado) {
   const x = estruturadoParaEntrada(e);
-  return { valor: x.valor || null, prazo_dias: e.prazoDias, escopo_resumo: e.escopoResumo, entregas: x.entregas.map((en) => ({ ...en, valor: en.valor || null })) };
+  return { valor: x.valor || null, prazo_dias: e.prazoDias, escopo_resumo: e.escopoResumo, entregas: x.entregas.map(({ duracao, dia, ...en }) => ({ ...en, dia: dia || null, ...(duracao ? { duracao } : {}), valor: en.valor || null })) };
 }
 
 /** O que cada ação faz, para o Claude escolher a ferramenta certa. */
@@ -602,7 +602,7 @@ const lerProposta = ferramenta({
   nome: "ler_proposta",
   titulo: "Ler proposta do projeto",
   descricao:
-    "Lê a proposta do projeto (uma por projeto): status, o texto do rascunho em Markdown, a parte estruturada (valor, prazo em dias, escopo resumido, cronograma de entregas), a lista de versões salvas e a `revisao` atual — guarde-a: editar_proposta e salvar_versao_proposta pedem a revisão que você leu (se alguém mexeu depois, você recebe conflito em vez de sobrescrever). Diz também se você pode editar.",
+    "Lê a proposta do projeto (uma por projeto): status, o texto do rascunho em Markdown (linhas `<!-- bloco:cronograma -->` e `<!-- bloco:investimento -->` marcam onde esses blocos ficam; sem elas, os dois ficam no fim; mantenha-as ao reescrever), a parte estruturada (valor, prazo em dias, escopo resumido, cronograma de entregas com dia ou duracao), a lista de versões salvas e a `revisao` atual — guarde-a: editar_proposta e salvar_versao_proposta pedem a revisão que você leu (se alguém mexeu depois, você recebe conflito em vez de sobrescrever). Diz também se você pode editar.",
   escrita: false,
   guarda: propostaVisivel,
   entrada: { projeto_id: projetoId },
@@ -667,13 +667,20 @@ const criarPropostaMcp = ferramenta({
   },
 });
 
-const entregaMcp = z.object({ titulo: z.string().max(400), dia: z.string().max(20).describe("AAAA-MM-DD"), valor: z.string().max(50).optional().describe("parcela em reais, 12.500,00") }).strict();
+const entregaMcp = z
+  .object({
+    titulo: z.string().max(400),
+    dia: z.string().max(20).nullable().optional().describe("AAAA-MM-DD; a entrega tem data OU duração"),
+    duracao: z.string().max(DURACAO_MAX_CAMPO).nullable().optional().describe('dias, semanas ou meses, como "2 semanas"'),
+    valor: z.string().max(50).nullable().optional().describe("parcela em reais, 12.500,00"),
+  })
+  .strict();
 
 const editarPropostaMcp = ferramenta({
   nome: "editar_proposta",
   titulo: "Editar rascunho da proposta",
   descricao:
-    "Altera o RASCUNHO da proposta (não cria versão). Mande `revisao` (de ler_proposta) e o que mudar: `markdown` substitui o texto inteiro; valor (reais, 12.500,00), prazo_dias (inteiro), escopo_resumo e entregas (lista completa do cronograma, na ordem: titulo, dia AAAA-MM-DD, valor opcional) substituem só esses campos. Texto vazio limpa o campo. Se alguém alterou depois da sua leitura, volta conflito e nada é gravado: leia de novo e reaplique.",
+    "Altera o RASCUNHO da proposta (não cria versão). Mande `revisao` (de ler_proposta) e o que mudar: `markdown` substitui o texto inteiro; valor (reais, 12.500,00), prazo_dias (inteiro), escopo_resumo e entregas (lista completa do cronograma, na ordem: titulo, dia AAAA-MM-DD ou duracao como \"2 semanas\", valor opcional) substituem só esses campos. Texto vazio limpa o campo. Blocos móveis no markdown: uma linha sozinha `<!-- bloco:cronograma -->` ou `<!-- bloco:investimento -->` põe na folha, nesse lugar, o bloco com esses dados (um de cada; os dados não vão no texto). Sem nenhuma dessas linhas os dois ficam no fim. Com só uma, a outra sai da folha e do PDF. Para tirar os dois, use `<!-- bloco:nenhum -->`. Se alguém alterou depois da sua leitura, volta conflito e nada é gravado: leia de novo e reaplique.",
   escrita: true,
   guarda: propostaVisivel,
   entrada: {
@@ -697,7 +704,8 @@ const editarPropostaMcp = ferramenta({
         valor: a.valor ?? base.valor,
         prazoDias: a.prazo_dias ?? base.prazoDias,
         escopoResumo: a.escopo_resumo ?? base.escopoResumo,
-        entregas: a.entregas ?? base.entregas,
+        // Volta na mesma forma de ler_proposta (null = campo vazio).
+        entregas: a.entregas?.map((en) => ({ titulo: en.titulo, dia: en.dia ?? "", duracao: en.duracao ?? "", valor: en.valor ?? "" })) ?? base.entregas,
       };
     }
     const r = await salvarRascunho(a.projeto_id, { revisao: a.revisao, ...(a.markdown !== undefined ? { conteudo: { markdown: a.markdown } } : {}), ...(estruturado ? { estruturado } : {}) }, eu);

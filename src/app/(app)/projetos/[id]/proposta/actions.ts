@@ -35,12 +35,14 @@ export type ConflitoUI = ConflitoCliente & { documento: Documento; estruturado: 
  * `erro` = texto pronto; `conflito` quando outra aba/pessoa/o MCP gravou
  * antes (nada foi sobrescrito). Exceção → `INESPERADO` com a `ref` do log.
  */
-export type RespostaProposta = { ok: true; revisao: number; numero?: number } | { ok?: false; erro: string; conflito?: ConflitoUI } | Inesperado;
+export type RespostaProposta = { ok: true; revisao: number; numero?: number } | { ok?: false; erro: string; conflito?: ConflitoUI; semMudancas?: boolean } | Inesperado;
 
 const id = z.string().min(1).max(64);
 const revisaoSchema = z.number().int().min(0);
 
 function falhaParaTela(f: Falha): RespostaProposta {
+  // "Nada mudou" não é falha de gravação: a tela informa, sem pedir para tentar de novo.
+  if (f.erro === "SEM_MUDANCAS") return { ok: false, erro: mensagemDaFalha(f), semMudancas: true };
   if (f.erro !== "CONFLITO") return { ok: false, erro: mensagemDaFalha(f) };
   const c = f.conflito;
   return {

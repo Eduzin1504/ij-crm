@@ -4,9 +4,10 @@
  * quem vê a proposta (GAB-98, como a página dela); sem sessão → 401, sem acesso → 403.
  * `versao` (opcional) fixa a versão que o link baixa: se a final mudou, 409
  * com o texto do porquê (o link do MCP/da tela ficou velho).
+ * `rascunho=1` (GAB-100, "Ver PDF"): prévia do rascunho atual, aberta no navegador.
  *
- * Gerado na hora (pdf-lib, sem navegador; nada vai para o disco): proposta
- * típica ~60 ms; a maior possível (100 mil caracteres, ~45 páginas) ~0,5 s e
+ * Gerado na hora (pdf-lib, sem navegador; nada vai para o disco): com as imagens do modelo, proposta
+ * típica ~0,2 s; a maior possível (100 mil caracteres, ~45 páginas) ~0,5 s e
  * ~45 MB de heap no pico — cabe no --max-old-space-size=256 do container.
  * No máximo GERACOES_PDF_MAX ao mesmo tempo no processo: acima disso, 503 com
  * a ref (a mesma do log) e `retry-after`.
@@ -15,7 +16,7 @@ import { semSessao, respostaTexto, erroInesperado } from "@/lib/anexos/resposta"
 import { cabecalhoDownload } from "@/lib/anexos/tipos";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { MENSAGEM_SEM_ACESSO_PROPOSTA, podeVerPropostaDoProjeto } from "@/lib/propostas/acesso";
-import { GERACOES_PDF_MAX, mensagemDaFalha, pdfDaProposta } from "@/lib/propostas/propostas";
+import { GERACOES_PDF_MAX, mensagemDaFalha, pdfDaProposta, pdfDoRascunho } from "@/lib/propostas/propostas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,11 +26,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const eu = await usuarioAtual();
     if (!eu) return semSessao();
     const { id } = await params;
-    const bruta = new URL(req.url).searchParams.get("versao");
+    const busca = new URL(req.url).searchParams;
+    const rascunho = busca.get("rascunho") === "1";
+    const bruta = busca.get("versao");
     const versao = bruta === null ? undefined : /^\d{1,9}$/.test(bruta) ? Number(bruta) : NaN;
     if (Number.isNaN(versao) || id.length > 64) return respostaTexto(400, "Link inválido.");
     if (!(await podeVerPropostaDoProjeto(eu, id))) return respostaTexto(403, MENSAGEM_SEM_ACESSO_PROPOSTA);
-    const r = await pdfDaProposta(id, versao);
+    const r = rascunho ? await pdfDoRascunho(id) : await pdfDaProposta(id, versao);
     if (!r.ok && r.erro === "PDF_OCUPADO") {
       // Não é falha do servidor, mas fica rastreável: a mesma ref no corpo, no header e no log.
       const ref = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
@@ -45,7 +48,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       headers: {
         "content-type": "application/pdf",
         "content-length": String(r.bytes.length),
-        "content-disposition": cabecalhoDownload(r.nomeArquivo),
+        "content-disposition": rascunho ? cabecalhoDownload(r.nomeArquivo).replace(/^attachment/, "inline") : cabecalhoDownload(r.nomeArquivo),
         "x-content-type-options": "nosniff",
         "cache-control": "private, no-store",
       },

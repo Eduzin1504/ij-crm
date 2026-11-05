@@ -12,7 +12,8 @@
  * O import do Pipefy não passa por aqui: é histórico, como nas travas.
  */
 import type { Fase, Prisma } from "@prisma/client";
-import { diaValido, lerEstruturadoGravado, type Entrega } from "@/lib/propostas/estruturado";
+import { datasPrevistas, lerEstruturadoGravado, type Entrega } from "@/lib/propostas/estruturado";
+import { diaEmFuso } from "./aging";
 import { diaNoIntervalo } from "./execucao-regras";
 import { diaParaColuna } from "./execucao-semana";
 import { alemDaExecucao, destinoExigeHandoff, faseExecucao } from "./trava-handoff";
@@ -28,15 +29,18 @@ export async function entregasDaPropostaFinal(tx: Pick<Tx, "proposta" | "propost
   return { versao: p.versaoEnviada, entregas: lerEstruturadoGravado(v.estruturado).entregas };
 }
 
+export type EntregaCopiavel = { titulo: string; dia: string; valor: string | null };
+
 /** Cabe em DECIMAL(14,2). */
 const VALOR_GRAVAVEL = /^\d{1,12}(\.\d{1,2})?$/;
 
 /**
- * O que dá para copiar. O snapshot é validado ao salvar, e a leitura é defensiva: linha estranha não
- * pode barrar o movimento do card. Data inválida fica de fora (`ignoradas`); valor inválido vira null. Puro.
+ * O que dá para copiar, com a data prevista: entrega só com duração conta a partir de `inicio`
+ * (`datasPrevistas`, GAB-100). O snapshot é validado ao salvar, e a leitura é defensiva: linha estranha
+ * não pode barrar o movimento do card. Sem data válida fica de fora (`ignoradas`); valor inválido vira null. Puro.
  */
-export function separarCopiaveis(entregas: readonly Entrega[]): { validas: Entrega[]; ignoradas: number; valoresInvalidos: number } {
-  const comData = entregas.filter((e) => diaValido(e.dia) && diaNoIntervalo(e.dia));
+export function separarCopiaveis(entregas: readonly Entrega[], inicio: string): { validas: EntregaCopiavel[]; ignoradas: number; valoresInvalidos: number } {
+  const comData = datasPrevistas(entregas, inicio).flatMap((e) => (e.dia !== null && diaNoIntervalo(e.dia) ? [{ ...e, dia: e.dia }] : []));
   const validas = comData.map((e) => (e.valor === null || VALOR_GRAVAVEL.test(e.valor) ? e : { ...e, valor: null }));
   return { validas, ignoradas: entregas.length - comData.length, valoresInvalidos: comData.filter((e, i) => e.valor !== validas[i].valor).length };
 }
@@ -53,7 +57,9 @@ export async function copiarDaPropostaFinal(tx: Tx, a: { projetoId: string; porI
   if ((await tx.projetoEntrega.count({ where: { projetoId: a.projetoId, ...IMPEDE_COPIA } })) > 0) return 0;
   const final = await entregasDaPropostaFinal(tx, a.projetoId);
   if (!final) return 0;
-  const { validas, ignoradas, valoresInvalidos } = separarCopiaveis(final.entregas);
+  // O início é quando o card entrou em Execução; o botão "Copiar da proposta final" pode vir bem depois.
+  const { execucaoDesde } = await tx.projeto.findUniqueOrThrow({ where: { id: a.projetoId }, select: { execucaoDesde: true } });
+  const { validas, ignoradas, valoresInvalidos } = separarCopiaveis(final.entregas, diaEmFuso(execucaoDesde ?? a.em));
   if (ignoradas > 0 || valoresInvalidos > 0) {
     console.warn(`[execucao] projeto ${a.projetoId}, v${final.versao}: ${ignoradas} entrega(s) com data inválida ficaram fora da cópia e ${valoresInvalidos} com valor inválido ficaram sem valor`);
   }

@@ -28,6 +28,7 @@ import { db } from "@/lib/db";
 import { SELECAO_NOME_EXIBIDO, nomeExibido } from "@/lib/entidades/vinculo";
 import { travarPipelines } from "@/lib/fases/fases";
 import { gerarPdf } from "@/lib/pdf/gerador";
+import type { DocumentoPdf } from "@/lib/pdf/tipos";
 import { templateAtual } from "@/lib/pdf/templates";
 import { ErroDeRegra, MENSAGEM_ERRO_PROJETO } from "@/lib/projetos/erros";
 import { registrarMovimento } from "@/lib/projetos/projetos";
@@ -60,8 +61,8 @@ import { MENSAGEM_ERRO_PROPOSTA, mensagemConflito, NOTA_VERSAO_MAX, podeCriarPro
 type Tx = Prisma.TransactionClient;
 export type Ator = { id: string; papel: Papel };
 
-/** Esqueleto da proposta nova: só títulos, para orientar (o Markdown canônico do subconjunto). */
-export const MODELO_INICIAL = "## Contexto\n\n## Objetivo\n\n## Escopo\n\n## Entregas\n\n## Investimento";
+/** Esqueleto da proposta nova: só títulos. Cronograma e Investimento são os blocos móveis, que já nascem no fim (GAB-100). */
+export const MODELO_INICIAL = "## Contexto\n\n## Objetivo\n\n## Escopo";
 
 export type Conflito = {
   revisao: number;
@@ -883,16 +884,43 @@ export async function pdfDaProposta(projetoId: string, versao?: number): Promise
     markdown: v.conteudoMd,
     estruturado: lerEstruturadoGravado(v.estruturado),
   });
-  // Vaga no processo: cada geração grande ocupa dezenas de MB de heap (container de 512 MB).
+  const bytes = await gerarComVaga(doc, v.criadoEm);
+  return bytes ? { ok: true, bytes, numero: f.numero, nomeArquivo: f.nomeArquivo } : { ok: false, erro: "PDF_OCUPADO" };
+}
+
+/** Vaga no processo: cada geração grande ocupa dezenas de MB de heap (container de 512 MB). null = sem vaga. */
+async function gerarComVaga(doc: DocumentoPdf, criadoEm: Date): Promise<Uint8Array | null> {
   const g = globalThis as unknown as { __ijGeracoesPdf?: number };
-  if ((g.__ijGeracoesPdf ?? 0) >= GERACOES_PDF_MAX) return { ok: false, erro: "PDF_OCUPADO" };
+  if ((g.__ijGeracoesPdf ?? 0) >= GERACOES_PDF_MAX) return null;
   g.__ijGeracoesPdf = (g.__ijGeracoesPdf ?? 0) + 1;
   try {
-    const bytes = await gerarPdf(doc, templateAtual(), { criadoEm: v.criadoEm });
-    return { ok: true, bytes, numero: f.numero, nomeArquivo: f.nomeArquivo };
+    return await gerarPdf(doc, templateAtual(), { criadoEm });
   } finally {
     g.__ijGeracoesPdf = Math.max(0, (g.__ijGeracoesPdf ?? 1) - 1);
   }
+}
+
+/**
+ * Prévia do RASCUNHO ("Ver PDF" na tela, GAB-100): o que a folha mostra agora, em
+ * qualquer status. O PDF de envio continua sendo o da versão final (`pdfDaProposta`).
+ */
+export async function pdfDoRascunho(projetoId: string): Promise<Resultado<{ bytes: Uint8Array; nomeArquivo: string }>> {
+  const p = await db.proposta.findFirst({
+    where: { projetoId, projeto: { deletadoEm: null } },
+    select: { conteudoMd: true, estruturado: true, criadoEm: true, rascunhoEm: true, projeto: { select: { titulo: true, empresa: { select: SELECAO_NOME_EXIBIDO } } } },
+  });
+  if (!p) return { ok: false, erro: "PROPOSTA_NAO_ENCONTRADA" };
+  const data = p.rascunhoEm ?? p.criadoEm;
+  const doc = documentoPdfDaProposta({
+    projeto: p.projeto.titulo,
+    empresa: p.projeto.empresa ? nomeExibido(p.projeto.empresa) : null,
+    numero: null,
+    data,
+    markdown: p.conteudoMd,
+    estruturado: lerEstruturadoGravado(p.estruturado),
+  });
+  const bytes = await gerarComVaga(doc, data);
+  return bytes ? { ok: true, bytes, nomeArquivo: nomeArquivoPdf(p.projeto.titulo, null) } : { ok: false, erro: "PDF_OCUPADO" };
 }
 
 // ---------------------------------------------------------------- leitura da caneta
@@ -962,7 +990,7 @@ export async function diffDaProposta(projetoId: string, opts: { de?: number; par
   return {
     de: de ? resumo(de) : null,
     para: resumo(para),
-    texto: diffMarkdown(de?.conteudoMd ?? "", para.conteudoMd),
+    texto: diffMarkdown(de?.conteudoMd ?? null, para.conteudoMd),
     estruturado: diffEstruturado(de ? lerEstruturadoGravado(de.estruturado) : lerEstruturadoGravado({}), lerEstruturadoGravado(para.estruturado)),
   };
 }

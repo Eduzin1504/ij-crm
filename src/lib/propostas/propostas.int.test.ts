@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Papel } from "@prisma/client";
+import { extractText, getDocumentProxy } from "unpdf";
 import { dbTeste, limparBanco } from "@/test/db";
 import { comViaMcp } from "@/lib/canal";
 import { invalidarCachePipelines } from "@/lib/fases/cache";
 import { listarQuadro } from "@/lib/projetos/projetos";
-import { criarProposta, listarPropostas, MODELO_INICIAL, obterPropostaDoProjeto, obterVersao, salvarRascunho, salvarVersao } from "./propostas";
+import { estruturadoParaEntrada, type Estruturado } from "./estruturado";
+import { criarProposta, listarPropostas, MODELO_INICIAL, obterPropostaDoProjeto, obterVersao, pdfDoRascunho, salvarRascunho, salvarVersao } from "./propostas";
 
 const db = dbTeste();
 
@@ -25,7 +27,7 @@ async function semear() {
   return { vendas, ana, bia, paula, gil, vera, projeto };
 }
 
-const doc = (texto: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: texto }] }] });
+const doc = (texto: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: texto }] }] as object[] });
 
 beforeEach(async () => {
   await limparBanco(["proposta_versao", "proposta", "transicao_fase", "timeline", "oportunidade", "fase", "pipeline", "sessao", "usuario"]);
@@ -140,8 +142,8 @@ describe("rascunho (autosave): Markdown canônico, controle otimista", () => {
       prazoDias: 90,
       escopoResumo: "Site + loja",
       entregas: [
-        { titulo: "Design", dia: "2026-12-01", valor: "10000.00" },
-        { titulo: "Site", dia: "2027-01-15", valor: "20000.00" },
+        { titulo: "Design", dia: "2026-12-01", duracao: null, valor: "10000.00" },
+        { titulo: "Site", dia: "2027-01-15", duracao: null, valor: "20000.00" },
       ],
     });
   });
@@ -283,5 +285,65 @@ describe("Kanban", () => {
     const q = await listarQuadro("vendas");
     expect(q?.cards.find((c) => c.id === projeto.id)?.proposta).toEqual({ status: "RASCUNHO" });
     expect(q?.cards.find((c) => c.id === sem.id)?.proposta).toBeNull();
+  });
+});
+
+describe("blocos móveis e duração (GAB-100)", () => {
+  const entradas = (e: Estruturado) => estruturadoParaEntrada(e);
+
+  it("markdown com blocos passa pelo serviço; o rascunho sem marcador segue sem marcador", async () => {
+    const { ana, projeto } = await semear();
+    const c = await criarProposta(projeto.id, ana);
+    const md = "Antes.\n\n<!-- bloco:cronograma -->\n\nDepois.";
+    const r = await salvarRascunho(projeto.id, { revisao: c.ok ? c.revisao : -1, conteudo: { documento: { type: "doc", content: [doc("Antes.").content[0], { type: "blocoDados", attrs: { tipo: "cronograma" } }, doc("Depois.").content[0]] } } }, ana);
+    expect(r).toMatchObject({ ok: true, markdown: md });
+    // O editor manda os dois no fim: é a posição padrão, nada muda no Markdown de proposta antiga.
+    const r2 = await salvarRascunho(
+      projeto.id,
+      { revisao: r.ok ? r.revisao : -1, conteudo: { documento: { type: "doc", content: [doc("Texto.").content[0], { type: "blocoDados", attrs: { tipo: "cronograma" } }, { type: "blocoDados", attrs: { tipo: "investimento" } }, { type: "paragraph" }] } } },
+      ana,
+    );
+    expect(r2).toMatchObject({ ok: true, markdown: "Texto." });
+    const r3 = await salvarRascunho(projeto.id, { revisao: r2.ok ? r2.revisao : -1, conteudo: { documento: { type: "doc", content: [doc("Texto.").content[0], { type: "semBlocos" }] } } }, ana);
+    expect(r3).toMatchObject({ ok: true, markdown: "Texto.\n\n<!-- bloco:nenhum -->" });
+  });
+
+  it("documento com bloco de tipo desconhecido é recusado", async () => {
+    const { ana, projeto } = await semear();
+    const c = await criarProposta(projeto.id, ana);
+    expect(await salvarRascunho(projeto.id, { revisao: c.ok ? c.revisao : -1, conteudo: { documento: { type: "doc", content: [{ type: "blocoDados", attrs: { tipo: "x" } }] } } }, ana)).toEqual({ ok: false, erro: "CONTEUDO_INVALIDO" });
+  });
+
+  it("proposta antiga (entrega gravada sem `duracao`): reenviar o formulário igual não conta como mudança, e a versão não conta como alterada", async () => {
+    const { ana, projeto } = await semear();
+    const c = await criarProposta(projeto.id, ana);
+    const antigo = { valor: "9000.00", prazoDias: 45, escopoResumo: "Site", entregas: [{ titulo: "Site no ar", dia: "2027-01-15", valor: null }] };
+    await db.proposta.update({ where: { projetoId: projeto.id }, data: { estruturado: antigo, valor: "9000.00" } });
+    const lida = (await obterPropostaDoProjeto(projeto.id))!.proposta!;
+    expect(lida.estruturado.entregas).toEqual([{ titulo: "Site no ar", dia: "2027-01-15", duracao: null, valor: null }]);
+    const r = await salvarRascunho(projeto.id, { revisao: c.ok ? c.revisao : -1, estruturado: entradas(lida.estruturado) }, ana);
+    expect(r).toMatchObject({ ok: true, mudou: false });
+  });
+
+  it("entrega só com duração atravessa rascunho e versão, e não some", async () => {
+    const { ana, projeto } = await semear();
+    const c = await criarProposta(projeto.id, ana);
+    const r = await salvarRascunho(projeto.id, { revisao: c.ok ? c.revisao : -1, estruturado: { entregas: [{ titulo: "Levantamento", duracao: "2 sem" }] } }, ana);
+    expect(r).toMatchObject({ ok: true });
+    const v = await salvarVersao(projeto.id, { revisao: r.ok ? r.revisao : -1 }, ana);
+    const numero = v.ok ? v.numero : -1;
+    expect((await obterVersao(projeto.id, numero))!.estruturado.entregas).toEqual([{ titulo: "Levantamento", dia: null, duracao: "2 semanas", valor: null }]);
+  });
+
+  it("prévia do rascunho sai no modelo, com a capa e os blocos, em qualquer status", async () => {
+    const { ana, projeto } = await semear();
+    const c = await criarProposta(projeto.id, ana);
+    await salvarRascunho(projeto.id, { revisao: c.ok ? c.revisao : -1, conteudo: { markdown: "Texto do rascunho." }, estruturado: { valor: "1.000,00", entregas: [{ titulo: "Etapa um", duracao: "1 semana" }] } }, ana);
+    const r = await pdfDoRascunho(projeto.id);
+    if (!r.ok) throw new Error(r.erro);
+    expect(r.nomeArquivo).toBe("Proposta - Site da Padaria - rascunho.pdf");
+    const { texto } = await extractText(await getDocumentProxy(new Uint8Array(r.bytes)), { mergePages: true }).then((t) => ({ texto: (t.text as string).replace(/\s+/g, " ") }));
+    for (const s of ["PROPOSTA COMERCIAL", "Proposta Comercial de Projeto", "Texto do rascunho.", "Cronograma", "Etapa um", "1 semana", "Total em valores: R$ 1.000,00"]) expect(texto).toContain(s);
+    expect(await pdfDoRascunho("nao-existe")).toEqual({ ok: false, erro: "PROPOSTA_NAO_ENCONTRADA" });
   });
 });

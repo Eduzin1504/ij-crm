@@ -22,7 +22,9 @@ import { emViaMcp } from "@/lib/canal";
 import { emitirAvisos } from "@/lib/avisos/avisos";
 import { db } from "@/lib/db";
 import { podeVerPropostaDoProjeto } from "./acesso";
-import { CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarContexto, normalizarTrecho, textoPlano, TRECHO_MAX, type Ancora } from "./ancora";
+import { TITULO_BLOCO_DADOS } from "./blocos-dados";
+import { TIPOS_BLOCO_DADOS } from "./documento";
+import { ancoraDoBloco, CONTEXTO_ANCORA, criarAncora, localizarAncora, normalizarContexto, normalizarTrecho, textoPlano, TRECHO_MAX, type Ancora } from "./ancora";
 import { COMENTARIO_MAX } from "./comentarios-limites";
 import { markdownParaDocumento } from "./markdown";
 
@@ -142,10 +144,13 @@ export async function comentar(projetoId: string, e: { texto: string; trecho?: A
     // Mesmo formato do texto plano canônico ("a  b" citado acha "a b").
     const citado = normalizarTrecho(e.trecho);
     if (!citado || citado.length > TRECHO_MAX) return { ok: false, erro: "TRECHO_INVALIDO" };
-    const plano = textoPlano(markdownParaDocumento(p.conteudoMd)).texto;
+    const doc = markdownParaDocumento(p.conteudoMd);
+    const plano = textoPlano(doc).texto;
     const i = plano.indexOf(citado);
-    if (i === -1) return { ok: false, erro: "TRECHO_NAO_ENCONTRADO" };
-    ancora = criarAncora(plano, i, i + citado.length);
+    // O texto real vem primeiro; sem ele, citar o título de um bloco que está na folha é comentar o bloco (MCP, GAB-100).
+    const bloco = TIPOS_BLOCO_DADOS.find((tipo) => TITULO_BLOCO_DADOS[tipo] === citado);
+    ancora = i !== -1 ? criarAncora(plano, i, i + citado.length) : bloco ? ancoraDoBloco(doc, bloco) : null;
+    if (!ancora) return { ok: false, erro: "TRECHO_NAO_ENCONTRADO" };
   } else if (e.trecho) {
     ancora = ancoraDaTela(e.trecho);
     if (!ancora) return { ok: false, erro: "TRECHO_INVALIDO" };

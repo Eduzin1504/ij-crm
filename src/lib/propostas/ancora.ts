@@ -20,8 +20,24 @@
  * "a  b"; por isso ele normaliza cada bloco com `normalizarBloco` (e um mapa
  * para a posição crua) antes de criar ou procurar âncoras — senão o trecho
  * digitado com dois espaços ficaria "alterado" para todo mundo.
+ *
+ * Bloco móvel (GAB-100): entra no texto plano por um caractere reservado, na posição em
+ * que está na folha, e nunca pelos dados nem pelo título. Assim o texto plano sai do
+ * Markdown sozinho, mudar valor ou entrega não deixa comentário "alterado", e a busca trata
+ * o bloco à parte: quem cita a palavra "Cronograma" no texto nunca cai no bloco, e o
+ * comentário do bloco nunca cai num título igual do texto. Tirar o bloco da folha marca o
+ * comentário dele como "trecho alterado". Para mostrar a uma pessoa: `trechoLegivel`.
  */
-import type { Bloco, Documento, ItemLista } from "./documento";
+import { TITULO_BLOCO_DADOS } from "./blocos-dados";
+import { documentoComBlocos, TIPOS_BLOCO_DADOS, type Bloco, type Documento, type ItemLista, type TipoBlocoDados } from "./documento";
+
+/** Área de uso privado do Unicode: não vem de texto digitado, e a normalização não mexe. */
+export const TOKEN_BLOCO: Record<TipoBlocoDados, string> = { cronograma: "\uE001", investimento: "\uE002" };
+
+/** Trecho como as pessoas e o MCP leem: o bloco pelo título. */
+export function trechoLegivel(trecho: string): string {
+  return TIPOS_BLOCO_DADOS.reduce((t, tipo) => t.replaceAll(TOKEN_BLOCO[tipo], TITULO_BLOCO_DADOS[tipo]), trecho);
+}
 
 export const CONTEXTO_ANCORA = 40;
 export const TRECHO_MAX = 500;
@@ -88,16 +104,24 @@ export function textoPlano(doc: Documento): { texto: string; inicios: Map<object
   const inicios = new Map<object, number>();
   let texto = "";
   const visitar = (b: Bloco | ItemLista) => {
-    if (b.type === "paragraph" || b.type === "heading") {
-      const t = (b.content ?? []).map((n) => n.text).join("");
+    if (b.type === "paragraph" || b.type === "heading" || b.type === "blocoDados") {
+      const t = b.type === "blocoDados" ? TOKEN_BLOCO[b.attrs.tipo] : (b.content ?? []).map((n) => n.text).join("");
       if (!t) return;
       if (texto) texto += "\n";
       inicios.set(b, texto.length);
       texto += t;
     } else if (b.type === "bulletList" || b.type === "orderedList" || b.type === "listItem") b.content.forEach(visitar);
   };
-  doc.content.forEach(visitar);
+  documentoComBlocos(doc).content.forEach(visitar);
   return { texto, inicios };
+}
+
+/** Âncora que aponta para um bloco móvel (com o contexto da posição). null = fora da folha. */
+export function ancoraDoBloco(doc: Documento, tipo: TipoBlocoDados): Ancora | null {
+  const { texto, inicios } = textoPlano(doc);
+  const bloco = documentoComBlocos(doc).content.find((b) => b.type === "blocoDados" && b.attrs.tipo === tipo);
+  const inicio = bloco ? inicios.get(bloco) : undefined;
+  return inicio === undefined ? null : criarAncora(texto, inicio, inicio + TOKEN_BLOCO[tipo].length);
 }
 
 /** Âncora da seleção [inicio, fim) do texto plano. Aparada; vazia ou longa demais → null. */
@@ -122,9 +146,7 @@ function prefixoComum(a: string, b: string): number {
   return n;
 }
 
-/** Onde a âncora está no texto atual; null = trecho alterado/apagado. */
-export function localizarAncora(texto: string, a: Ancora): Faixa | null {
-  if (!a.trecho) return null;
+function buscar(texto: string, a: Ancora): Faixa | null {
   let melhor: Faixa | null = null;
   let pontos = -1;
   let n = 0;
@@ -137,6 +159,39 @@ export function localizarAncora(texto: string, a: Ancora): Faixa | null {
     }
   }
   return melhor;
+}
+
+const TOKENS = new Set(Object.values(TOKEN_BLOCO));
+
+/** Texto sem as linhas dos blocos; `mapa[i]` = índice original do i-ésimo caractere. */
+function semBlocos(t: string): { texto: string; mapa: number[] } {
+  let texto = "";
+  const mapa: number[] = [];
+  for (let i = 0; i < t.length; i++) {
+    if (TOKENS.has(t[i])) {
+      if (t[i + 1] === "\n") i++;
+      continue;
+    }
+    texto += t[i];
+    mapa.push(i);
+  }
+  return { texto: texto.replace(/\n+$/, ""), mapa };
+}
+
+/**
+ * Onde a âncora está no texto atual; null = trecho alterado/apagado. Trecho de texto que
+ * atravessa blocos continua achado se um bloco entrou, saiu ou mudou de lugar no meio dele: a segunda
+ * busca ignora os blocos. O comentário do próprio bloco não tem segunda busca.
+ */
+export function localizarAncora(texto: string, a: Ancora): Faixa | null {
+  if (!a.trecho) return null;
+  const exato = buscar(texto, a);
+  if (exato) return exato;
+  const trecho = semBlocos(a.trecho).texto;
+  if (!trecho) return null;
+  const plano = semBlocos(texto);
+  const f = buscar(plano.texto, { trecho, antes: semBlocos(a.antes).texto, depois: semBlocos(a.depois).texto });
+  return f ? { inicio: plano.mapa[f.inicio], fim: plano.mapa[f.fim - 1] + 1 } : null;
 }
 
 export type Destaque = Faixa & { id: string };

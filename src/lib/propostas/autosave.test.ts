@@ -136,4 +136,25 @@ describe("Autosave", () => {
     expect(chamadas).toEqual([]);
     expect(a.temPendencia).toBe(false);
   });
+
+  it("resposta informativa (nada mudou) não vira erro nem bloqueia; o texto que ia junto volta para a fila", async () => {
+    const salvarTexto = vi.fn().mockResolvedValue({ ok: true, revisao: 2 });
+    const estados: string[] = [];
+    const a = new Autosave<string>({ revisao: 1, atrasoMs: 10, salvarTexto, aoMudar: (e) => estados.push(e.tipo) });
+    a.alterou("texto");
+    const r = await a.executar(async () => ({ ok: false, erro: "Nada mudou", informativo: true }), true);
+    expect(r).toMatchObject({ informativo: true });
+    expect(estados).not.toContain("erro");
+    await a.agora();
+    expect(salvarTexto).toHaveBeenCalledWith(1, "texto");
+    expect(a.situacao.tipo).toBe("salvo");
+  });
+
+  it("'tentar de novo' sem nada pendente limpa o erro de outra gravação", async () => {
+    const a = new Autosave<string>({ revisao: 1, atrasoMs: 10, salvarTexto: vi.fn(), aoMudar: () => undefined });
+    await a.executar(async () => ({ ok: false, erro: "falhou" }));
+    expect(a.situacao.tipo).toBe("erro");
+    await a.agora();
+    expect(a.situacao.tipo).toBe("salvo");
+  });
 });
